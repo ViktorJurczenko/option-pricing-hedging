@@ -30,7 +30,7 @@ them yourself with the commands shown.
 
 ```
 python main.py price --option_class both                # call
-python main.py price --option_class both --option_type put
+python main.py price --option_class both --option_type put  # put
 ```
 
 | | Monte-Carlo | Black-Scholes | Binomial tree | Longstaff-Schwartz |
