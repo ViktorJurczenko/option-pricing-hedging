@@ -1,0 +1,15 @@
+import os
+import pytest
+
+from datasets.american_option_dataset import AmericanOptionDataset
+
+DATASET_PATH = "data/american_option_dataset.npz"
+
+@pytest.mark.skipif(not os.path.exists(DATASET_PATH), reason="bundled dataset not present")
+def test_bundled_dataset_loads_and_has_expected_feature_width():
+    dataset = AmericanOptionDataset(DATASET_PATH, is_train=True, split_ratio=0.8, seed=42)
+
+    assert len(dataset) > 0
+    features, label = dataset[0]
+    assert features.shape == (4,)  # [S0/K, T_norm, r_norm, sigma_norm]
+    assert label.shape == ()

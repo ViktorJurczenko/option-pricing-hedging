@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated dataset artifacts and model checkpoints
+data/*.npz
+checkpoints/*.pth
+
+# Editor and Claude Code session-local state (machine-specific, not project content)
+.vscode/
+.claude/scheduled_tasks.lock
