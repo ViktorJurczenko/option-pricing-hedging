@@ -118,23 +118,44 @@ stacking at the edges of the bucket. On the held-out split: MSE 0.000017, MAE
 `price/K`, so not directly comparable to older numbers from before this
 change).
 
-### RL hedging policy
+### RL hedging policy vs. analytic baselines
 
 ```
-python main.py test-hedge
+python main.py test-hedge --policy rl
+python main.py test-hedge --policy delta
+python main.py test-hedge --policy no_hedge
 ```
 
-Evaluating the trained SAC policy's deterministic (mean) action over 1,000
-simulated hedging episodes, with a 0.1% proportional transaction cost:
+Each policy's deterministic action, evaluated over 1,000 simulated hedging
+episodes with a 0.1% proportional transaction cost. All three runs use the
+same `--seed`, which `test-hedge` reseeds `np.random` from right before
+evaluation (`scripts/test_hedge.py`) so all three see identical simulated
+paths — otherwise differences below could just be path-sampling noise rather
+than a real difference between policies:
 
-| Mean P&L | Std P&L | 95% CVaR |
-|---|---|---|
-| -0.17 (×K) | 0.36 (×K) | -0.83 (×K) |
+| Policy | Mean P&L | Std P&L | 95% CVaR |
+|---|---|---|---|
+| RL (SAC) | -0.16 (×K) | 0.36 (×K) | -0.91 (×K) |
+| Delta-hedge (analytic) | -0.10 (×K) | 0.06 (×K) | -0.20 (×K) |
+| No hedge | -0.11 (×K) | 0.16 (×K) | -0.45 (×K) |
 
 P&L is the hedge's cash flow minus the option payoff at exercise, scaled by
-the strike. The negative mean reflects the cost of hedging (transaction costs
-+ residual hedging error) relative to a perfectly-replicated payoff; the tail
-risk (CVaR) is what a hedger actually cares about minimizing.
+the strike; std P&L is the hedging error, and 95% CVaR is the tail risk a
+hedger actually cares about minimizing.
+
+The honest reading of this: at these settings, the trained SAC policy does
+**not** beat the trivial baseline of rebalancing to the Longstaff-Schwartz
+model's own analytic delta every step (`AmericanHedging/baselines.py`) —
+delta-hedging has roughly 6x lower variance and well over 4x better tail risk.
+No-hedge is a sanity floor (not hedging at all should be worse than hedging),
+and it is worse than delta-hedging as expected, but it's *also* better than
+the trained RL policy on both variance and CVaR here. That's a real result,
+not a bug: it means the RL agent hasn't learned to extract anything beyond
+what the analytic Greek it's already given as a state feature captures, under
+this reward/transaction-cost/episode-length setup — a more useful thing to
+know than the single, baseline-less number this section used to report, and a
+concrete starting point for improving the policy (reward shaping, longer
+warmup, network capacity) rather than assuming it was already good.
 
 ### Test suite
 
