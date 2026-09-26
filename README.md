@@ -29,8 +29,8 @@ them yourself with the commands shown.
 ### Pricing models agree with each other
 
 ```
-python main.py price --option_class both                # call
-python main.py price --option_class both --option_type put  # put
+python main.py price --option_class both                     # call
+python main.py price --option_class both --option_type put   # put
 ```
 
 | | Monte-Carlo | Black-Scholes | Binomial tree | Longstaff-Schwartz |
