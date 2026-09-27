@@ -9,3 +9,6 @@ checkpoints/*.pth
 # Editor and Claude Code session-local state (machine-specific, not project content)
 .vscode/
 .claude/scheduled_tasks.lock
+
+# Personal notes, not meant to be shared/tracked
+REMINDER.md
