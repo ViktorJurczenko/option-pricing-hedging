@@ -53,19 +53,26 @@ hedge yet in the default 1000-episode budget.
 - [x] Expose lr/alpha as train-hedge CLI flags
 - [x] Add lightweight training diagnostics
 - [x] Diagnostic: check alpha=0.05 (inconclusive - see below)
+- [ ] Diagnostic: check lr=3e-4
+  `alpha=0.05` at the same ~500-episode budget didn't shrink `std` or
+  stabilize `action_delta_corr` any better than default `alpha=0.2` -
+  entropy isn't the sole bottleneck. Next candidate: default `lr=1e-4` with
+  `update_every=10` only allows a few hundred gradient updates in 500
+  episodes, which may be insufficient for the critic to converge enough to
+  give the actor a real sharpening incentive. Check the standard SAC default
+  `lr=3e-4` at the same 500-episode budget before committing to a long run.
 - [ ] Diagnostic: train longer
-  If `alpha=0.05` looks promising (shrinking `std`, stabilizing
-  `action_delta_corr`), retrain that config for a much larger episode budget
-  (e.g. 3000-5000 episodes) to check it keeps improving and actually closes
-  the gap to `no_hedge`/`delta`. If `alpha=0.05` is inconclusive too, fall
-  back to this as a plain "does more time alone help" check on the default
-  config.
+  If `lr=3e-4` (or `alpha=0.05`) looks promising, retrain that config for a
+  much larger episode budget (e.g. 3000-5000 episodes) to check it keeps
+  improving and actually closes the gap to `no_hedge`/`delta`. If all quick
+  checks are inconclusive, fall back to this as a plain "does more time
+  alone help" check on the default config.
 - [ ] If still flat: targeted hyperparameter sweep
-  Sweep `lr` (default `1e-4` vs. the standard SAC default `3e-4`) and update
-  frequency (`update_every`/`grad_steps_per_update`) against the `delta`
-  baseline. Skip `warmup_steps` — it only affects how much random data is
-  collected before learning starts, not whether the actor converges once
-  learning does start, so it's an unlikely bottleneck here.
+  Sweep update frequency (`update_every`/`grad_steps_per_update`) and
+  combinations of `lr`/`alpha` against the `delta` baseline. Skip
+  `warmup_steps` — it only affects how much random data is collected before
+  learning starts, not whether the actor converges once learning does
+  start, so it's an unlikely bottleneck here.
 - [ ] Re-run the risk_lambda sweep
   Once a training config reliably competes with/beats the `delta` baseline,
   re-run the `risk_lambda` sweep (0.0, 0.01, 0.05, 0.1, 0.5) with that config
