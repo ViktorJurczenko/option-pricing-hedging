@@ -42,6 +42,12 @@ python -m datasets.generate_dataset [--path_per_sim N] [--nb_param_comb N] [--sa
 
 It parallelizes LSM pricing (via `joblib`) across randomly sampled `(S0, K, sigma, r, T)` combinations to build `<output_dir>/american_option_dataset.npz`, along with the feature-normalization stats in `<output_dir>/features_norm.npz` that both the dataset class and `test-ml` rely on.
 
+## Planning
+
+Before tackling a new issue or feature, draft a short plan: list the candidate approaches/steps, in the order you'd tackle them, and pick a path. Record that plan in `.claude/PLAN.md` before writing code — a running log, newest entry on top, one entry per issue/feature.
+
+Each step starts as `- [ ] Step title` with a short description underneath explaining what it does and why. When a step is completed, drop the description and change it to `- [x] Step title` — the file stays a compact log of what's actually been done, not an accumulating pile of stale planning notes.
+
 ## Testing
 
 ```
