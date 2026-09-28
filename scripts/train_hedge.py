@@ -22,6 +22,8 @@ def add_arguments(parser):
     parser.add_argument("--warmup_steps", default=1000, type=int, help="Number of random-action steps collected before learning starts.")
     parser.add_argument("--update_every", default=10, type=int, help="Number of environment steps between gradient updates.")
     parser.add_argument("--grad_steps_per_update", default=1, type=int, help="Number of critic/actor gradient steps taken each time an update is triggered.")
+    parser.add_argument("--lr", default=1e-4, type=float, help="Adam learning rate for both the actor and the twin critics.")
+    parser.add_argument("--alpha", default=0.2, type=float, help="SAC entropy coefficient: weight of the entropy bonus (-alpha * log_prob) in the actor loss.")
     parser.add_argument("--replay_buffer_size", default=100_000, type=int, help="Max number of transitions kept in the replay buffer.")
     parser.add_argument("--fixed_cost", default=0.0, type=float, help="Flat cost charged whenever the hedge position is changed, regardless of trade size.")
     parser.add_argument("--risk_lambda", default=0.0, type=float, help="Mean-variance penalty coefficient: the critic/actor train on reward - risk_lambda * reward**2, while logged/checkpointed reward stays raw P&L.")
@@ -50,5 +52,6 @@ def run(args):
         policy_model, env, rb, critic1, critic2,
         n_episodes=args.n_episodes, warmup_steps=args.warmup_steps, update_every=args.update_every,
         grad_steps_per_update=args.grad_steps_per_update, risk_lambda=args.risk_lambda,
+        lr=args.lr, alpha=args.alpha,
         checkpoint_path=args.checkpoint_path,
     )
