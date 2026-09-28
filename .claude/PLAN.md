@@ -52,14 +52,7 @@ hedge yet in the default 1000-episode budget.
 
 - [x] Expose lr/alpha as train-hedge CLI flags
 - [x] Add lightweight training diagnostics
-- [ ] Diagnostic: check alpha=0.05
-  The default-alpha (`0.2`) diagnostic run showed `std` stuck around
-  `0.87-0.88` with no downward trend, and `action_delta_corr` bouncing
-  between -0.66 and +0.60 with no convergence, over 500 episodes -
-  consistent with the entropy coefficient being too large relative to
-  strike-scaled rewards. Re-prioritized ahead of the longer training run:
-  check a lower `alpha=0.05` for the same ~500-episode budget first, since
-  this is the cheaper test and current evidence already points here.
+- [x] Diagnostic: check alpha=0.05 (inconclusive - see below)
 - [ ] Diagnostic: train longer
   If `alpha=0.05` looks promising (shrinking `std`, stabilizing
   `action_delta_corr`), retrain that config for a much larger episode budget
