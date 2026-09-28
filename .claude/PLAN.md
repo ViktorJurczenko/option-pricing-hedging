@@ -54,20 +54,23 @@ hedge yet in the default 1000-episode budget.
 - [x] Add lightweight training diagnostics
 - [x] Diagnostic: check alpha=0.05 (inconclusive - see below)
 - [x] Diagnostic: check lr=3e-4 (inconclusive too - see below)
-- [ ] Diagnostic: train longer
-  Three quick 500-episode checks (default, `alpha=0.05`, `lr=3e-4`) all
-  plateaued at essentially the *same* `std` range (~0.86-0.89) with no
-  action_delta_corr trend - not a hyperparameter-sensitivity pattern, more
-  consistent with simply not enough gradient updates yet for the critic to
-  converge and give the actor a real sharpening signal. Retrain the default
-  config for a much larger episode budget (e.g. 3000-5000 episodes), using
-  the diagnostics, to check whether more updates alone breaks the plateau.
+- [x] Diagnostic: train longer (5000 episodes, still flat - see below)
 - [ ] If still flat: targeted hyperparameter sweep
-  Sweep update frequency (`update_every`/`grad_steps_per_update`) and
-  combinations of `lr`/`alpha` against the `delta` baseline. Skip
-  `warmup_steps` — it only affects how much random data is collected before
-  learning starts, not whether the actor converges once learning does
-  start, so it's an unlikely bottleneck here.
+  The 5000-episode run never moved off the `std` plateau (~0.86-0.89) and
+  `action_delta_corr` was still pure noise at episode 5000 (+0.63, right
+  after +0.02 and -0.61) - three independent diagnostics (`alpha`, `lr`,
+  10x duration) all show the same flat plateau, which stopped looking like
+  a hyperparameter-sensitivity problem. Before spending more runs on
+  `update_every`/`grad_steps_per_update`/combinations, check the "Fix
+  unreliable LSM delta/gamma estimates" entry above first - if the delta
+  feature itself is unreliable ~15% of the time near maturity, the critic
+  may be correctly learning that it's not a trustworthy predictor, which
+  would explain a plateau no RL hyperparameter can fix. Only continue this
+  sweep if fixing the Greeks doesn't unstick it.
+- [ ] Re-run the risk_lambda sweep
+  Once a training config reliably competes with/beats the `delta` baseline,
+  re-run the `risk_lambda` sweep (0.0, 0.01, 0.05, 0.1, 0.5) with that config
+  to get a meaningful read on the risk-shaping effect.
 - [ ] Re-run the risk_lambda sweep
   Once a training config reliably competes with/beats the `delta` baseline,
   re-run the `risk_lambda` sweep (0.0, 0.01, 0.05, 0.1, 0.5) with that config
