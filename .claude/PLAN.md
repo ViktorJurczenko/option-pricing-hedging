@@ -53,20 +53,15 @@ hedge yet in the default 1000-episode budget.
 - [x] Expose lr/alpha as train-hedge CLI flags
 - [x] Add lightweight training diagnostics
 - [x] Diagnostic: check alpha=0.05 (inconclusive - see below)
-- [ ] Diagnostic: check lr=3e-4
-  `alpha=0.05` at the same ~500-episode budget didn't shrink `std` or
-  stabilize `action_delta_corr` any better than default `alpha=0.2` -
-  entropy isn't the sole bottleneck. Next candidate: default `lr=1e-4` with
-  `update_every=10` only allows a few hundred gradient updates in 500
-  episodes, which may be insufficient for the critic to converge enough to
-  give the actor a real sharpening incentive. Check the standard SAC default
-  `lr=3e-4` at the same 500-episode budget before committing to a long run.
+- [x] Diagnostic: check lr=3e-4 (inconclusive too - see below)
 - [ ] Diagnostic: train longer
-  If `lr=3e-4` (or `alpha=0.05`) looks promising, retrain that config for a
-  much larger episode budget (e.g. 3000-5000 episodes) to check it keeps
-  improving and actually closes the gap to `no_hedge`/`delta`. If all quick
-  checks are inconclusive, fall back to this as a plain "does more time
-  alone help" check on the default config.
+  Three quick 500-episode checks (default, `alpha=0.05`, `lr=3e-4`) all
+  plateaued at essentially the *same* `std` range (~0.86-0.89) with no
+  action_delta_corr trend - not a hyperparameter-sensitivity pattern, more
+  consistent with simply not enough gradient updates yet for the critic to
+  converge and give the actor a real sharpening signal. Retrain the default
+  config for a much larger episode budget (e.g. 3000-5000 episodes), using
+  the diagnostics, to check whether more updates alone breaks the plateau.
 - [ ] If still flat: targeted hyperparameter sweep
   Sweep update frequency (`update_every`/`grad_steps_per_update`) and
   combinations of `lr`/`alpha` against the `delta` baseline. Skip
