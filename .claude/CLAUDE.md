@@ -129,17 +129,9 @@ spike specifically in a band around that point, easy to mistake for "this
 region is intrinsically harder to model" when it's actually self-inflicted by
 the label definition.
 
-This happened here: `intrinsic_value = max(K-S, 0)` has a hard kink at
-`S == K` (it's the *expiry payoff* shape), but the American put's actual price
-*before* expiry is smooth there (diffusion smooths out the kink; the real
-early-exercise kink lives at the exercise boundary, which is a variable level
-below `K`, not at `K` itself). Subtracting the exact intrinsic value therefore
-re-introduced a kink into the training target exactly at the money, which
-showed up as a ~16% average error concentrated right at ATM (confirmed via
-ablation: training on the raw price directly removed the ATM spike but hurt
-elsewhere; more training epochs narrowed the ITM/OTM error but barely touched
-ATM — the signature of a structural target-definition problem, not
-undertraining).
+This is exactly what happened with `smooth_intrinsic_value` in `ML.py` —
+see `docs/decisions/softplus-reparameterization.md` for the full incident
+(symptom, ablation, root cause).
 
 **Fix pattern**: replace the exact analytic component with a *smooth*
 approximation that converges to it away from the kink but rounds off the
