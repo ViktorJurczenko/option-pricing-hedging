@@ -42,6 +42,22 @@ def test_train_hedge_command_runs_successfully():
     checkpoint = ROOT / "checkpoints" / "_smoke_test_policy.pth"
     checkpoint.unlink(missing_ok=True)
 
+def test_train_hedge_command_accepts_lr_and_alpha_flags():
+    # End-to-end check that --lr/--alpha (newly exposed CLI flags wrapping
+    # AmericanHedging.Hedge.train()'s existing lr/alpha kwargs) are accepted
+    # and actually reach argparse/train() without erroring, not just that
+    # add_arguments() knows about them in isolation.
+    result = run_cli(
+        "train-hedge",
+        "--n_episodes", "2", "--nb_predictions", "200", "--sampling", "20",
+        "--warmup_steps", "0", "--lr", "3e-4", "--alpha", "0.05",
+        "--checkpoint_path", "checkpoints/_smoke_test_policy_lr_alpha.pth",
+    )
+    assert result.returncode == 0, result.stderr
+
+    checkpoint = ROOT / "checkpoints" / "_smoke_test_policy_lr_alpha.pth"
+    checkpoint.unlink(missing_ok=True)
+
 @pytest.mark.skipif(
     not (ROOT / "checkpoints" / "best_model.pth").exists(),
     reason="no trained MLP checkpoint to test against",
