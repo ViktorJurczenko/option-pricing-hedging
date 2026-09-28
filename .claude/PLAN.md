@@ -14,16 +14,7 @@ baseline and clearly behind the analytic `delta` baseline, with no visible
 hedge yet in the default 1000-episode budget.
 
 - [x] Expose lr/alpha as train-hedge CLI flags
-- [ ] Add lightweight training diagnostics
-  The aggregate P&L test-hedge reports can't distinguish "policy ignores
-  the delta signal entirely" from "policy tracks it but poorly calibrated."
-  Add a small standalone diagnostic (not permanent library code) that logs,
-  over the course of a training run: the actor's `std` trend (is entropy
-  actually shrinking as training progresses, or stuck?) and the correlation
-  between the policy's chosen action and the LSM's own delta at each state.
-  Cheaper to run and more informative than judging purely from the final
-  mean reward curve, and directly explains *why* a run is or isn't working
-  before committing to a long diagnostic run or a hyperparameter sweep.
+- [x] Add lightweight training diagnostics
 - [ ] Diagnostic: train longer
   Retrain a single config (`risk_lambda=0.0`, all other defaults) for a much
   larger episode budget (e.g. 3000-5000 episodes), using the new
