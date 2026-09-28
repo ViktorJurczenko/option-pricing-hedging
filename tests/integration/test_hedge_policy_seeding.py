@@ -10,9 +10,12 @@ stdout alone: which pseudo-random state actually reaches evaluate().
 import argparse
 
 import numpy as np
+import pytest
+import torch
 
 import scripts.test_hedge as test_hedge_script
 from AmericanHedging.baselines import delta_hedge, no_hedge
+from AmericanHedging.RLPolicy import RLPolicy
 
 
 def _make_args(policy, seed):
@@ -106,3 +109,53 @@ def test_action_fn_matches_requested_policy(monkeypatch):
 
     test_hedge_script.run(_make_args("no_hedge", seed=1))
     assert seen["action_fn"] is no_hedge
+
+
+def test_action_fn_for_rl_policy_applies_tanh_squashing_to_mean(monkeypatch, tmp_path):
+    """Regression test for scripts/test_hedge.py's --policy rl action_fn.
+
+    It used to be `policy_model(state).mean.item()` -- the raw, unbounded
+    distribution mean, safe only because HedgingEnv.step() clips it -- which
+    silently disagreed with how AmericanHedging.Hedge.train()/_squash derive
+    the deterministic action (tanh-squashed mean). It must now match: the
+    action_fn built for --policy rl is `torch.tanh(policy_model(state).mean)`.
+    """
+    # Force the raw (pre-squash) mean far outside [-1, 1] for any input state,
+    # by zeroing every weight/bias and then setting only layer3's mean output
+    # bias to 5.0 (large enough that tanh(5.0) ~= 0.99991, clearly < 1, but
+    # small enough to avoid float32 tanh saturating to exactly 1.0 the way it
+    # would at very large magnitudes). This makes the pre-fix ("raw
+    # .mean.item()") and post-fix (tanh-squashed) behaviors produce wildly
+    # different, easily distinguished values (5.0 vs ~0.9999) instead of
+    # relying on a random init that could coincidentally sit close to 0.
+    policy = RLPolicy(5, 1)
+    with torch.no_grad():
+        for p in policy.parameters():
+            p.zero_()
+        policy.layer3.bias[0] = 5.0
+    checkpoint_path = tmp_path / "policy.pth"
+    torch.save(policy.state_dict(), checkpoint_path)
+
+    seen = {}
+
+    def fake_evaluate(action_fn, env, n_episodes=1000):
+        seen["action_fn"] = action_fn
+        return (0.0, 0.0, 0.0)
+
+    monkeypatch.setattr(test_hedge_script, "evaluate", fake_evaluate)
+
+    args = _make_args("rl", seed=1)
+    args.checkpoint_path = str(checkpoint_path)
+    test_hedge_script.run(args)
+
+    state = np.array([1.0, 0.5, 0.1, 0.02, 0.0], dtype=np.float32)
+
+    reloaded = RLPolicy(5, 1)
+    reloaded.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    with torch.no_grad():
+        raw_mean = reloaded(torch.tensor(state, dtype=torch.float32)).mean
+        expected = torch.tanh(raw_mean).item()
+
+    actual = seen["action_fn"](state)
+    assert actual == pytest.approx(expected)
+    assert -1.0 < actual < 1.0  # would also catch a reversion to the unsquashed mean

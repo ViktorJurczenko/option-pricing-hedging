@@ -1,10 +1,13 @@
+import math
+
 import numpy as np
 import pytest
+import torch
 import tqdm as tqdm_pkg
 
 import AmericanHedging.Hedge as hedge_module
 from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.Hedge import evaluate, train
+from AmericanHedging.Hedge import _squash, evaluate, train
 from AmericanHedging.ReplayBuffer import ReplayBuffer
 from AmericanHedging.RLPolicy import RLPolicy
 from AmericanHedging.Critic import Critic
@@ -293,3 +296,113 @@ def test_train_raises_on_non_positive_grad_steps_per_update(grad_steps_per_updat
             None, None, None, None, None,
             grad_steps_per_update=grad_steps_per_update,
         )
+
+
+# --- _squash() tests -------------------------------------------------------
+#
+# Regression coverage for the actor-mean-divergence bug: train() used to feed
+# critics/actor loss an unbounded dist.rsample() (or, in an intermediate
+# attempt, a clamped action whose log_prob was evaluated at the pre-clamp
+# point), letting the actor exploit unreliable out-of-distribution critic
+# outputs and drive `mean` to the tens of thousands / `log_std` to its
+# clamp ceiling. `_squash` fixes this with a tanh-squashed reparameterized
+# sample plus the matching log-prob Jacobian correction.
+
+def test_squash_output_always_within_bounds_for_extreme_distribution():
+    """Core invariant _squash must provide: its returned action always lies
+    within [-1, 1] (matching HedgingEnv.step()'s own clip range) no matter
+    how extreme the underlying Normal's mean/std are. This is exactly the
+    property the pre-fix code violated -- a bare `dist.rsample()` has no such
+    bound, which is what let the actor loss score critics far outside the
+    range they were ever trained on and let `mean` diverge to values like
+    -63996.84 / -81410.02 seen in trained checkpoints before this fix.
+
+    Note: at these extreme magnitudes tanh saturates to exactly +/-1.0 in
+    floating point (mathematically expected -- tanh(1e5) is indistinguishable
+    from 1.0 at float32/64 precision), so the assertion below is a closed
+    interval, not a strict one; the log_prob finiteness check is what confirms
+    _squash still behaves sanely (no inf/nan) even at that saturation point.
+    """
+    torch.manual_seed(0)
+    extreme_dists = [
+        torch.distributions.Normal(torch.tensor([100000.0]), torch.tensor([50.0])),
+        torch.distributions.Normal(torch.tensor([-81410.02]), torch.tensor([7.389])),
+        torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1e-3])),
+    ]
+    for dist in extreme_dists:
+        for _ in range(10):
+            action, log_prob = _squash(dist)
+            assert torch.all(action >= -1.0)
+            assert torch.all(action <= 1.0)
+            assert torch.isfinite(log_prob).all()
+
+
+def test_squash_log_prob_matches_manual_tanh_jacobian_correction(monkeypatch):
+    """Independently recompute _squash's log_prob formula (Normal log-density
+    evaluated by hand, not via dist.log_prob, so this doesn't just restate
+    the implementation) for a fixed, non-trivial raw sample and check they
+    match exactly. This is the formula an earlier, insufficient fix attempt
+    got wrong by evaluating log_prob at the *clamped* action under an
+    ever-drifting mean instead of at the raw pre-squash sample."""
+    mean = torch.tensor([[0.3]])
+    std = torch.tensor([[0.7]])
+    dist = torch.distributions.Normal(mean, std)
+
+    raw_sample = torch.tensor([[1.234]])
+    monkeypatch.setattr(dist, "rsample", lambda *args, **kwargs: raw_sample)
+
+    action, log_prob = _squash(dist)
+
+    expected_action = torch.tanh(raw_sample)
+    # Manual Normal log-density: -log(std) - 0.5*log(2*pi) - 0.5*((x-mean)/std)^2
+    z = (raw_sample - mean) / std
+    manual_normal_log_prob = -torch.log(std) - 0.5 * math.log(2 * math.pi) - 0.5 * z.pow(2)
+    manual_correction = torch.log(1 - expected_action.pow(2) + 1e-6)
+    expected_log_prob = (manual_normal_log_prob - manual_correction).sum(-1, keepdim=True)
+
+    assert torch.allclose(action, expected_action)
+    assert torch.allclose(log_prob, expected_log_prob, atol=1e-5)
+
+
+def test_train_feeds_only_bounded_actions_to_critics(tmp_path):
+    """Integration-level regression test: checks train() actually *uses*
+    _squash at both call sites (the Bellman target and the actor loss), not
+    just that _squash is correct in isolation. Forward hooks on critic1/
+    critic2 record every action tensor any critic sees during a real train()
+    run (including the target1/target2 deepcopies -- hooks are plain
+    functions, which `copy.deepcopy` treats as atomic and returns unchanged,
+    so hooks registered on critic1/critic2 before train() deep-copies them
+    into target1/target2 still fire and still append to this same list).
+
+    Before the fix, this would have failed intermittently/eventually: a2 (fed
+    to target1/target2) and a_new (fed to critic1/critic2) were raw
+    `dist.rsample()` draws with no bound, so as training progressed and
+    `mean`/`std` drifted, actions outside (-1, 1) would show up here -- which
+    is exactly the out-of-distribution critic-extrapolation mechanism behind
+    the bug.
+    """
+    torch.manual_seed(0)
+    seen_actions = []
+
+    def record_action(module, inputs, output):
+        seen_actions.append(inputs[1].detach().clone())
+
+    policy, critic1, critic2 = _make_nets()
+    critic1.register_forward_hook(record_action)
+    critic2.register_forward_hook(record_action)
+
+    env = FakeEnv(raw_rewards=[1.0] * 6)  # 6-step episode
+    buffer = ReplayBuffer(max_size=1000)
+
+    train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    # update triggers at steps 2..6 (5 triggers) x 2 critics each seeing
+    # (s,a), (s2,a2) for the critic loss and (s,a_new) for the actor loss.
+    assert len(seen_actions) > 0
+    for action in seen_actions:
+        assert torch.all(action > -1.0), "action fed to a critic was <= -1"
+        assert torch.all(action < 1.0), "action fed to a critic was >= 1"
