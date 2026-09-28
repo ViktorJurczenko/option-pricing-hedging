@@ -41,7 +41,7 @@ def run(args):
     if args.policy == "rl":
         policy_model = RLPolicy(5, 1)
         policy_model.load_state_dict(torch.load(args.checkpoint_path, map_location="cpu"))
-        action_fn = lambda state: policy_model(torch.tensor(state, dtype=torch.float32)).mean.item()
+        action_fn = lambda state: torch.tanh(policy_model(torch.tensor(state, dtype=torch.float32)).mean).item()
     elif args.policy == "delta":
         action_fn = delta_hedge
     else:

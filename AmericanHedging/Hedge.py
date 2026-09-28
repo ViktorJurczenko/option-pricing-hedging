@@ -7,6 +7,29 @@ from pathlib import Path
 from collections import deque
 from tqdm import tqdm
 
+def _squash(dist: torch.distributions.Distribution, eps: float = 1e-6) -> tuple[torch.Tensor, torch.Tensor]:
+    """Reparameterized sample from `dist`, squashed into (-1, 1) via tanh,
+    with the log-prob Jacobian correction for that squashing.
+
+    A hard `.clamp(-1, 1)` has exactly zero gradient once a sample lands
+    outside the range, which both freezes `mean` wherever it happens to have
+    drifted to and, worse, gives the entropy term a "free" way to keep
+    growing `std` (log_prob at a fixed clamped point under an ever-wider
+    distribution keeps shrinking, with no offsetting cost once the clamped
+    action itself no longer changes) - std saturates and mean never comes
+    back. tanh's gradient is never exactly zero, and the correction term
+    below (`log(1 - tanh(x)^2)`) grows with |x|, so pushing the pre-squash
+    sample further out has a real, increasing entropy cost instead of a free
+    one. This is the standard SAC fix for bounded continuous actions.
+    """
+    raw     = dist.rsample()
+    squashed = torch.tanh(raw)
+    log_prob = (
+        dist.log_prob(raw).sum(-1, keepdim=True)
+        - torch.log(1 - squashed.pow(2) + eps).sum(-1, keepdim=True)
+    )
+    return squashed, log_prob
+
 def train(policy, env, replay_buffer, critic1, critic2,
           gamma=0.99, tau=0.01, alpha=0.2, lr=1e-4,
           n_episodes=1000, update_every=10, warmup_steps=1000, batch_size=256,
@@ -61,7 +84,10 @@ def train(policy, env, replay_buffer, critic1, critic2,
             else:
                 with torch.no_grad():
                     dist   = policy(torch.tensor(state, dtype=torch.float32, device=device))
-                    action = dist.sample().clamp(-1, 1).item()
+                    # Not routed through _squash: no gradient is taken here (no_grad,
+                    # single scalar action for the env), so .sample() over .rsample()
+                    # and skipping the unused log-prob term are both fine.
+                    action = torch.tanh(dist.sample()).item()
 
             next_state, reward, done = env.step(action)
             # Critic/actor train on a risk-shaped reward (mean-variance style);
@@ -83,8 +109,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
                 # --- Critic update (Bellman) ---
                 with torch.no_grad():
                     dist2      = policy(s2)
-                    a2         = dist2.rsample()
-                    log_pi2    = dist2.log_prob(a2).sum(-1, keepdim=True)
+                    a2, log_pi2 = _squash(dist2)
                     q_target   = r + gamma * (1 - d) * (
                         torch.min(target1(s2, a2), target2(s2, a2)) - alpha * log_pi2
                     )
@@ -104,8 +129,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
 
                 # --- Actor update ---
                 dist_new  = policy(s)
-                a_new     = dist_new.rsample()
-                log_pi    = dist_new.log_prob(a_new).sum(-1, keepdim=True)
+                a_new, log_pi = _squash(dist_new)
                 actor_loss = (alpha * log_pi - torch.min(
                     critic1(s, a_new), critic2(s, a_new)
                 )).mean()
@@ -124,9 +148,11 @@ def train(policy, env, replay_buffer, critic1, critic2,
 def evaluate(action_fn, env, n_episodes=1000):
     """
     action_fn: state (np.ndarray) -> hedge position (float). For a trained RL
-    policy, pass e.g. `lambda s: policy(torch.tensor(s, dtype=torch.float32)).mean.item()`
-    (the deterministic/mean action); for a baseline, pass one of
-    AmericanHedging.baselines directly - they already match this signature.
+    policy, pass e.g. `lambda s: torch.tanh(policy(torch.tensor(s, dtype=torch.float32)).mean).item()`
+    (the deterministic action: tanh-squashed distribution mean, matching how
+    train() squashes sampled actions - see `_squash`); for a baseline, pass
+    one of AmericanHedging.baselines directly - they already match this
+    signature.
     """
     pnls = []
     for ep in tqdm(range(n_episodes), desc="Evaluating hedge policy", unit="episode"):
