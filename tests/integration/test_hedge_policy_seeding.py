@@ -29,6 +29,7 @@ def _make_args(policy, seed):
         reg_type="simple",
         seed=seed,
         n_episodes=5,
+        fixed_cost=0.0,
         checkpoint_path="unused.pth",
         policy=policy,
     )

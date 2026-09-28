@@ -1,8 +1,13 @@
 import numpy as np
 import pytest
+import tqdm as tqdm_pkg
 
+import AmericanHedging.Hedge as hedge_module
 from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.Hedge import evaluate
+from AmericanHedging.Hedge import evaluate, train
+from AmericanHedging.ReplayBuffer import ReplayBuffer
+from AmericanHedging.RLPolicy import RLPolicy
+from AmericanHedging.Critic import Critic
 from AmericanHedging.baselines import delta_hedge, no_hedge
 
 
@@ -110,3 +115,181 @@ def test_evaluate_with_delta_hedge_baseline_hand_calculated_reward(monkeypatch):
     assert mean_pnl == pytest.approx(expected_total)
     assert std_pnl == pytest.approx(0.0)
     assert cvar_95 == pytest.approx(expected_total)
+
+
+# --- train() tests --------------------------------------------------------
+#
+# These target Hedge.py's two Stage 1/2 training-mechanics changes: the
+# reward-shaping split (replay buffer gets `reward - risk_lambda*reward**2`
+# while episode bookkeeping keeps the raw reward) and grad_steps_per_update
+# (N gradient-update cycles per trigger instead of always 1). Real RLPolicy/
+# Critic nets are used (they're tiny), but a fake env replaces HedgingEnv so
+# the reward sequence is fully controlled and the SAC math itself isn't what
+# is being asserted on.
+
+class FakeEnv:
+    """Minimal env stand-in for train(): yields a fixed reward sequence and
+    ignores the action entirely. The env's own reward formula is HedgingEnv's
+    job (covered in test_hedge_env.py) -- this only needs *some* deterministic
+    reward per step to check what train() does with it."""
+
+    def __init__(self, raw_rewards, state_dim=5):
+        self.raw_rewards = raw_rewards
+        self.state_dim = state_dim
+
+    def reset(self):
+        self._step_idx = 0
+        return np.zeros(self.state_dim, dtype=np.float32)
+
+    def step(self, action):
+        reward = self.raw_rewards[self._step_idx]
+        self._step_idx += 1
+        done = self._step_idx >= len(self.raw_rewards)
+        return np.zeros(self.state_dim, dtype=np.float32), reward, done
+
+
+class SpyReplayBuffer(ReplayBuffer):
+    """Real ReplayBuffer behavior, plus a record of exactly what reward value
+    was pushed on each call."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pushed_rewards = []
+
+    def push(self, state, action, reward, next_state, done):
+        self.pushed_rewards.append(reward)
+        super().push(state, action, reward, next_state, done)
+
+
+class CountingReplayBuffer(ReplayBuffer):
+    """Real ReplayBuffer behavior, plus a count of how many times sample()
+    was called (once per gradient-update cycle)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sample_calls = 0
+
+    def sample(self, batch_size):
+        self.sample_calls += 1
+        return super().sample(batch_size)
+
+
+def _make_nets():
+    return RLPolicy(5, 1), Critic(5, 1), Critic(5, 1)
+
+
+def test_train_pushes_risk_shaped_reward_to_replay_buffer(tmp_path):
+    """The replay buffer (and therefore everything the critic/actor train on)
+    must receive `reward - risk_lambda * reward**2`, not the raw env reward."""
+    risk_lambda = 0.5
+    raw_rewards = [1.5, 2.0]
+    env = FakeEnv(raw_rewards)
+    buffer = SpyReplayBuffer(max_size=100)
+    policy, critic1, critic2 = _make_nets()
+
+    # warmup_steps/batch_size set far above the handful of steps this test
+    # takes so the gradient-update block never triggers -- this isolates the
+    # reward-shaping/bookkeeping behavior from the (untouched) SAC math.
+    train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=2, warmup_steps=10 ** 6, batch_size=10 ** 6,
+        risk_lambda=risk_lambda, checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    expected_shaped = [r - risk_lambda * r ** 2 for r in raw_rewards] * 2  # 2 identical episodes
+    assert buffer.pushed_rewards == pytest.approx(expected_shaped)
+
+
+def test_train_episode_reward_bookkeeping_stays_on_raw_reward(monkeypatch, tmp_path):
+    """Regression guard: episode_reward (what feeds the trailing-50-episode
+    mean and the checkpoint-save criterion) must track the RAW env reward
+    even when risk_lambda != 0, so it stays comparable to test-hedge's
+    reported P&L, which never applies the risk penalty. This is easy to get
+    backwards (e.g. accidentally accumulating shaped_reward instead).
+
+    train()'s episode_reward is a local variable with no public accessor, so
+    it's observed here via a tqdm subclass that records the exact string
+    passed to `set_postfix(reward=...)` every episode.
+    """
+    risk_lambda = 0.5
+    raw_rewards = [1.5, 2.0]
+    env = FakeEnv(raw_rewards)
+    buffer = SpyReplayBuffer(max_size=100)
+    policy, critic1, critic2 = _make_nets()
+
+    postfix_log = []
+
+    class RecordingTqdm(tqdm_pkg.tqdm):
+        def set_postfix(self, **kwargs):
+            postfix_log.append(kwargs)
+            return super().set_postfix(**kwargs)
+
+    monkeypatch.setattr(hedge_module, "tqdm", RecordingTqdm)
+
+    hedge_module.train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=10 ** 6, batch_size=10 ** 6,
+        risk_lambda=risk_lambda, checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    assert len(postfix_log) == 1
+    logged_reward = float(postfix_log[0]["reward"])
+    assert logged_reward == pytest.approx(sum(raw_rewards))  # raw sum, not risk-shaped
+
+
+def test_train_with_default_risk_lambda_reproduces_prior_behavior(tmp_path):
+    """risk_lambda=0.0 (the default) must reproduce pre-Stage-2 behavior
+    exactly: shaped_reward == reward, so the buffer receives raw rewards."""
+    raw_rewards = [1.5, -2.0, 0.0]
+    env = FakeEnv(raw_rewards)
+    buffer = SpyReplayBuffer(max_size=100)
+    policy, critic1, critic2 = _make_nets()
+
+    train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=10 ** 6, batch_size=10 ** 6,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    assert buffer.pushed_rewards == pytest.approx(raw_rewards)
+
+
+def _run_and_count_sample_calls(tmp_path, grad_steps_per_update):
+    env = FakeEnv(raw_rewards=[1.0] * 6)  # 6-step episode
+    buffer = CountingReplayBuffer(max_size=1000)
+    policy, critic1, critic2 = _make_nets()
+
+    train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        grad_steps_per_update=grad_steps_per_update,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+    return buffer.sample_calls
+
+
+def test_grad_steps_per_update_runs_n_gradient_cycles_per_trigger(tmp_path):
+    """With update_every=1 and batch_size=2, the update condition first
+    becomes true once 2 transitions are buffered (step 2 of the 6-step
+    episode) and stays true every step after -- 5 triggers total. Each
+    trigger must run grad_steps_per_update sample()+critic+actor cycles, not
+    always exactly 1."""
+    calls_single = _run_and_count_sample_calls(tmp_path, grad_steps_per_update=1)
+    calls_triple = _run_and_count_sample_calls(tmp_path, grad_steps_per_update=3)
+
+    assert calls_single == 5
+    assert calls_triple == 15
+
+
+@pytest.mark.parametrize("grad_steps_per_update", [0, -1, -5])
+def test_train_raises_on_non_positive_grad_steps_per_update(grad_steps_per_update):
+    """grad_steps_per_update <= 0 used to silently disable every critic/actor
+    update (range(0) or range(negative) never executes the update block),
+    letting a full n_episodes training run complete without ever learning.
+    train() now validates this eagerly, before doing any real work -- so all
+    other args can be trivial/None, since the ValueError must fire first."""
+    with pytest.raises(ValueError, match="grad_steps_per_update"):
+        train(
+            None, None, None, None, None,
+            grad_steps_per_update=grad_steps_per_update,
+        )

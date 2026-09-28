@@ -2,10 +2,15 @@ import numpy as np
 from AmericanOptionPricing import LongstaffSchwartz
 
 class HedgingEnv:
-    def __init__(self, lsm_model: LongstaffSchwartz, transaction_cost: float = 0.001):
+    # Trades smaller than this are treated as "no trade" so a fixed cost isn't
+    # charged for floating-point noise around holding the same position.
+    _TRADE_EPS = 1e-8
+
+    def __init__(self, lsm_model: LongstaffSchwartz, transaction_cost: float = 0.001, fixed_cost: float = 0.0):
         self.lsm         = lsm_model
         self.option_type = lsm_model.option_type
         self.tc          = transaction_cost
+        self.fixed_cost  = fixed_cost
         self.n_steps     = lsm_model.simulation.shape[0]
         self.n_paths     = lsm_model.simulation.shape[1]
 
@@ -37,6 +42,8 @@ class HedgingEnv:
         trade     = action - self.position
         hedge_pnl = self.position * (S_t1 - S_t)
         cost      = self.tc * abs(trade) * S_t
+        if abs(trade) > self._TRADE_EPS:
+            cost += self.fixed_cost
 
         self.position = action
         self.t       += 1

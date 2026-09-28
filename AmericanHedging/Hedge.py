@@ -10,7 +10,13 @@ from tqdm import tqdm
 def train(policy, env, replay_buffer, critic1, critic2,
           gamma=0.99, tau=0.01, alpha=0.2, lr=1e-4,
           n_episodes=1000, update_every=10, warmup_steps=1000, batch_size=256,
+          grad_steps_per_update=1, risk_lambda=0.0,
           checkpoint_path="checkpoints/best_policy_model.pth"):
+
+    if grad_steps_per_update < 1:
+        # 0 (or negative) would silently skip every critic/actor update below,
+        # running a full n_episodes training loop that never actually learns.
+        raise ValueError(f"grad_steps_per_update must be >= 1, got {grad_steps_per_update}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")
@@ -58,48 +64,53 @@ def train(policy, env, replay_buffer, critic1, critic2,
                     action = dist.sample().clamp(-1, 1).item()
 
             next_state, reward, done = env.step(action)
-            replay_buffer.push(state, action, reward, next_state, done)
+            # Critic/actor train on a risk-shaped reward (mean-variance style);
+            # episode_reward (and thus the checkpoint criterion) stays on the
+            # raw env reward so it remains comparable to test-hedge's P&L.
+            shaped_reward = reward - risk_lambda * reward ** 2
+            replay_buffer.push(state, action, shaped_reward, next_state, done)
             state = next_state
             episode_reward += reward
 
             if total_steps <= warmup_steps or len(replay_buffer) < batch_size or total_steps % update_every != 0:
                 continue
 
-            # --- Sample batch ---
-            s, a, r, s2, d = replay_buffer.sample(batch_size)
-            s, a, r, s2, d = s.to(device), a.to(device), r.to(device), s2.to(device), d.to(device)
+            for _ in range(grad_steps_per_update):
+                # --- Sample batch ---
+                s, a, r, s2, d = replay_buffer.sample(batch_size)
+                s, a, r, s2, d = s.to(device), a.to(device), r.to(device), s2.to(device), d.to(device)
 
-            # --- Critic update (Bellman) ---
-            with torch.no_grad():
-                dist2      = policy(s2)
-                a2         = dist2.rsample()
-                log_pi2    = dist2.log_prob(a2).sum(-1, keepdim=True)
-                q_target   = r + gamma * (1 - d) * (
-                    torch.min(target1(s2, a2), target2(s2, a2)) - alpha * log_pi2
+                # --- Critic update (Bellman) ---
+                with torch.no_grad():
+                    dist2      = policy(s2)
+                    a2         = dist2.rsample()
+                    log_pi2    = dist2.log_prob(a2).sum(-1, keepdim=True)
+                    q_target   = r + gamma * (1 - d) * (
+                        torch.min(target1(s2, a2), target2(s2, a2)) - alpha * log_pi2
+                    )
+
+                critic_loss = (
+                    F.mse_loss(critic1(s, a), q_target) +
+                    F.mse_loss(critic2(s, a), q_target)
                 )
 
-            critic_loss = (
-                F.mse_loss(critic1(s, a), q_target) +
-                F.mse_loss(critic2(s, a), q_target)
-            )
+                critic_opt.zero_grad(); critic_loss.backward(); critic_opt.step()
 
-            critic_opt.zero_grad(); critic_loss.backward(); critic_opt.step()
+                with torch.no_grad():
+                    for p, tp in zip(critic1.parameters(), target1.parameters()):
+                        tp.data.mul_(1 - tau).add_(tau * p.data)
+                    for p, tp in zip(critic2.parameters(), target2.parameters()):
+                        tp.data.mul_(1 - tau).add_(tau * p.data)
 
-            with torch.no_grad():
-                for p, tp in zip(critic1.parameters(), target1.parameters()):
-                    tp.data.mul_(1 - tau).add_(tau * p.data)
-                for p, tp in zip(critic2.parameters(), target2.parameters()):
-                    tp.data.mul_(1 - tau).add_(tau * p.data)
+                # --- Actor update ---
+                dist_new  = policy(s)
+                a_new     = dist_new.rsample()
+                log_pi    = dist_new.log_prob(a_new).sum(-1, keepdim=True)
+                actor_loss = (alpha * log_pi - torch.min(
+                    critic1(s, a_new), critic2(s, a_new)
+                )).mean()
 
-            # --- Actor update ---
-            dist_new  = policy(s)
-            a_new     = dist_new.rsample()
-            log_pi    = dist_new.log_prob(a_new).sum(-1, keepdim=True)
-            actor_loss = (alpha * log_pi - torch.min(
-                critic1(s, a_new), critic2(s, a_new)
-            )).mean()
-
-            actor_opt.zero_grad(); actor_loss.backward(); actor_opt.step()
+                actor_opt.zero_grad(); actor_loss.backward(); actor_opt.step()
 
         recent_rewards.append(episode_reward)
         mean_reward = np.mean(recent_rewards)
