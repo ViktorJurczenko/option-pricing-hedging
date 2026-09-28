@@ -13,13 +13,7 @@ baseline and clearly behind the analytic `delta` baseline, with no visible
 `risk_lambda` trend — training is stable now, just not learning a useful
 hedge yet in the default 1000-episode budget.
 
-- [ ] Expose lr/alpha as train-hedge CLI flags
-  `train()`'s `lr` (default `1e-4`) and `alpha` (entropy coefficient,
-  default `0.2`) are hardcoded keyword defaults, not CLI flags — unlike
-  `risk_lambda`/`fixed_cost`/`grad_steps_per_update`, there's currently no
-  way to override them without editing source. Needed before either can be
-  swept from the CLI, the same way the sweep script already does for
-  `risk_lambda`.
+- [x] Expose lr/alpha as train-hedge CLI flags
 - [ ] Add lightweight training diagnostics
   The aggregate P&L test-hedge reports can't distinguish "policy ignores
   the delta signal entirely" from "policy tracks it but poorly calibrated."
