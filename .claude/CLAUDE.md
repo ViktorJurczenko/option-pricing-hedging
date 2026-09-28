@@ -61,10 +61,13 @@ change in this repo, do not write its tests yourself and do not self-review
 it. Instead:
 
 1. Dispatch `test-agent` (`.claude/agents/test-agent.md`) to write the tests.
-   Since this repo is **not a git repository**, there's no diff for it to
-   read — your prompt must explicitly list every file you created or
-   modified and describe the behavior in enough detail that a fresh agent
-   with no conversation context can act on it correctly.
+   This repo **is** a git repository, so point it at `git diff`/`git status`
+   to discover what changed rather than hand-listing files — only fall back
+   to explicitly listing files for uncommitted work outside git's view
+   (gitignored artifacts, or changes made earlier in the session that you
+   don't want bundled into the diff it reads). Either way, describe the
+   behavior in enough detail that a fresh agent with no conversation context
+   can act on it correctly.
 2. `test-agent` loads the `write-tests` skill itself, writes and runs the
    tests, then spawns/pings `review-agent` (`.claude/agents/review-agent.md`)
    with the same kind of self-contained file list, which loads the
