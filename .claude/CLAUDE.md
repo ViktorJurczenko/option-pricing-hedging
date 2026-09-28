@@ -114,6 +114,8 @@ about "small enough" in the moment.
 - `scripts/test_ml.py`'s `--reg_type`/`--max_degree` (default `laguerre`/`3`) must match whatever `datasets/generate_dataset.py` was run with to produce the dataset the checkpoint was trained on — they're independent CLI flags with no shared source of truth, so if you regenerate the dataset with different LSM settings, update `test_ml.py`'s defaults (or pass matching flags) too.
 - `option_type` is validated as `{"call", "put"}` and `reg_type` as `{"simple", "laguerre"}` via `ValueError` in every pricer's constructor — follow that pattern rather than adding silent fallbacks.
 - Checkpoint and dataset paths are constructor/CLI arguments with `checkpoints/`/`data/`-relative defaults, not hardcoded absolute paths — pass `--checkpoint_path`/`--dataset_path`/etc. rather than editing defaults in place if you need a different location for one run.
+- Path-scoped conventions (e.g. progress-bar requirements for long-running loops) live in `.claude/rules/` and auto-apply on matching paths — check there for anything not covered in this file.
+- Before running `git commit`, print the full drafted commit message as plain text in the response (not only inside the `git commit` tool call) so it can be reviewed in the CLI, and wait for explicit confirmation before executing it.
 
 ### Softplus reparameterization: general pattern for ML regression targets
 
