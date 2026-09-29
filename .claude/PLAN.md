@@ -25,41 +25,17 @@ policy has been training on a meaningfully wrong delta feature roughly 1 in
 
 - [x] Confirm whether reg_type=laguerre behaves better near maturity (no - dead end, see below)
 - [x] Check whether higher max_degree helps (no - much worse, see below)
-- [ ] Implement ridge-regularized regression
-  A clamp only bounds the output without correcting the estimate, so instead
-  address the root cause. `LongstaffSchwartz.fit()` currently fits an
-  unregularized `LinearRegression` per timestep; add an opt-in
-  `ridge_lambda: float = 0.0` constructor param (default preserves exact
-  existing behavior) that switches to `sklearn.linear_model.Ridge` when
-  `ridge_lambda > 0`. Ridge directly targets the mechanism: the near-maturity
-  overshoot is an ill-conditioned least-squares fit producing exploding
-  coefficients, and an L2 penalty discourages exactly that.
-- [ ] Implement moneyness-binned ("batch") regression
-  Group ITM paths at each timestep into `moneyness_bins` quantile bins (by
-  `S_t`) and fit a separate regression per bin (opt-in
-  `moneyness_bins: int = 1` constructor param; `1` = current single global
-  fit, preserving existing behavior). A single global polynomial has to
-  compromise its shape across the whole domain to accommodate the
-  near-maturity kink; a local/binned fit only needs to bend sharply in the
-  neighborhood where paths actually sit, which is the standard remedy for
-  this class of problem (same idea as a regression spline). Watch for a new,
-  smaller artifact this could introduce: discontinuities in delta right at
-  bin boundaries, from two independently-fit local models disagreeing there.
-- [ ] Validate empirically before doing anything else
-  Re-run the delta-range-by-timestep diagnostic across candidate
-  `(ridge_lambda, moneyness_bins)` combinations and confirm a real
-  improvement over the degree-3 baseline (89% valid overall, 15.3% invalid
-  at t=363) - including checking bin-boundary discontinuities aren't a new
-  problem - before treating this as fixed. Also compare against
-  Black-Scholes delta near maturity as an independent sanity check, and
-  confirm LSM price outputs (`calculate_option_price`) and
-  `tests/unit/test_basis_functions.py`'s analytic-vs-finite-difference
-  checks aren't broken - this regression is shared by price, Greeks, and the
-  ML surrogate's training-data generation, so a real fix here has a wider
-  blast radius than the hedging-only band-aid would have.
+- [x] Implement ridge-regularized regression
+- [x] Implement moneyness-binned ("batch") regression, gated to near maturity
+- [x] Validate empirically (ridge_lambda=0.06, moneyness_bins=30, moneyness_bins_window=0.3 - see BUGS.md)
 - [ ] Dispatch test-agent/review-agent
-  Only once the empirical validation above shows a genuine improvement, not
-  before - write tests for the new ridge/binning math and re-run the full
+  Empirical validation above showed a genuine, seed-robust improvement (see
+  BUGS.md) - write tests for the new ridge/binning math (including the
+  near-maturity gating) and fix the existing hedging test fixtures that
+  construct an `args` namespace by hand (`tests/integration/test_hedge_policy_seeding.py`,
+  `tests/integration/test_train_hedge_cli_wiring.py`), which now need
+  `ridge_lambda`/`moneyness_bins`/`moneyness_bins_window` attributes added -
+  same pattern as when `fixed_cost` was added previously. Re-run the full
   suite to confirm no regressions elsewhere in the shared LSM code path.
 
 ## Close the RL hedging policy's gap to the delta baseline

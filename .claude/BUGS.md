@@ -44,13 +44,15 @@ the actor loss, and action selection during training; `test-hedge`'s
 deterministic evaluation action was updated to match
 (`AmericanHedging/Hedge.py`, `scripts/test_hedge.py`).
 
-## LSM delta/gamma estimates unreliable near maturity (open)
+## LSM delta/gamma estimates unreliable near maturity (fixed)
 
 **Symptom:** `LongstaffSchwartz.delta` (and by extension `.gamma`) falls
 outside a call's theoretically valid `[0,1]` range a meaningful fraction of
-the time, worse near maturity: 2% invalid at t=50 climbing to 15.3% invalid
-at t=363 (the last step before expiry), with values reaching into the tens
-(and, at higher `max_degree`, into the thousands). Feeds directly into
+the time, worse near maturity — and worse than first measured: while the
+original seed used to characterize this showed 15.3% invalid at the last
+step before expiry, other random seeds showed it as high as 91.6% invalid
+at that same step, with values reaching into the tens (and, at higher
+`max_degree`, into the thousands). Feeds directly into
 `AmericanHedging/HedgeEnv.py`'s state (`self.lsm.delta[t_clamped, i]`) and
 into the `delta_hedge` baseline (`AmericanHedging/baselines.py`), which
 returns this value unclamped — since `HedgeEnv.step()` only clips the
@@ -63,21 +65,75 @@ value. Near maturity the true value function's kink at `S=K` sharpens
 toward the discontinuous step-function payoff; a low-degree global
 polynomial can't bend that sharply, so the fit wiggles slightly to
 compromise, and differentiating amplifies that wiggle into large swings in
-the reported Greek. Confirmed via two ruled-out fixes: `reg_type=laguerre`
-produces results identical to `simple` to 10 significant figures (same-
-degree polynomial bases span the same function space, so basis choice can't
-change the fit), and raising `max_degree` makes it dramatically *worse*
-(Runge's phenomenon — more degrees of freedom to oscillate, amplified
-further by each derivative order): overall validity drops from 89% at
-degree 3 to 65% at degree 5 to 50% at degree 7.
+the reported Greek. Two candidate fixes were empirically ruled out first:
+`reg_type=laguerre` produces results identical to `simple` to 10 significant
+figures (same-degree polynomial bases span the same function space, so
+basis choice can't change the fit), and raising `max_degree` makes it
+dramatically *worse* (Runge's phenomenon — more degrees of freedom to
+oscillate, amplified further by each derivative order): overall validity
+drops from 89% at degree 3 to 65% at degree 5 to 50% at degree 7. A
+clamp/soft-clamp post-hoc fix was also considered and rejected — it would
+only bound the output without correcting the underlying estimate.
 
-**Status:** investigating a real fix (ridge-regularized regression is the
-leading candidate; also considered: local/piecewise regression by
-moneyness, finite-difference Greeks, a parametric bounded functional form)
-rather than a clamp/soft-clamp band-aid, which would only bound the output
-without correcting the underlying estimate. See `.claude/PLAN.md`'s "Fix
-unreliable LSM delta/gamma estimates near maturity" entry for the live
-task list.
+**Fix:** two changes to `LongstaffSchwartz`, both opt-in (default off,
+preserving exact prior behavior for every other consumer — `price`,
+`train-ml`'s dataset generation, etc. — unless explicitly enabled):
+1. `ridge_lambda` (opt-in, 0.0 default): switches the per-timestep
+   regression from unregularized `LinearRegression` to `Ridge` when > 0.
+   Directly targets the mechanism — the overshoot is an ill-conditioned
+   least-squares fit producing exploding coefficients, and an L2 penalty
+   discourages that.
+2. `moneyness_bins`/`moneyness_bins_window` (opt-in, defaults `1`/`1.0` =
+   single global fit everywhere, matching prior behavior): splits
+   in-the-money paths into quantile bins by `S_t` and fits one model per
+   bin, but *only* for timesteps within `moneyness_bins_window` of maturity
+   — applying it uniformly across the whole timeline was tried first and
+   made the (already well-behaved) middle of the timeline dramatically
+   worse (a fit on ~250 points per bin is less stable than one on ~5000,
+   and most timesteps don't have a sharp-enough kink to need localizing).
+
+   Gating to near-maturity-only fixed that: the middle of the timeline stays
+   exactly as before, and only the region that actually needs it changes.
+
+Validated with `ridge_lambda=0.06, moneyness_bins=30,
+moneyness_bins_window=0.3` across 3 random seeds: invalid fraction over the
+last 20 timesteps dropped from a 9.6-14.5% baseline to 1.8-9.5%, and at the
+single worst (last) timestep specifically, from 15.3-91.6% down to
+0.9-1.2% consistently, while price vs. a Binomial Tree benchmark stayed
+within the same noise band as the unregularized baseline's own run-to-run
+variation (see the price-drift entry below). Wired as the new default for
+`train-hedge`/`test-hedge` (`scripts/train_hedge.py`,
+`scripts/test_hedge.py`); every other `LongstaffSchwartz` consumer is
+unaffected since its own defaults are unchanged.
+
+## Price-vs-Binomial-Tree drift comparisons are noisy across seeds (open, for later)
+
+**Symptom:** found while validating the Greeks fix above. The unregularized
+LSM baseline's own price error vs. a Binomial Tree reference varies by
+random seed by more than the size of typical regularization effects:
+-1.33% (seed 42), +1.31% (seed 7), +1.05% (seed 123) — all from the *same*
+unfixed code, just different Monte Carlo draws. A fix's price effect
+(e.g. the Greeks fix above, at roughly ±0.5-1pp) is the same order of
+magnitude as this seed-to-seed noise floor, which makes "does this fix
+change the price" hard to answer precisely from a single seed, and a
+config that looks price-neutral on one seed can look mildly price-positive
+or price-negative on another purely from simulation noise, not a real
+effect.
+
+**Root cause (partially understood):** LSM pricing is a Monte Carlo
+estimate with genuine sampling variance; 10,000 paths may simply not be
+enough for the price estimate's own confidence interval to be small
+relative to the effect sizes being evaluated here. Not yet confirmed
+whether more paths would tighten this to a comfortable margin, or whether
+there's an additional source of run-to-run variance beyond plain sampling
+noise.
+
+**Status:** not fixed, deliberately deferred. Worth revisiting with either
+a larger path count (to check if the seed-to-seed spread shrinks as
+expected for Monte Carlo noise) or a paired-seed comparison methodology
+(same seed, with vs. without a change) rather than comparing to a fixed
+Binomial Tree reference computed independently, before treating any future
+LSM price-accuracy claim as precise to better than ~1-2%.
 
 ## ML surrogate pricer's target had a self-inflicted kink at ATM (fixed)
 
