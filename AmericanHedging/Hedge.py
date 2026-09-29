@@ -33,13 +33,29 @@ def _squash(dist: torch.distributions.Distribution, eps: float = 1e-6) -> tuple[
 def train(policy, env, replay_buffer, critic1, critic2,
           gamma=0.99, tau=0.01, alpha=0.2, lr=1e-4,
           n_episodes=1000, update_every=10, warmup_steps=1000, batch_size=256,
-          grad_steps_per_update=1, risk_lambda=0.0,
+          grad_steps_per_update=1, risk_lambda=0.0, reward_scale=1.0,
+          auto_alpha=False, target_entropy=-1.0,
           checkpoint_path="checkpoints/best_policy_model.pth"):
-
+    """
+    reward_scale: multiplies the env reward before the risk penalty, i.e. the
+        critics/actor train on `x - risk_lambda * x**2` with x = reward_scale *
+        reward. Hedging rewards are ~1e-2 per step, orders of magnitude below
+        the entropy term (alpha * log_pi ~ O(0.1)), which otherwise dominates
+        the actor loss.
+    auto_alpha: learn the entropy coefficient (standard SAC automatic entropy
+        tuning) instead of keeping it fixed; `alpha` is then only its initial
+        value, and it's adjusted to keep the policy's entropy near
+        `target_entropy` (conventionally -action_dim).
+    """
     if grad_steps_per_update < 1:
         # 0 (or negative) would silently skip every critic/actor update below,
         # running a full n_episodes training loop that never actually learns.
         raise ValueError(f"grad_steps_per_update must be >= 1, got {grad_steps_per_update}")
+    if reward_scale <= 0:
+        raise ValueError(f"reward_scale must be > 0, got {reward_scale}")
+    if alpha <= 0 and auto_alpha:
+        # log(alpha) is the learned parameter.
+        raise ValueError(f"alpha must be > 0 when auto_alpha is set, got {alpha}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")
@@ -61,6 +77,9 @@ def train(policy, env, replay_buffer, critic1, critic2,
     critic_opt = torch.optim.Adam(
         list(critic1.parameters()) + list(critic2.parameters()), lr=lr
     )
+    if auto_alpha:
+        log_alpha = torch.tensor(np.log(alpha), dtype=torch.float32, device=device, requires_grad=True)
+        alpha_opt = torch.optim.Adam([log_alpha], lr=lr)
 
     Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -90,10 +109,11 @@ def train(policy, env, replay_buffer, critic1, critic2,
                     action = torch.tanh(dist.sample()).item()
 
             next_state, reward, done = env.step(action)
-            # Critic/actor train on a risk-shaped reward (mean-variance style);
-            # episode_reward (and thus the checkpoint criterion) stays on the
-            # raw env reward so it remains comparable to test-hedge's P&L.
-            shaped_reward = reward - risk_lambda * reward ** 2
+            # Critic/actor train on a scaled, risk-shaped reward (mean-variance
+            # style); episode_reward (and thus the checkpoint criterion) stays
+            # on the raw env reward so it remains comparable to test-hedge's P&L.
+            scaled_reward = reward_scale * reward
+            shaped_reward = scaled_reward - risk_lambda * scaled_reward ** 2
             replay_buffer.push(state, action, shaped_reward, next_state, done)
             state = next_state
             episode_reward += reward
@@ -136,9 +156,17 @@ def train(policy, env, replay_buffer, critic1, critic2,
 
                 actor_opt.zero_grad(); actor_loss.backward(); actor_opt.step()
 
+                if auto_alpha:
+                    alpha_loss = -(log_alpha * (log_pi.detach() + target_entropy)).mean()
+                    alpha_opt.zero_grad(); alpha_loss.backward(); alpha_opt.step()
+                    alpha = log_alpha.exp().item()
+
         recent_rewards.append(episode_reward)
         mean_reward = np.mean(recent_rewards)
-        episode_bar.set_postfix(reward=f"{episode_reward:.4f}", mean_reward_50=f"{mean_reward:.4f}")
+        postfix = {"reward": f"{episode_reward:.4f}", "mean_reward_50": f"{mean_reward:.4f}"}
+        if auto_alpha:
+            postfix["alpha"] = f"{alpha:.4f}"
+        episode_bar.set_postfix(**postfix)
 
         if len(recent_rewards) == recent_rewards.maxlen and mean_reward > best_mean_reward:
             best_mean_reward = mean_reward

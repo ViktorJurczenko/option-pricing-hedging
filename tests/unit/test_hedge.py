@@ -284,6 +284,108 @@ def test_grad_steps_per_update_runs_n_gradient_cycles_per_trigger(tmp_path):
     assert calls_triple == 15
 
 
+def test_train_scales_reward_before_applying_risk_penalty(tmp_path):
+    """reward_scale must multiply the reward BEFORE the risk_lambda penalty
+    is applied: buffer must receive (scale*r) - risk_lambda*(scale*r)**2,
+    not risk_lambda*r**2 scaled afterward (a different, smaller number when
+    scale != 1). risk_lambda*(scale*r)**2 grows with scale**2, so this test
+    would fail under the wrong operation order even though reward_scale=1.0
+    (the default, exercised by the pre-existing risk-shaping tests above)
+    can't distinguish the two orderings at all."""
+    risk_lambda = 0.5
+    reward_scale = 10.0
+    raw_rewards = [0.15, -0.2]
+    env = FakeEnv(raw_rewards)
+    buffer = SpyReplayBuffer(max_size=100)
+    policy, critic1, critic2 = _make_nets()
+
+    train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=10 ** 6, batch_size=10 ** 6,
+        risk_lambda=risk_lambda, reward_scale=reward_scale,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    expected_shaped = [
+        (reward_scale * r) - risk_lambda * (reward_scale * r) ** 2 for r in raw_rewards
+    ]
+    assert buffer.pushed_rewards == pytest.approx(expected_shaped)
+
+
+@pytest.mark.parametrize("reward_scale", [0, -1.0, -5])
+def test_train_raises_on_non_positive_reward_scale(reward_scale):
+    with pytest.raises(ValueError, match="reward_scale"):
+        train(None, None, None, None, None, reward_scale=reward_scale)
+
+
+def test_train_raises_on_non_positive_alpha_with_auto_alpha():
+    with pytest.raises(ValueError, match="alpha"):
+        train(None, None, None, None, None, alpha=0.0, auto_alpha=True)
+
+
+def test_auto_alpha_moves_alpha_away_from_its_initial_value(monkeypatch, tmp_path):
+    """With auto_alpha=True, each gradient update runs an Adam step on
+    log_alpha driven by (log_pi.detach() + target_entropy).mean(), which is
+    virtually never exactly zero for a freshly (seeded) initialized Gaussian
+    policy -- so alpha must move away from its initial value. Observed the
+    same way test_train_episode_reward_bookkeeping_stays_on_raw_reward
+    observes episode_reward: via a tqdm subclass recording set_postfix."""
+    torch.manual_seed(0)
+    initial_alpha = 0.2
+    env = FakeEnv(raw_rewards=[1.0] * 6)  # 6-step episode
+    buffer = ReplayBuffer(max_size=1000)
+    policy, critic1, critic2 = _make_nets()
+
+    postfix_log = []
+
+    class RecordingTqdm(tqdm_pkg.tqdm):
+        def set_postfix(self, **kwargs):
+            postfix_log.append(kwargs)
+            return super().set_postfix(**kwargs)
+
+    monkeypatch.setattr(hedge_module, "tqdm", RecordingTqdm)
+
+    hedge_module.train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        alpha=initial_alpha, auto_alpha=True,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    assert len(postfix_log) == 1
+    assert "alpha" in postfix_log[0]
+    final_alpha = float(postfix_log[0]["alpha"])
+    assert final_alpha != pytest.approx(initial_alpha)
+
+
+def test_without_auto_alpha_postfix_omits_alpha_key(monkeypatch, tmp_path):
+    """Regression guard: with auto_alpha=False (the default), the tqdm
+    postfix must not gain an 'alpha' key at all -- alpha stays whatever was
+    passed in, with no log_alpha parameter/optimizer created."""
+    env = FakeEnv(raw_rewards=[1.0] * 6)
+    buffer = ReplayBuffer(max_size=1000)
+    policy, critic1, critic2 = _make_nets()
+
+    postfix_log = []
+
+    class RecordingTqdm(tqdm_pkg.tqdm):
+        def set_postfix(self, **kwargs):
+            postfix_log.append(kwargs)
+            return super().set_postfix(**kwargs)
+
+    monkeypatch.setattr(hedge_module, "tqdm", RecordingTqdm)
+
+    hedge_module.train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        auto_alpha=False,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    assert len(postfix_log) == 1
+    assert "alpha" not in postfix_log[0]
+
+
 @pytest.mark.parametrize("grad_steps_per_update", [0, -1, -5])
 def test_train_raises_on_non_positive_grad_steps_per_update(grad_steps_per_update):
     """grad_steps_per_update <= 0 used to silently disable every critic/actor
