@@ -44,6 +44,73 @@ convergence tests in `tests/integration/test_pricing_convergence.py`). The put
 prices are higher for the American exercise style than the European style, as
 expected since early exercise has value for puts.
 
+### LSM delta/gamma accuracy near maturity
+
+**Longstaff-Schwartz, briefly:** pricing an American option means knowing,
+at every point along a simulated path, whether exercising now beats holding
+on — which needs an estimate of what holding on is worth (the *continuation
+value*), not directly observable from a single path since it depends on the
+(unsimulated) future. LSM's answer: walk each simulated path backward from
+expiry, and at each timestep, regress the already-known future discounted
+payoff on the current stock price, across all in-the-money paths at that
+timestep, to fit an estimate of continuation value — then compare that
+estimate to the immediate exercise payoff to decide the optimal exercise
+point for each path. The regression's coefficients also give delta and
+gamma for free, as the fitted function's analytic derivatives, without a
+separate finite-difference pass.
+
+```
+python main.py test-hedge --policy delta
+```
+
+That last part turned out to be far less reliable near maturity than the
+price convergence above would suggest. A call's delta must be in `[0, 1]`;
+with the default degree-3 polynomial fit, delta lands outside that range
+**up to 91.6% of the time** at the very last timestep before expiry
+(depending on random seed), with values reaching into the tens — or, at a
+higher regression degree, the thousands. This matters in practice:
+`HedgeEnv` feeds this delta straight into the hedging policy's state, and
+`AmericanHedging/baselines.py`'s `delta_hedge` baseline trades on it
+directly and unclamped — a negative "delta" near expiry could execute as an
+actual short position, the wrong trade direction.
+
+**Why:** a call's value-vs-price curve develops an increasingly sharp
+corner at `S = K` as maturity approaches, converging on the kinked expiry
+payoff. A single smooth global polynomial can't bend that sharply; it
+wiggles slightly to compromise instead, and differentiating a wiggly fit
+amplifies the wiggle into large Greek swings — worse at higher polynomial
+degree, not better (more degrees of freedom to oscillate), which rules out
+"just fit a higher-degree polynomial" as a fix.
+
+**Fix:** two opt-in `LongstaffSchwartz` parameters, both off by default (so
+every other consumer — `price`, the ML surrogate's dataset generation — is
+unaffected unless it explicitly opts in):
+- `ridge_lambda` — L2-regularizes the per-timestep regression, directly
+  discouraging the exploding coefficients that cause the overshoot.
+- `moneyness_bins` / `moneyness_bins_window` — splits in-the-money paths
+  into quantile bins by spot price and fits one regression per bin, but
+  *only* for timesteps within `moneyness_bins_window` of maturity. Applying
+  this to every timestep was tried first and made the already well-behaved
+  middle of the timeline worse — a fit on ~250 points per bin is less
+  stable than one on ~5,000, and most timesteps aren't kinked sharply
+  enough to need localizing.
+
+`train-hedge`/`test-hedge` now default to `--ridge_lambda 0.06
+--moneyness_bins 30 --moneyness_bins_window 0.3` — found by sweeping both
+parameters together and picking the combination that maximized
+near-maturity Greeks accuracy subject to keeping the option price within
+the unregularized baseline's own natural error vs. a Binomial Tree
+benchmark. Validated across 3 random seeds:
+
+| | Baseline | Fixed |
+|---|---|---|
+| Invalid delta, last 20 timesteps (avg) | 9.6-14.5% | 1.8-9.5% |
+| Invalid delta, single worst timestep | 15.3-91.6% | 0.9-1.2% |
+| Price drift vs. Binomial Tree | -1.33% to +1.31% | within the same noise band |
+
+Full incident writeup (symptom, root cause, ruled-out fixes) is in
+`.claude/BUGS.md`.
+
 ### MLP surrogate vs. Longstaff-Schwartz
 
 ```
@@ -228,7 +295,9 @@ Module layout mirrors option class for pricing, and role for everything else:
   (path-average payoff).
 - **`AmericanOptionPricing/`** — `BinomialTree` (CRR tree with backward
   induction), `LongstaffSchwartz` (LSM with simple/Laguerre polynomial
-  regression bases and analytic delta/gamma), `basis_functions.py` (the
+  regression bases and analytic delta/gamma; optional `ridge_lambda` and
+  near-maturity `moneyness_bins`/`moneyness_bins_window` to fix Greeks
+  overshoot close to expiry — see Results above), `basis_functions.py` (the
   regression bases, unit-tested independently), `ML.py` (the `MLP` surrogate,
   4 inputs → 1 output: `(price - smooth_intrinsic_value) / K` — a smoothly
   decomposed residual, not raw price; see Results above for why), `evaluation.py`
