@@ -35,6 +35,14 @@ def test_black_scholes_value_fn_raises_on_invalid_option_type():
         black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="straddle")
 
 
+def test_black_scholes_value_fn_raises_type_error_when_option_type_omitted():
+    """Regression guard: option_type used to default to "call", so omitting
+    it silently priced a call. It is now a required positional/keyword
+    argument -- calling without it must raise TypeError, not fall back."""
+    with pytest.raises(TypeError):
+        black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS)
+
+
 def test_black_scholes_value_fn_matches_direct_bs_at_reduced_tau():
     """value_fn(t, S) must equal a fresh BlackScholes priced at the row's
     remaining time tau = (n_steps-1-t)*maturity/n_steps -- this is the core
@@ -97,6 +105,14 @@ def test_black_scholes_value_fn_t_zero_uses_reduced_maturity_not_full_maturity()
 def test_binomial_value_fn_raises_on_invalid_option_type():
     with pytest.raises(ValueError, match="option_type"):
         binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="straddle")
+
+
+def test_binomial_value_fn_raises_type_error_when_option_type_omitted():
+    """Regression guard: option_type used to default to "put", so omitting
+    it silently priced a put. It is now a required positional/keyword
+    argument -- calling without it must raise TypeError, not fall back."""
+    with pytest.raises(TypeError):
+        binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS)
 
 
 def test_binomial_value_fn_raises_on_substeps_below_one():

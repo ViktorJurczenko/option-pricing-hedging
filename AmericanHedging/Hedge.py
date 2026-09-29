@@ -34,7 +34,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
           gamma=0.99, tau=0.01, alpha=0.2, lr=1e-4,
           n_episodes=1000, update_every=10, warmup_steps=1000, batch_size=256,
           grad_steps_per_update=1, risk_lambda=0.0, reward_scale=1.0,
-          auto_alpha=False, target_entropy=-1.0,
+          auto_alpha=False, target_entropy=-1.0, alpha_lr=None,
           checkpoint_path="checkpoints/best_policy_model.pth"):
     """
     reward_scale: multiplies the env reward before the risk penalty, i.e. the
@@ -46,11 +46,17 @@ def train(policy, env, replay_buffer, critic1, critic2,
         tuning) instead of keeping it fixed; `alpha` is then only its initial
         value, and it's adjusted to keep the policy's entropy near
         `target_entropy` (conventionally -action_dim).
+    alpha_lr: Adam learning rate for log_alpha when auto_alpha is set; None
+        (default) reuses `lr`. Only log_alpha's own step size - independent
+        of the actor/critic rate, since it controls how fast exploration
+        adapts rather than how fast the networks fit.
     """
     if grad_steps_per_update < 1:
         # 0 (or negative) would silently skip every critic/actor update below,
         # running a full n_episodes training loop that never actually learns.
         raise ValueError(f"grad_steps_per_update must be >= 1, got {grad_steps_per_update}")
+    if alpha_lr is not None and alpha_lr <= 0:
+        raise ValueError(f"alpha_lr must be > 0, got {alpha_lr}")
     if reward_scale <= 0:
         raise ValueError(f"reward_scale must be > 0, got {reward_scale}")
     if alpha <= 0 and auto_alpha:
@@ -79,7 +85,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
     )
     if auto_alpha:
         log_alpha = torch.tensor(np.log(alpha), dtype=torch.float32, device=device, requires_grad=True)
-        alpha_opt = torch.optim.Adam([log_alpha], lr=lr)
+        alpha_opt = torch.optim.Adam([log_alpha], lr=lr if alpha_lr is None else alpha_lr)
 
     Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
 

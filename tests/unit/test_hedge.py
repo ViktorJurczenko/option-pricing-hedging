@@ -386,6 +386,72 @@ def test_without_auto_alpha_postfix_omits_alpha_key(monkeypatch, tmp_path):
     assert "alpha" not in postfix_log[0]
 
 
+def test_alpha_lr_none_reuses_lr_for_log_alpha_optimizer(monkeypatch, tmp_path):
+    """alpha_lr=None (the default) must make the log_alpha Adam optimizer
+    reuse `lr`, not some other hardcoded value -- this is the exact fallback
+    the alpha_lr parameter introduces. Checked directly on the Adam
+    constructor call (via a spy on torch.optim.Adam) rather than on the
+    resulting alpha trajectory, since that keeps the test deterministic
+    instead of depending on gradient dynamics."""
+    captured_lrs = []
+    real_adam = torch.optim.Adam
+
+    class SpyAdam(real_adam):
+        def __init__(self, params, lr, *args, **kwargs):
+            captured_lrs.append(lr)
+            super().__init__(params, lr, *args, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "Adam", SpyAdam)
+
+    env = FakeEnv(raw_rewards=[1.0] * 6)
+    buffer = ReplayBuffer(max_size=1000)
+    policy, critic1, critic2 = _make_nets()
+
+    hedge_module.train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        lr=7e-3, auto_alpha=True, alpha_lr=None,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    # Creation order in train(): actor_opt, critic_opt, then (auto_alpha)
+    # alpha_opt -- all three must see lr=7e-3 when alpha_lr is None.
+    assert captured_lrs == pytest.approx([7e-3, 7e-3, 7e-3])
+
+
+def test_alpha_lr_explicit_value_used_only_for_log_alpha_optimizer(monkeypatch, tmp_path):
+    """An explicit alpha_lr, different from lr, must reach only the log_alpha
+    optimizer -- the actor/critic optimizers keep training at `lr`."""
+    captured_lrs = []
+    real_adam = torch.optim.Adam
+
+    class SpyAdam(real_adam):
+        def __init__(self, params, lr, *args, **kwargs):
+            captured_lrs.append(lr)
+            super().__init__(params, lr, *args, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "Adam", SpyAdam)
+
+    env = FakeEnv(raw_rewards=[1.0] * 6)
+    buffer = ReplayBuffer(max_size=1000)
+    policy, critic1, critic2 = _make_nets()
+
+    hedge_module.train(
+        policy, env, buffer, critic1, critic2,
+        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        lr=7e-3, auto_alpha=True, alpha_lr=0.5,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+
+    assert captured_lrs == pytest.approx([7e-3, 7e-3, 0.5])
+
+
+@pytest.mark.parametrize("alpha_lr", [0, -1.0, -5])
+def test_train_raises_on_non_positive_alpha_lr(alpha_lr):
+    with pytest.raises(ValueError, match="alpha_lr"):
+        train(None, None, None, None, None, alpha_lr=alpha_lr)
+
+
 @pytest.mark.parametrize("grad_steps_per_update", [0, -1, -5])
 def test_train_raises_on_non_positive_grad_steps_per_update(grad_steps_per_update):
     """grad_steps_per_update <= 0 used to silently disable every critic/actor

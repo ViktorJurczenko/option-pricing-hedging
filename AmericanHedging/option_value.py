@@ -13,7 +13,7 @@ def _intrinsic(S: np.ndarray, strike: float, option_type: str) -> np.ndarray:
     return np.maximum(strike - S, 0.0)
 
 def black_scholes_value_fn(strike: float, risk_free_rate: float, sigma: float,
-                           maturity: float, n_steps: int, option_type: str = "call") -> ValueFn:
+                           maturity: float, n_steps: int, option_type: str) -> ValueFn:
     """Closed-form option value on the simulation's time grid.
 
     Row t of a `GBM.simulate_paths` array sits at time t*dt with
@@ -41,7 +41,7 @@ def black_scholes_value_fn(strike: float, risk_free_rate: float, sigma: float,
     return value_fn
 
 def binomial_value_fn(start_price: float, strike: float, risk_free_rate: float, sigma: float,
-                      maturity: float, n_steps: int, option_type: str = "put",
+                      maturity: float, n_steps: int, option_type: str,
                       substeps: int = 4) -> ValueFn:
     """American option value on the simulation's time grid, from a single
     Cox-Ross-Rubinstein tree rooted at `start_price`.
@@ -54,6 +54,12 @@ def binomial_value_fn(start_price: float, strike: float, risk_free_rate: float, 
     O((n_steps * substeps)^2) build cost. Spots outside a row's node range are
     clamped to the edge node's value, then floored at the intrinsic value
     (an American option is never worth less than immediate exercise).
+
+    substeps=4 default: on the train-hedge grid (365 steps, sigma=0.2), the
+    tree's call value stays within ~0.01 of the exact Black-Scholes value
+    at every row checked (0.001 at t=0), and the build (~1.5k tree steps)
+    takes well under a second - accurate enough for a reward term whose
+    per-step scale is ~1e-2 * K, without the O(n^2) cost of more substeps.
     """
     if option_type not in ["call", "put"]:
         raise ValueError("option_type must be 'call' or 'put'")

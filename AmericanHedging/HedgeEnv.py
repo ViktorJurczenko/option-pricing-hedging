@@ -88,6 +88,9 @@ class HedgingEnv:
 
         if self.reward_mode == "accounting":
             V_t  = self.option_values[t, i]
+            # option_payoff is only defined when done; the conditional
+            # expression never evaluates it otherwise. On the exercise step the
+            # option is worth its payoff, not its continuation value V.
             V_t1 = option_payoff if done else self.option_values[t + 1, i]
             reward = (hedge_pnl - cost - (V_t1 - V_t)) / self.lsm.strike
         elif done:

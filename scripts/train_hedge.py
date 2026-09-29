@@ -37,6 +37,7 @@ def add_arguments(parser):
     parser.add_argument("--gamma", default=1.0, type=float, help="SAC discount factor. Episodes are finite and time is in the state, so no discounting is needed by default.")
     parser.add_argument("--reward_scale", default=100.0, type=float, help="Multiplier on the env reward before the risk penalty, so per-step rewards (~1e-2) aren't drowned out by the entropy term.")
     parser.add_argument("--auto_alpha", default=True, action=argparse.BooleanOptionalAction, help="Learn the SAC entropy coefficient toward a target entropy of -1 (--alpha is then its initial value). --no-auto_alpha keeps alpha fixed.")
+    parser.add_argument("--alpha_lr", default=None, type=float, help="Adam learning rate for the learned entropy coefficient (with --auto_alpha; ignored with --no-auto_alpha). Defaults to --lr.")
     parser.add_argument("--checkpoint_path", default="checkpoints/best_policy_model.pth", type=str, help="Where to save the best policy.")
 
 def run(args):
@@ -72,6 +73,6 @@ def run(args):
         n_episodes=args.n_episodes, warmup_steps=args.warmup_steps, update_every=args.update_every,
         grad_steps_per_update=args.grad_steps_per_update, risk_lambda=args.risk_lambda,
         lr=args.lr, alpha=args.alpha, gamma=args.gamma,
-        reward_scale=args.reward_scale, auto_alpha=args.auto_alpha,
+        reward_scale=args.reward_scale, auto_alpha=args.auto_alpha, alpha_lr=args.alpha_lr,
         checkpoint_path=args.checkpoint_path,
     )

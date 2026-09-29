@@ -70,6 +70,17 @@ def test_add_arguments_no_auto_alpha_flag_sets_false():
     assert args.auto_alpha is False
 
 
+def test_add_arguments_registers_alpha_lr_default_none():
+    args = _make_parser().parse_args([])
+    assert args.alpha_lr is None
+
+
+def test_add_arguments_alpha_lr_overridable_and_parsed_as_float():
+    args = _make_parser().parse_args(["--alpha_lr", "0.05"])
+    assert args.alpha_lr == pytest.approx(0.05)
+    assert isinstance(args.alpha_lr, float)
+
+
 def test_add_arguments_risk_lambda_default_changed_to_1_0():
     """Regression guard for the default change: a hedge trained with
     risk_lambda=0 has no incentive to hedge at all (every hedge ratio has
@@ -82,7 +93,7 @@ def test_add_arguments_risk_lambda_default_changed_to_1_0():
 
 def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
                     reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
-                    option_type="call"):
+                    option_type="call", alpha_lr=None):
     return argparse.Namespace(
         sigma=0.2,
         start_price=100.0,
@@ -110,6 +121,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         grad_steps_per_update=1,
         lr=lr,
         alpha=alpha,
+        alpha_lr=alpha_lr,
         replay_buffer_size=1000,
         checkpoint_path="unused.pth",
     )
@@ -193,6 +205,42 @@ def test_run_forwards_default_gamma_reward_scale_and_auto_alpha_distinctly(monke
     assert captured_kwargs["gamma"] == pytest.approx(1.0)
     assert captured_kwargs["reward_scale"] == pytest.approx(100.0)
     assert captured_kwargs["auto_alpha"] is True
+
+
+def test_run_forwards_alpha_lr_to_train(monkeypatch):
+    """Regression test for the same class of bug as --lr/--alpha above:
+    --alpha_lr must actually reach Hedge.train(), not just exist on the
+    parser. args.alpha_lr defaults to None (see _make_run_args), so run()
+    would raise AttributeError before this if the field were missing --
+    checked here for a non-default explicit value."""
+    captured_kwargs = {}
+
+    def fake_train(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(train_hedge_script, "train", fake_train)
+
+    args = _make_run_args(lr=1e-4, alpha=0.2, alpha_lr=0.03)
+    train_hedge_script.run(args)
+
+    assert captured_kwargs["alpha_lr"] == pytest.approx(0.03)
+
+
+def test_run_forwards_default_alpha_lr_of_none(monkeypatch):
+    """Sanity check on the test above: confirms run() forwards whatever
+    args.alpha_lr carries, including the None default, rather than always
+    passing a hardcoded value regardless of args."""
+    captured_kwargs = {}
+
+    def fake_train(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(train_hedge_script, "train", fake_train)
+
+    args = _make_run_args(lr=1e-4, alpha=0.2)  # alpha_lr=None by default
+    train_hedge_script.run(args)
+
+    assert captured_kwargs["alpha_lr"] is None
 
 
 def test_run_terminal_mode_does_not_build_a_value_fn(monkeypatch):
