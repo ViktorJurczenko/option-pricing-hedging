@@ -48,6 +48,10 @@ Before tackling a new issue or feature, draft a short plan: list the candidate a
 
 Each step starts as `- [ ] Step title` with a short description underneath explaining what it does and why. When a step is completed, drop the description and change it to `- [x] Step title` — the file stays a compact log of what's actually been done, not an accumulating pile of stale planning notes.
 
+## Bug tracking
+
+Every problem/bug encountered while working on this project must be transcribed into `.claude/BUGS.md`: a symptom/root-cause/fix (or current status, if unresolved) write-up, following the existing entries' format. New feature implementation that isn't a bug or a fix does not belong there — that's what `.claude/PLAN.md` is for.
+
 ## Testing
 
 ```
