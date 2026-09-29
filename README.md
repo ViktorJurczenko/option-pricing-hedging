@@ -202,9 +202,9 @@ than a real difference between policies:
 
 | Policy | Mean P&L | Std P&L | 95% CVaR |
 |---|---|---|---|
-| RL (SAC) | -0.16 (×K) | 0.36 (×K) | -0.91 (×K) |
-| Delta-hedge (analytic) | -0.10 (×K) | 0.06 (×K) | -0.20 (×K) |
-| No hedge | -0.11 (×K) | 0.16 (×K) | -0.45 (×K) |
+| RL (SAC) | -0.11 (×K) | 0.15 (×K) | -0.41 (×K) |
+| Delta-hedge (analytic) | -0.10 (×K) | 0.05 (×K) | -0.18 (×K) |
+| No hedge | -0.11 (×K) | 0.15 (×K) | -0.40 (×K) |
 
 P&L is the hedge's cash flow minus the option payoff at exercise, scaled by
 the strike; std P&L is the hedging error, and 95% CVaR is the tail risk a
@@ -213,16 +213,18 @@ hedger actually cares about minimizing.
 The honest reading of this: at these settings, the trained SAC policy does
 **not** beat the trivial baseline of rebalancing to the Longstaff-Schwartz
 model's own analytic delta every step (`AmericanHedging/baselines.py`) —
-delta-hedging has roughly 6x lower variance and well over 4x better tail risk.
-No-hedge is a sanity floor (not hedging at all should be worse than hedging),
-and it is worse than delta-hedging as expected, but it's *also* better than
-the trained RL policy on both variance and CVaR here. That's a real result,
-not a bug: it means the RL agent hasn't learned to extract anything beyond
-what the analytic Greek it's already given as a state feature captures, under
-this reward/transaction-cost/episode-length setup — a more useful thing to
-know than the single, baseline-less number this section used to report, and a
-concrete starting point for improving the policy (reward shaping, longer
-warmup, network capacity) rather than assuming it was already good.
+delta-hedging has roughly 3x lower variance and well over 2x better tail
+risk. No-hedge is a sanity floor (not hedging at all should be worse than
+hedging), and the RL policy currently lands right on top of it rather than
+above it — essentially indistinguishable on all three metrics. That's a real
+result, not a bug: training is numerically stable (a real actor-divergence
+bug was found and fixed here — see `.claude/BUGS.md`) and the state's
+delta/gamma features are now reliable near maturity (see the LSM fix
+above) — retraining after fixing both confirmed the gap isn't explained by
+either of those, so it's a genuine open question in the RL setup itself
+(reward shaping, exploration/entropy balance, network capacity, training
+budget), tracked in `.claude/PLAN.md`'s "Close the RL hedging policy's gap
+to the delta baseline" entry.
 
 ### Test suite
 
