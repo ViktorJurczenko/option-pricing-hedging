@@ -44,6 +44,13 @@ hedge yet in the default 1000-episode budget.
 - [x] Diagnostic: check lr=3e-4 (inconclusive too - see below)
 - [x] Diagnostic: train longer (5000 episodes, still flat - see below)
 - [x] Retrain with Greeks-fixed defaults and refresh README (still flat - see below)
+- [ ] Diagnostic: train longer with Greeks-fixed defaults
+  The 1000-episode Greeks-fixed retrain above was still flat, but only
+  matched the *default* episode budget - the original "train longer"
+  diagnostic (5000 episodes) predates the Greeks fix. Re-run that same
+  5000-episode diagnostic with the fixed Greeks active, to check whether
+  training duration and Greeks accuracy need to combine before the plateau
+  breaks, rather than either alone.
 - [ ] Targeted hyperparameter sweep
   Four independent diagnostics now show the same flat plateau (`alpha`,
   `lr`, 10x training duration, and now a clean/reliable delta feature via
