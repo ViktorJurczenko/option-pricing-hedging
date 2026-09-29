@@ -91,7 +91,7 @@ class LongstaffSchwartz(OptionPricing):
         self.moneyness_bins = moneyness_bins
         self.moneyness_bins_window = moneyness_bins_window
 
-    def _fit_model(self, X: np.ndarray, y: np.ndarray):
+    def _fit_model(self, X: np.ndarray, y: np.ndarray) -> LinearRegression | Ridge:
         if self.ridge_lambda > 0:
             return Ridge(alpha=self.ridge_lambda, fit_intercept=False).fit(X, y)
         return LinearRegression(fit_intercept=False).fit(X, y)
@@ -154,6 +154,11 @@ class LongstaffSchwartz(OptionPricing):
         for b in range(n_bins):
             train_mask = bin_idx_itm == b
             if not np.any(train_mask):
+                # Not reachable with continuous GBM-sourced S_t (quantile
+                # bins guarantee every bin gets points), but guards against
+                # an empty bin if that ever stops holding (e.g. a different
+                # path-generation source with many duplicate/degenerate
+                # prices).
                 continue
 
             model = self._fit_model(features_itm[train_mask], true_continue_itm[train_mask])
