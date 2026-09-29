@@ -44,24 +44,22 @@ hedge yet in the default 1000-episode budget.
 - [x] Diagnostic: check lr=3e-4 (inconclusive too - see below)
 - [x] Diagnostic: train longer (5000 episodes, still flat - see below)
 - [x] Retrain with Greeks-fixed defaults and refresh README (still flat - see below)
-- [ ] Diagnostic: train longer with Greeks-fixed defaults
-  The 1000-episode Greeks-fixed retrain above was still flat, but only
-  matched the *default* episode budget - the original "train longer"
-  diagnostic (5000 episodes) predates the Greeks fix. Re-run that same
-  5000-episode diagnostic with the fixed Greeks active, to check whether
-  training duration and Greeks accuracy need to combine before the plateau
-  breaks, rather than either alone.
+- [x] Diagnostic: train longer with Greeks-fixed defaults (still flat - see below)
 - [ ] Targeted hyperparameter sweep
-  Four independent diagnostics now show the same flat plateau (`alpha`,
-  `lr`, 10x training duration, and now a clean/reliable delta feature via
-  the Greeks fix) - none of them explain it, so the RL policy landing on
-  top of `no_hedge` instead of above it is a genuine open question in the
-  SAC setup itself, not noise from any of those four factors. Remaining
-  candidates: `update_every`/`grad_steps_per_update` and combinations of
-  the above, plus reward shaping / network capacity if those don't help
-  either. Skip `warmup_steps` - it only affects how much random data is
-  collected before learning starts, not whether the actor converges once
-  learning does start, so it's an unlikely bottleneck here.
+  Five independent diagnostics now show the same flat plateau (`alpha`,
+  `lr`, 10x training duration, a clean/reliable delta feature via the
+  Greeks fix, and duration+Greeks combined - the 5000-episode Greeks-fixed
+  run's `mean_std` dropped from ~1.04 to ~0.86 within the first 250
+  episodes and never moved again through all 5000, `action_delta_corr`
+  stayed pure noise the whole time, -0.83 to +0.45 with no trend) - none of
+  them explain it, so the RL policy landing on top of `no_hedge` instead of
+  above it is a genuine open question in the SAC setup itself, not noise
+  from any of those five factors. Remaining candidates:
+  `update_every`/`grad_steps_per_update` and combinations of the above,
+  plus reward shaping / network capacity if those don't help either. Skip
+  `warmup_steps` - it only affects how much random data is collected
+  before learning starts, not whether the actor converges once learning
+  does start, so it's an unlikely bottleneck here.
 - [ ] Re-run the risk_lambda sweep
   Once a training config reliably competes with/beats the `delta` baseline,
   re-run the `risk_lambda` sweep (0.0, 0.01, 0.05, 0.1, 0.5) with that config
