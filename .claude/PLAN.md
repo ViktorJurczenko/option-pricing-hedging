@@ -28,15 +28,7 @@ policy has been training on a meaningfully wrong delta feature roughly 1 in
 - [x] Implement ridge-regularized regression
 - [x] Implement moneyness-binned ("batch") regression, gated to near maturity
 - [x] Validate empirically (ridge_lambda=0.06, moneyness_bins=30, moneyness_bins_window=0.3 - see BUGS.md)
-- [ ] Dispatch test-agent/review-agent
-  Empirical validation above showed a genuine, seed-robust improvement (see
-  BUGS.md) - write tests for the new ridge/binning math (including the
-  near-maturity gating) and fix the existing hedging test fixtures that
-  construct an `args` namespace by hand (`tests/integration/test_hedge_policy_seeding.py`,
-  `tests/integration/test_train_hedge_cli_wiring.py`), which now need
-  `ridge_lambda`/`moneyness_bins`/`moneyness_bins_window` attributes added -
-  same pattern as when `fixed_cost` was added previously. Re-run the full
-  suite to confirm no regressions elsewhere in the shared LSM code path.
+- [x] Dispatch test-agent/review-agent (APPROVE, 101/101 passing)
 
 ## Close the RL hedging policy's gap to the delta baseline
 
