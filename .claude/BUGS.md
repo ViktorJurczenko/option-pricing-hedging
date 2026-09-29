@@ -126,7 +126,35 @@ while keeping the same ranking (RL seed 3 0.041 -> 0.042, LSM delta
 cluster near maturity (mean episode length 343 vs 364 steps despite 56%
 of paths being flagged), where an ITM call's value is already close to
 its payoff.
-Status: objective fixed; the remaining gap is tracked separately.
+
+**Put confirmation:** same protocol with `--option_type put` (four
+policies, training seeds 42/1/2/3, 1000 episodes each, same 2000 seed-999
+evaluation episodes). Reference delta = central difference of the
+binomial-tree American put value (`option_value.binomial_value_fn`):
+
+| Policy | Mean | Std | CVaR | corr(action, LSM Δ / tree Δ) |
+|---|---|---|---|---|
+| RL, seed 42 | -0.077 | 0.023 | -0.113 | 0.84 / 0.82 |
+| RL, seed 1 | -0.081 | 0.033 | -0.142 | 0.83 / 0.84 |
+| RL, seed 2 | -0.079 | 0.025 | -0.125 | 0.79 / 0.82 |
+| RL, seed 3 | -0.084 | 0.029 | -0.135 | 0.76 / 0.83 |
+| Delta (LSM) | -0.087 | 0.044 | -0.165 | |
+| No hedge | -0.063 | 0.067 | -0.169 | |
+| Delta (tree, reference) | -0.079 | 0.012 | -0.100 | |
+
+All four put policies beat the LSM delta baseline on std and CVaR (std
+25-48% lower) and hedge in the right direction (mean position -0.28 to
+-0.35). The LSM put delta is off from the tree delta by 0.18 on average,
+enough that the LSM delta baseline's CVaR (-0.165) barely improves on not
+hedging (-0.169). The best policy is ~2x the tree-delta hedge's std (vs
+~3x for calls). No-hedge has the best *mean* for puts because the hedge
+is a short stock position, which pays the risk-free drift instead of
+earning it - mean P&L excludes the premium and isn't a hedge-quality
+metric; std/CVaR are. Exercise timing: LSM early-exercises 53% of put
+paths vs 46% under the tree's optimal rule, agreeing on exercise-or-not
+for 93% of paths - much closer than for calls (57% vs 0%).
+Status: objective fixed for calls and puts; the remaining gap (the LSM
+delta estimate) is tracked separately.
 
 ## SAC actor diverged unboundedly during hedge training (fixed)
 
