@@ -1,3 +1,5 @@
+from typing import Callable
+
 import numpy as np
 from AmericanOptionPricing import LongstaffSchwartz
 
@@ -6,13 +8,41 @@ class HedgingEnv:
     # charged for floating-point noise around holding the same position.
     _TRADE_EPS = 1e-8
 
-    def __init__(self, lsm_model: LongstaffSchwartz, transaction_cost: float = 0.001, fixed_cost: float = 0.0):
+    def __init__(self, lsm_model: LongstaffSchwartz, transaction_cost: float = 0.001, fixed_cost: float = 0.0,
+                 reward_mode: str = "terminal", value_fn: Callable[[int, np.ndarray], np.ndarray] | None = None):
+        """
+        reward_mode:
+            "terminal" (default): per-step reward is hedge P&L minus costs, and
+                the option payoff is subtracted on the exercise step only. The
+                episode sum is the hedger's total P&L (what test-hedge reports).
+            "accounting": each step additionally subtracts the change in the
+                option's value, -(V_{t+1} - V_t), with V replaced by the payoff
+                on the exercise step. Each step's reward is then the local
+                hedging error, which is what makes a per-step variance penalty
+                (train()'s risk_lambda) a real mean-variance objective instead
+                of a penalty on holding any position. The episode sum telescopes
+                to the terminal-mode sum plus the constant V_0/K.
+        value_fn: value_fn(t, S) -> option value at simulation row t for spots S
+            (see AmericanHedging/option_value.py). Required for "accounting".
+        """
+        if reward_mode not in ["terminal", "accounting"]:
+            raise ValueError("reward_mode must be 'terminal' or 'accounting'")
+        if reward_mode == "accounting" and value_fn is None:
+            raise ValueError("reward_mode='accounting' requires a value_fn")
+
         self.lsm         = lsm_model
         self.option_type = lsm_model.option_type
         self.tc          = transaction_cost
         self.fixed_cost  = fixed_cost
+        self.reward_mode = reward_mode
         self.n_steps     = lsm_model.simulation.shape[0]
         self.n_paths     = lsm_model.simulation.shape[1]
+
+        if reward_mode == "accounting":
+            # Precomputed once for every (row, path) so step() stays a lookup.
+            self.option_values = np.stack([
+                value_fn(t, lsm_model.simulation[t]) for t in range(self.n_steps)
+            ])
 
     def reset(self):
         self.path_idx   = np.random.randint(self.n_paths)
@@ -45,6 +75,7 @@ class HedgingEnv:
         if abs(trade) > self._TRADE_EPS:
             cost += self.fixed_cost
 
+        t             = self.t
         self.position = action
         self.t       += 1
         done          = self.t >= self.T_exercise
@@ -54,6 +85,12 @@ class HedgingEnv:
                 option_payoff = max(self.lsm.strike - S_t1, 0)
             else:
                 option_payoff = max(S_t1 - self.lsm.strike, 0)
+
+        if self.reward_mode == "accounting":
+            V_t  = self.option_values[t, i]
+            V_t1 = option_payoff if done else self.option_values[t + 1, i]
+            reward = (hedge_pnl - cost - (V_t1 - V_t)) / self.lsm.strike
+        elif done:
             reward = (hedge_pnl - cost - option_payoff) / self.lsm.strike
         else:
             reward = (hedge_pnl - cost) / self.lsm.strike
