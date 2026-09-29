@@ -24,18 +24,17 @@ policy has been training on a meaningfully wrong delta feature roughly 1 in
 7 times near maturity - exactly when hedging decisions matter most.
 
 - [x] Confirm whether reg_type=laguerre behaves better near maturity (no - dead end, see below)
-- [ ] Decide fix: clamp vs. higher max_degree (or both)
-  `reg_type=laguerre` produced results identical to `simple` to 10
-  significant figures: `simple` `{1,x,x²,x³}` and Laguerre polynomials of
-  degree <=3 span the *same* function space, so a least-squares fit finds
-  the same best-fit polynomial either way - switching basis at a fixed
-  degree cannot change the fitted function, and delta is that function's
-  derivative either way. Ruled out as a fix entirely. Remaining candidates:
-  raise `max_degree` (a genuinely higher-capacity fit, unlike a basis swap)
-  and/or clamp delta/gamma to their theoretically valid range post-regression
-  as a correctness safety net regardless of fit quality.
-- [ ] Implement and validate against a benchmark
-  Compare corrected Greeks against Black-Scholes delta as a sanity check
+- [x] Check whether higher max_degree helps (no - much worse, see below)
+- [ ] Implement clamp fix and validate against a benchmark
+  Both alternatives to clamping are now ruled out: `reg_type=laguerre` is
+  mathematically identical to `simple` at a fixed degree (same function
+  space), and raising `max_degree` made it dramatically worse, not better
+  (Runge's phenomenon - a higher-degree global polynomial has more freedom
+  to oscillate chasing the near-maturity kink, and each extra derivative
+  order amplifies that oscillation further): overall validity dropped from
+  89% at degree 3 to 65% at degree 5 to 50% at degree 7, with delta reaching
+  into the thousands. Clamp delta/gamma to their theoretically valid range
+  post-regression, compare against Black-Scholes delta as a sanity check
   near maturity (European, but directionally informative for an American
   option close to expiry), and confirm the fix doesn't change LSM price
   outputs (only Greeks) or break `tests/unit/test_basis_functions.py`'s
