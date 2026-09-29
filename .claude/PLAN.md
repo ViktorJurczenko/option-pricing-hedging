@@ -43,25 +43,18 @@ hedge yet in the default 1000-episode budget.
 - [x] Diagnostic: check alpha=0.05 (inconclusive - see below)
 - [x] Diagnostic: check lr=3e-4 (inconclusive too - see below)
 - [x] Diagnostic: train longer (5000 episodes, still flat - see below)
-- [ ] Retrain with Greeks-fixed defaults and refresh README
-  The LSM Greeks fix (see the entry above) landed with `train-hedge`/
-  `test-hedge` defaulting to the fixed regression. Retrain a policy under
-  these new defaults and re-run `test-hedge` for `rl`/`delta`/`no_hedge` to
-  see whether a cleaner delta feature unsticks the plateau documented above.
-  Also refresh README.md's "RL hedging policy vs. analytic baselines" table,
-  which currently shows stale numbers from before the tanh-squashing fix.
-- [ ] If still flat: targeted hyperparameter sweep
-  The 5000-episode run never moved off the `std` plateau (~0.86-0.89) and
-  `action_delta_corr` was still pure noise at episode 5000 (+0.63, right
-  after +0.02 and -0.61) - three independent diagnostics (`alpha`, `lr`,
-  10x duration) all show the same flat plateau, which stopped looking like
-  a hyperparameter-sensitivity problem. Before spending more runs on
-  `update_every`/`grad_steps_per_update`/combinations, check the "Fix
-  unreliable LSM delta/gamma estimates" entry above first - if the delta
-  feature itself is unreliable ~15% of the time near maturity, the critic
-  may be correctly learning that it's not a trustworthy predictor, which
-  would explain a plateau no RL hyperparameter can fix. Only continue this
-  sweep if fixing the Greeks doesn't unstick it.
+- [x] Retrain with Greeks-fixed defaults and refresh README (still flat - see below)
+- [ ] Targeted hyperparameter sweep
+  Four independent diagnostics now show the same flat plateau (`alpha`,
+  `lr`, 10x training duration, and now a clean/reliable delta feature via
+  the Greeks fix) - none of them explain it, so the RL policy landing on
+  top of `no_hedge` instead of above it is a genuine open question in the
+  SAC setup itself, not noise from any of those four factors. Remaining
+  candidates: `update_every`/`grad_steps_per_update` and combinations of
+  the above, plus reward shaping / network capacity if those don't help
+  either. Skip `warmup_steps` - it only affects how much random data is
+  collected before learning starts, not whether the actor converges once
+  learning does start, so it's an unlikely bottleneck here.
 - [ ] Re-run the risk_lambda sweep
   Once a training config reliably competes with/beats the `delta` baseline,
   re-run the `risk_lambda` sweep (0.0, 0.01, 0.05, 0.1, 0.5) with that config
