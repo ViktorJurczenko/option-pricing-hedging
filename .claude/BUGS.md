@@ -6,6 +6,93 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## LSM early-exercises American calls and mis-estimates delta (open)
+
+**Symptom:** found while sanity-checking the accounting-P&L reward's value
+function. For an American call on a non-dividend stock early exercise is
+never optimal, yet `LongstaffSchwartz` (seed 42, 3000 paths, degree 3)
+flags 57% of paths as early-exercised with the `train-hedge` defaults
+(`ridge_lambda=0.06, moneyness_bins=30, moneyness_bins_window=0.3`), and
+22% even unregularized. Its delta is also far from the exact Black-Scholes
+delta: mean absolute error 0.15-0.36 across the timeline with the fix
+(near maturity, mean LSM delta 0.21 vs true 0.56, correlation ~0.6-0.7),
+0.16-1.3 without it. The earlier Greeks fix was validated only on "fraction
+of deltas inside [0,1]", which these numbers show is a weak criterion. Put
+deltas are similarly off, worst on out-of-the-money paths (the regression
+is fit on ITM paths only, so OTM Greeks are polynomial extrapolation).
+
+**Impact on hedging:** `exercise_time` sets each `HedgingEnv` episode's
+length, so most call episodes end early at a spurious exercise; the delta
+state feature is noisy; and the `delta` baseline trades on these deltas, so
+it's a weaker reference than a true delta hedge.
+
+**Root cause (suspected, not confirmed):** exercise happens whenever
+`exercise_payoff >= continue_val`, so any downward bias or noise in the
+regressed continuation value triggers spurious exercise. Ridge shrinkage on
+the raw, highly collinear `[1, x, x², x³]` features (x = S/K ≈ 1) biases the
+fit, which fits the jump from 22% to 57% when ridge + binning are enabled.
+
+**Status:** open. Candidate directions: evaluate Greeks and exercise
+against a reference (exact BS for calls, binomial tree for puts) rather than
+a range check; standardize features before Ridge; use the
+`AmericanHedging/option_value.py` value functions (exact call / tree put)
+for the hedging state's delta and the exercise boundary, instead of LSM.
+
+## RL hedging objective gives no incentive to hedge (fix in progress)
+
+**Symptom:** after the actor-divergence fix below, every trained SAC hedging
+policy lands on top of the `no_hedge` baseline (README table: mean/std/CVaR
+-0.11/0.15/-0.41 for RL vs -0.11/0.15/-0.40 for no-hedge, vs
+-0.10/0.05/-0.18 for delta). Five independent diagnostics (`alpha=0.05`,
+`lr=3e-4`, 5000 episodes, the Greeks fix, 5000 episodes + Greeks fix) left it
+unchanged: `mean_std` settles at ~0.86 within ~250 episodes and never moves,
+and `action_delta_corr` stays pure noise.
+
+**Root cause:** the objective, not the optimizer. Two findings:
+1. *The reward's expectation doesn't depend on hedging.* SAC maximizes
+   expected (discounted) reward. Paths are simulated under the risk-neutral
+   drift `r` (`core/gbm.py`), so a hedge's P&L has ~zero expectation
+   regardless of the position held; hedging reduces the *variance* of P&L,
+   not its mean. That's visible directly in the README table - delta and
+   no-hedge differ by 0.01 in mean, 3x in std. An expected-reward maximizer
+   is therefore ~indifferent between hedging and not, and transaction costs
+   tip it to not trading - exactly the plateau observed.
+2. *`risk_lambda` shaping penalizes hedging instead of hedging error.*
+   `shaped_reward = r - λ·r²` is applied per step (`Hedge.py`), but
+   `HedgingEnv` only subtracts the option payoff on the terminal step. Every
+   non-terminal reward is just `position·ΔS/K`, so `λ·r²` penalizes holding
+   *any* position - it pushes toward `no_hedge`, and can never reward a
+   position for offsetting the option, since the option's value changes
+   never appear in those per-step rewards. `Σ r_t²` is not `(Σ r_t)²`.
+
+Contributing (not root) causes: `gamma=0.99` discounts the terminal payoff
+by `0.99^365 ≈ 0.026` as seen from t=0, and per-step rewards (~1e-2, mean
+signal ~1e-4) are orders of magnitude smaller than the entropy term
+(`α·log π` ~ 0.2 per step), so the actor loss is almost pure entropy.
+
+**Fix (in progress, see PLAN.md "Fix the hedging objective so SAC has a
+reason to hedge"):** accounting-P&L reward (per-step reward includes
+`-(V_{t+1} - V_t)`, making each step's reward the local hedging error so
+the per-step variance penalty becomes meaningful), `gamma=1.0`, reward
+scaling, and automatic entropy tuning.
+
+**First validation (one seed, 1000 training episodes, new `train-hedge`
+defaults incl. `risk_lambda=1.0`),** evaluated on 1000 identical
+terminal-mode paths (mean / std / 95% CVaR, ×K):
+
+| Policy | Mean | Std | CVaR |
+|---|---|---|---|
+| RL (new objective) | -0.076 | 0.043 | -0.166 |
+| Delta (LSM) | -0.098 | 0.053 | -0.183 |
+| No hedge | -0.112 | 0.147 | -0.404 |
+| Delta (exact BS, reference) | -0.083 | 0.015 | -0.107 |
+
+The policy now hedges (mean position 0.71; action correlation 0.77 with
+the LSM delta, 0.86 with the exact BS delta, vs pure noise before) and
+beats the LSM delta baseline on all three metrics. The remaining gap to an
+exact-BS delta hedge is largely the LSM early-exercise/delta bug above.
+Still to confirm across seeds.
+
 ## SAC actor diverged unboundedly during hedge training (fixed)
 
 **Symptom:** a `risk_lambda` sweep (5 independently-trained policies)

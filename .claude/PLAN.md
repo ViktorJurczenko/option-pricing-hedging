@@ -5,6 +5,50 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Fix the hedging objective so SAC has a reason to hedge
+
+Analysis of why the five diagnostics in the entry below all plateaued on
+`no_hedge` (full write-up in BUGS.md, "RL hedging objective gives no
+incentive to hedge"): the problem is the objective SAC is optimizing, not its
+hyperparameters. Under the risk-neutral GBM drift, every hedge has ~the same
+*expected* P&L (README table: delta -0.10 vs no-hedge -0.11 mean, only the std
+differs), so an expected-reward maximizer is indifferent to hedging and
+transaction costs tip it to not trading. `risk_lambda`'s per-step `r - λr²`
+penalty actively pushes toward `no_hedge`, since the option liability only
+appears in the terminal reward. `gamma=0.99` discounts that terminal payoff to
+~2.6% from t=0, and per-step rewards (~1e-2, mean signal ~1e-4) are
+drowned by the entropy term (`α·log π` ~ 0.2 per step). This supersedes the
+"Targeted hyperparameter sweep" step below as the next thing to try.
+
+- [x] Accounting-P&L reward in HedgingEnv
+- [x] Expose SAC discount gamma, default 1.0 in train-hedge
+- [x] Reward scaling + automatic entropy tuning
+- [x] Wire new defaults into train-hedge, update docs
+- [x] Dispatch test-agent/review-agent (APPROVE, 141/141 passing)
+- [x] Validate: rerun training, check action_delta_corr and test-hedge metrics (beats LSM delta, one seed - see BUGS.md)
+- [ ] Fix LSM spurious early exercise / delta bias (see BUGS.md)
+  Found during sanity checks: LSM early-exercises 57% of American-call
+  paths (should be 0%) and its delta is far from exact BS delta. Decide
+  between fixing LSM (feature standardization before Ridge, reference-based
+  validation) and sourcing the hedging state's delta/exercise boundary from
+  `option_value.py`'s exact/tree value functions instead.
+- [ ] Residual-on-delta policy (only if the above is still flat)
+  `action = clip(delta + c·tanh(output))`, so an untrained policy already
+  starts at the delta baseline and only has to learn corrections (e.g.
+  trading less under costs).
+- [ ] Checkpoint on a fixed validation path set
+  Replace "best trailing-50 raw mean reward" (dominated by which paths were
+  drawn) with std/CVaR of P&L on a fixed held-out set of paths.
+- [ ] Later: Deep Hedging (Buehler et al. 2019) as an alternative to SAC
+  Hedge P&L is linear in the positions, so a policy network can be trained
+  by direct backprop through whole simulated episodes, minimizing
+  CVaR/variance of *terminal* P&L over batches of paths - exactly the
+  metric `test-hedge` reports, no critics/entropy/credit assignment. New
+  module (e.g. `AmericanHedging/DeepHedging.py`) + `train-deep-hedge`
+  subcommand, evaluated via the same `evaluate()` so it's directly
+  comparable to `rl`/`delta`/`no_hedge`. For the American put, the episode
+  still ends at the LSM exercise time per path (masking steps after it).
+
 ## Fix unreliable LSM delta/gamma estimates near maturity
 
 Discovered while diagnosing the hedging policy (see the entry below): a
