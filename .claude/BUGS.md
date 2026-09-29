@@ -38,7 +38,7 @@ a range check; standardize features before Ridge; use the
 `AmericanHedging/option_value.py` value functions (exact call / tree put)
 for the hedging state's delta and the exercise boundary, instead of LSM.
 
-## RL hedging objective gives no incentive to hedge (fix in progress)
+## RL hedging objective gives no incentive to hedge (fixed)
 
 **Symptom:** after the actor-divergence fix below, every trained SAC hedging
 policy lands on top of the `no_hedge` baseline (README table: mean/std/CVaR
@@ -70,7 +70,7 @@ by `0.99^365 ≈ 0.026` as seen from t=0, and per-step rewards (~1e-2, mean
 signal ~1e-4) are orders of magnitude smaller than the entropy term
 (`α·log π` ~ 0.2 per step), so the actor loss is almost pure entropy.
 
-**Fix (in progress, see PLAN.md "Fix the hedging objective so SAC has a
+**Fix (see PLAN.md "Fix the hedging objective so SAC has a
 reason to hedge"):** accounting-P&L reward (per-step reward includes
 `-(V_{t+1} - V_t)`, making each step's reward the local hedging error so
 the per-step variance penalty becomes meaningful), `gamma=1.0`, reward
@@ -89,9 +89,32 @@ terminal-mode paths (mean / std / 95% CVaR, ×K):
 
 The policy now hedges (mean position 0.71; action correlation 0.77 with
 the LSM delta, 0.86 with the exact BS delta, vs pure noise before) and
-beats the LSM delta baseline on all three metrics. The remaining gap to an
-exact-BS delta hedge is largely the LSM early-exercise/delta bug above.
-Still to confirm across seeds.
+beats the LSM delta baseline on all three metrics. Caveat: this first
+evaluation reused the seed-42 paths the policy was trained on (in-sample).
+
+**Out-of-sample confirmation:** four policies trained with the same
+defaults (training seeds 42, 1, 2, 3; 1000 episodes each), all evaluated
+with the baselines on the same 2000 episodes from paths simulated with
+seed 999, which no policy trained on:
+
+| Policy | Mean | Std | CVaR | corr(action, LSM Δ / BS Δ) |
+|---|---|---|---|---|
+| RL, seed 42 | -0.075 | 0.048 | -0.177 | 0.77 / 0.80 |
+| RL, seed 1 | -0.079 | 0.051 | -0.185 | 0.96 / 0.60 |
+| RL, seed 2 | -0.076 | 0.044 | -0.170 | 0.76 / 0.83 |
+| RL, seed 3 | -0.080 | 0.040 | -0.151 | 0.60 / 0.72 |
+| Delta (LSM) | -0.094 | 0.060 | -0.195 | |
+| No hedge | -0.106 | 0.144 | -0.439 | |
+| Delta (exact BS, reference) | -0.083 | 0.015 | -0.107 | |
+
+All four policies beat the LSM delta baseline on mean, std and CVaR, and
+the in-sample seed-42 numbers carry over (std 0.043 -> 0.048), so the fix
+generalizes and isn't a single lucky run. Run-to-run spread is real
+(std 0.040-0.051): the weakest policy (seed 1) copies the LSM delta almost
+exactly (corr 0.96), while the better ones partly correct it toward the
+exact delta. All four stay ~3x worse in std than an exact-BS delta hedge,
+which is the LSM early-exercise/delta bug above - the next thing to fix.
+Status: objective fixed; the remaining gap is tracked separately.
 
 ## SAC actor diverged unboundedly during hedge training (fixed)
 

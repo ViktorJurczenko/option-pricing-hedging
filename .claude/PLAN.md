@@ -25,7 +25,8 @@ drowned by the entropy term (`α·log π` ~ 0.2 per step). This supersedes the
 - [x] Reward scaling + automatic entropy tuning
 - [x] Wire new defaults into train-hedge, update docs
 - [x] Dispatch test-agent/review-agent (APPROVE, 141/141 passing)
-- [x] Validate: rerun training, check action_delta_corr and test-hedge metrics (beats LSM delta, one seed - see BUGS.md)
+- [x] Validate: rerun training, check action_delta_corr and test-hedge metrics (beats LSM delta on 4 seeds, out-of-sample - see BUGS.md)
+- [x] Address review-agent suggestions (APPROVE, 152/152 passing)
 - [ ] Fix LSM spurious early exercise / delta bias (see BUGS.md)
   Found during sanity checks: LSM early-exercises 57% of American-call
   paths (should be 0%) and its delta is far from exact BS delta. Decide
