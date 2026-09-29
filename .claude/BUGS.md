@@ -21,10 +21,14 @@ of deltas inside [0,1]", which these numbers show is a weak criterion. Put
 deltas are similarly off, worst on out-of-the-money paths (the regression
 is fit on ITM paths only, so OTM Greeks are polynomial extrapolation).
 
-**Impact on hedging:** `exercise_time` sets each `HedgingEnv` episode's
-length, so most call episodes end early at a spurious exercise; the delta
-state feature is noisy; and the `delta` baseline trades on these deltas, so
-it's a weaker reference than a true delta hedge.
+**Impact on hedging:** mostly through delta. The delta state feature is
+noisy and the `delta` baseline trades on it, so it's a weaker reference
+than a true delta hedge (std 0.060 vs 0.015 for an exact-BS delta hedge on
+the same paths). `exercise_time` sets each `HedgingEnv` episode's length,
+but measured impact is small: the spurious exercises cluster near
+maturity (mean episode length 343 vs 364 steps), and forcing every path
+to maturity shifts every policy's metrics by only ~0.001-0.006 std (see
+the validation below).
 
 **Root cause (suspected, not confirmed):** exercise happens whenever
 `exercise_payoff >= continue_val`, so any downward bias or noise in the
@@ -112,8 +116,16 @@ the in-sample seed-42 numbers carry over (std 0.043 -> 0.048), so the fix
 generalizes and isn't a single lucky run. Run-to-run spread is real
 (std 0.040-0.051): the weakest policy (seed 1) copies the LSM delta almost
 exactly (corr 0.96), while the better ones partly correct it toward the
-exact delta. All four stay ~3x worse in std than an exact-BS delta hedge,
-which is the LSM early-exercise/delta bug above - the next thing to fix.
+exact delta. All four stay ~3x worse in std than an exact-BS delta hedge.
+That gap is the LSM *delta* estimate (bug above), not its exercise
+timing: every row, the exact-BS delta hedge included, runs on the same
+LSM exercise schedule, and forcing every path to maturity instead (600
+seed-999 episodes) moves each policy's metrics by only ~0.001-0.006 std
+while keeping the same ranking (RL seed 3 0.041 -> 0.042, LSM delta
+0.061 -> 0.067, exact-BS delta 0.015 -> 0.015). The spurious exercises
+cluster near maturity (mean episode length 343 vs 364 steps despite 56%
+of paths being flagged), where an ITM call's value is already close to
+its payoff.
 Status: objective fixed; the remaining gap is tracked separately.
 
 ## SAC actor diverged unboundedly during hedge training (fixed)

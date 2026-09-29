@@ -29,7 +29,10 @@ drowned by the entropy term (`α·log π` ~ 0.2 per step). This supersedes the
 - [x] Address review-agent suggestions (APPROVE, 152/152 passing)
 - [ ] Fix LSM spurious early exercise / delta bias (see BUGS.md)
   Found during sanity checks: LSM early-exercises 57% of American-call
-  paths (should be 0%) and its delta is far from exact BS delta. Decide
+  paths (should be 0%) and its delta is far from exact BS delta. The delta
+  is what matters for hedging (it explains the ~3x std gap to an exact
+  delta hedge); the exercise timing was measured to have little effect,
+  since spurious exercises cluster near maturity. Decide
   between fixing LSM (feature standardization before Ridge, reference-based
   validation) and sourcing the hedging state's delta/exercise boundary from
   `option_value.py`'s exact/tree value functions instead.
