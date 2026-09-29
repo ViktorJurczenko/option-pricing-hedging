@@ -6,6 +6,44 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## SAC actor diverged unboundedly during hedge training (fixed)
+
+**Symptom:** a `risk_lambda` sweep (5 independently-trained policies)
+produced bit-identical eval metrics across two clusters instead of a
+gradient of results. Inspecting the checkpoints directly showed why: every
+policy's raw pre-squash `mean` had diverged to a huge magnitude (e.g.
+`-63996.84`, `-81410.02`), and every one's `std` was pinned at exactly
+`exp(2) ≈ 7.389` — the ceiling of `RLPolicy`'s `torch.clamp(log_std, -20,
+2)`. Since `HedgeEnv.step()` clips the actual action to `[-1,1]`, all that
+mattered was the sign of that huge mean — the "sweep" was really just two
+constant-action policies (always +1 or always -1), none of which had
+learned anything.
+
+**Root cause:** `Hedge.py`'s `train()` fed the actor's *raw, unclamped*
+sampled action directly into the critics in both the Bellman target and the
+actor loss, while the critics were only ever trained on the env-clipped
+`[-1,1]` actions actually taken (via the replay buffer). This scored the
+actor loss against critic outputs for out-of-distribution actions the
+critics had never seen, and the actor learned to chase whatever spuriously
+large Q-value that region produced, running away without bound. An
+intermediate fix attempt — clamping only the action fed to the critics,
+while still evaluating `log_prob` at that same clamped point — didn't work
+either: it just moved the divergence into `std`, since `log_prob` of a
+fixed clamped point under an ever-more-distant Gaussian mean shrinks
+without bound, giving the entropy term a "free" way to keep inflating `std`
+once the clamped action itself stopped changing.
+
+**Fix:** added `_squash(dist)`, which samples via `rsample()`, evaluates
+`log_prob` on the *raw* sample (well-behaved regardless of how far `mean`
+has drifted, since it's self-consistent with the distribution's own
+mean/std), and separately `tanh`-squashes the sample into `(-1,1)` for
+whatever gets fed to the critics, with the standard log-prob Jacobian
+correction (`- log(1 - tanh(raw)^2)`) so the entropy term can no longer get
+a free boost from growing `std`. Used consistently in the Bellman target,
+the actor loss, and action selection during training; `test-hedge`'s
+deterministic evaluation action was updated to match
+(`AmericanHedging/Hedge.py`, `scripts/test_hedge.py`).
+
 ## LSM delta/gamma estimates unreliable near maturity (open)
 
 **Symptom:** `LongstaffSchwartz.delta` (and by extension `.gamma`) falls
