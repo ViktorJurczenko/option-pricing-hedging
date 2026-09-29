@@ -43,6 +43,13 @@ hedge yet in the default 1000-episode budget.
 - [x] Diagnostic: check alpha=0.05 (inconclusive - see below)
 - [x] Diagnostic: check lr=3e-4 (inconclusive too - see below)
 - [x] Diagnostic: train longer (5000 episodes, still flat - see below)
+- [ ] Retrain with Greeks-fixed defaults and refresh README
+  The LSM Greeks fix (see the entry above) landed with `train-hedge`/
+  `test-hedge` defaulting to the fixed regression. Retrain a policy under
+  these new defaults and re-run `test-hedge` for `rl`/`delta`/`no_hedge` to
+  see whether a cleaner delta feature unsticks the plateau documented above.
+  Also refresh README.md's "RL hedging policy vs. analytic baselines" table,
+  which currently shows stale numbers from before the tanh-squashing fix.
 - [ ] If still flat: targeted hyperparameter sweep
   The 5000-episode run never moved off the `std` plateau (~0.86-0.89) and
   `action_delta_corr` was still pure noise at episode 5000 (+0.63, right
