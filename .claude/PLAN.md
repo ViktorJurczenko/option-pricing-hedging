@@ -23,18 +23,17 @@ straight into `HedgeEnv`'s state (`self.lsm.delta[t_clamped, i]`), so the RL
 policy has been training on a meaningfully wrong delta feature roughly 1 in
 7 times near maturity - exactly when hedging decisions matter most.
 
-- [ ] Confirm whether reg_type=laguerre behaves better near maturity
-  Re-run the same delta-range-by-timestep check with `reg_type="laguerre"`
-  (already an available basis in this codebase) instead of `"simple"`, to
-  see whether a basis change alone improves the fit near the kink before
-  deciding whether clamping is still needed on top of it.
-- [ ] Decide fix: clamp vs. basis change (or both)
-  Clamping delta/gamma to their theoretically valid range post-regression is
-  a cheap safety net but doesn't address the fit quality; a basis change (or
-  higher degree) addresses it directly but needs empirical validation it
-  doesn't just move the problem elsewhere (e.g. into the gamma estimate, or
-  into price accuracy). Likely lands on clamping as a correctness fix
-  regardless, informed by whether the basis change is also worth doing.
+- [x] Confirm whether reg_type=laguerre behaves better near maturity (no - dead end, see below)
+- [ ] Decide fix: clamp vs. higher max_degree (or both)
+  `reg_type=laguerre` produced results identical to `simple` to 10
+  significant figures: `simple` `{1,x,x²,x³}` and Laguerre polynomials of
+  degree <=3 span the *same* function space, so a least-squares fit finds
+  the same best-fit polynomial either way - switching basis at a fixed
+  degree cannot change the fitted function, and delta is that function's
+  derivative either way. Ruled out as a fix entirely. Remaining candidates:
+  raise `max_degree` (a genuinely higher-capacity fit, unlike a basis swap)
+  and/or clamp delta/gamma to their theoretically valid range post-regression
+  as a correctness safety net regardless of fit quality.
 - [ ] Implement and validate against a benchmark
   Compare corrected Greeks against Black-Scholes delta as a sanity check
   near maturity (European, but directionally informative for an American
