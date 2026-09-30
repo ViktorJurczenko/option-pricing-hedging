@@ -40,7 +40,7 @@ expiry, so they all priced a shorter option:
   the old LSM.
 - Both need regenerating or retraining; see PLAN.md.
 
-## LSM early-exercises American calls and mis-estimates delta (open)
+## LSM early-exercises American calls and mis-estimates delta (fixed)
 
 **Symptom:** found while sanity-checking the accounting-P&L reward's value
 function. For an American call on a non-dividend stock early exercise is
@@ -167,16 +167,45 @@ and put with 10000 paths.
     0.15-0.23 near expiry, because a cubic can't follow the steepening
     delta curve.
 
-**Status:** open. Fix directions, in order:
-1. Replace the Greeks with the pathwise-delta regression (with the BS-delta
-   feature; gamma is its derivative), and drop binning and ridge in the
-   same change.
-2. Add the European control variate to the continuation regression, and
-   compare exercise rules out-of-sample for the put (fit on one path set,
-   apply to another).
-3. Fix the 364-day horizon.
-4. Validate against the BS/tree references (price, exercise agreement, and
-   ITM/OTM delta MAE per time bucket), not against a range check.
+**Fix:**
+1. **Pathwise-delta regression.** Delta is now a regression of pathwise
+   deltas over all paths on the basis plus the BS delta, and gamma is its
+   derivative. Ridge and the moneyness bins were removed.
+2. **European control variate for calls.** It is opt-in; `train-hedge` and
+   `test-hedge` enable it for calls only. Out of sample (rule fitted on 10k
+   paths, applied to 100k fresh ones):
+   - Call: the plain rule is worth 10.355 against 10.380 for the control
+     variate, which is the European value on those paths.
+   - Put: the plain rule is worth 6.078 against 6.009 for the control
+     variate, with a true price of 6.084. That's why it stays off for puts.
+3. **Horizon fixed.** See "Simulated horizon was one step short".
+
+**Hedging validation after the fix.** 2000 out-of-sample episodes on seed
+999, terminal-mode P&L in units of K, reported as mean / std / 95% CVaR:
+
+| Policy | Call | Put |
+|---|---|---|
+| LSM delta | -0.084 / **0.014** / -0.108 | -0.082 / **0.012** / -0.103 |
+| Exact delta (BS / tree) | -0.084 / 0.015 / -0.108 | -0.082 / 0.013 / -0.104 |
+| RL, 4 seeds (retrained) | -0.079 to -0.083 / 0.029-0.036 / -0.126 to -0.137 | -0.082 to -0.085 / 0.019-0.023 / -0.119 to -0.128 |
+| No hedge | -0.107 / 0.154 / -0.435 | -0.064 / 0.073 / -0.173 |
+
+- **The LSM delta hedge now matches the exact one.**
+  - Its std fell from 0.060 to 0.014 for the call and from 0.044 to 0.012
+    for the put.
+  - Its mean distance from the exact delta along the episodes is 0.005
+    (call) and 0.010 (put).
+  - The call has 0% early exercise, so every episode runs the full 365
+    steps.
+- **The RL policies improved but now trail the delta baseline.**
+  - Their std fell from 0.040-0.051 to 0.029-0.036 for the call, and from
+    0.023-0.033 to 0.019-0.023 for the put.
+  - They track the exact delta (correlation 0.92-0.96) but sit 0.07-0.10
+    away from it on average, which is where their extra variance comes
+    from.
+  - The earlier "RL beats the delta baseline" result held only because the
+    old LSM delta was broken.
+  - This is what the residual-on-delta policy step in PLAN.md targets.
 
 ## RL hedging objective gives no incentive to hedge (fixed)
 
