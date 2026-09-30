@@ -6,6 +6,27 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## "95% CVaR" in hedging evaluation is actually the 95% VaR (fixed)
+
+**Symptom:** found while reviewing a validation-checkpointing change.
+`AmericanHedging/Hedge.py::evaluate()` reports `cvar_95 =
+np.percentile(pnls, 5)`, printed as "CVaR 95%". That is the 5th-percentile
+P&L, i.e. the 95% VaR. CVaR (expected shortfall) is the *mean* P&L over the
+worst 5% of episodes, which is always at or below VaR.
+
+**Impact:** every "CVaR" figure in BUGS.md, README and the `test-hedge`
+output is a VaR. Rankings between policies are mostly unaffected, but VaR
+ignores how bad the tail is beyond the cutoff, which is what CVaR is meant
+to capture.
+
+**Fix:** a new `Hedge.cvar(pnls, level=0.95)` returns the mean of the worst
+`max(1, ceil(5% · n))` P&Ls. `evaluate()` returns it as `cvar_95` and
+prints the VaR on its own line.
+
+**Past figures:** every "CVaR" in the entries below this one, and in any
+README table before this fix, is the 95% VaR. They are left as logged,
+since rankings between policies were mostly unaffected.
+
 ## RL hedging policy trails the LSM delta hedge (open)
 
 **Symptom:** once the LSM delta was fixed (see "LSM early-exercises American
