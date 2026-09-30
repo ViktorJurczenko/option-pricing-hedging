@@ -190,40 +190,51 @@ python main.py test-hedge --policy delta
 python main.py test-hedge --policy no_hedge
 ```
 
-Each policy's deterministic action on an American call (the default),
-evaluated over the same 2,000 simulated hedging episodes (`--seed 999
---n_episodes 2000`) with a 0.1% proportional transaction cost. `test-hedge`
-reseeds `np.random` from `--seed` right before evaluation
-(`scripts/test_hedge.py`), so every policy sees identical simulated paths —
-otherwise differences below could just be path-sampling noise rather than a
-real difference between policies. RL rows give the range over four
-policies trained with the `train-hedge` defaults (seeds 42/1/2/3, 1,000
-episodes each):
+Each policy's deterministic action, evaluated over the same 2,000 simulated
+hedging episodes (`--seed 999 --n_episodes 2000`) with a 0.1% proportional
+transaction cost. `test-hedge` reseeds `np.random` from `--seed` right
+before evaluation (`scripts/test_hedge.py`), so every policy sees identical
+simulated paths — otherwise differences below could just be path-sampling
+noise rather than a real difference between policies. RL rows give the
+range over four policies trained with the `train-hedge` defaults (seeds
+42/1/2/3, 1,000 episodes each). All figures are ×K:
 
-| Policy | Mean P&L | Std P&L | 95% CVaR |
-|---|---|---|---|
-| Delta-hedge (LSM delta) | -0.084 (×K) | **0.014** (×K) | **-0.108** (×K) |
-| RL, residual on delta (default) | -0.083 to -0.085 | 0.017-0.026 | -0.114 to -0.125 |
-| RL, plain (`--residual_scale 0`) | -0.079 to -0.083 | 0.029-0.036 | -0.126 to -0.137 |
-| No hedge | -0.107 | 0.154 | -0.435 |
+| Policy | Put: Std P&L | Put: 95% CVaR | Call: Std P&L | Call: 95% CVaR |
+|---|---|---|---|---|
+| **RL (default)** | **0.0089-0.0096** | **-0.100 to -0.103** | 0.0142-0.0149 | -0.112 to -0.113 |
+| Delta-hedge (LSM delta) | 0.0119 | -0.110 | **0.0142** | **-0.112** |
+| No hedge | 0.0725 | -0.186 | 0.154 | -0.571 |
 
-P&L is the hedge's cash flow minus the option payoff at exercise, scaled by
-the strike; std P&L is the hedging error, and 95% CVaR is the tail risk a
-hedger actually cares about minimizing.
+Mean P&L is about -0.08 for every hedged policy (it excludes the option
+premium, so it isn't a hedge-quality metric). P&L is the hedge's cash flow
+minus the option payoff at exercise, scaled by the strike; std P&L is the
+hedging error, and 95% CVaR (the mean of the worst 5% of episodes) is the
+tail risk a hedger actually cares about minimizing.
 
-The RL policy hedges (it's ~6x better than not hedging) but still does
-**not** beat the baseline of rebalancing to the Longstaff-Schwartz model's
-own delta every step (`AmericanHedging/baselines.py`). The default policy
-learns a bounded correction to that delta, `clip(delta + 0.1·tanh(u))`,
-rather than the whole hedge ratio, which cut its std by roughly a third
-against the plain policy. Puts show the same picture (LSM delta std 0.012
-vs 0.013-0.020 for the residual policy). The policies' std grows with how
-far they stray from delta: with only proportional costs and an accurate
-delta, delta hedging is already close to optimal and there is little for a
-correction to learn. Checkpoint selection on a fixed validation set and
-settings with fixed trading costs, where delta hedging overtrades, are the
-next steps (`.claude/BUGS.md`, "RL hedging policy trails the LSM delta
-hedge").
+- **On the American put, the RL policy beats delta hedging** on every seed:
+  20-25% lower hedging error and a better tail. It even beats hedging with
+  the exact binomial-tree delta (std 0.012-0.013).
+- **On the call, it matches delta hedging.** Here training never improved
+  on the untrained policy, which already hedges at delta.
+
+Two design choices got it there:
+- **Residual action:** the policy learns a bounded correction to the LSM
+  delta, `clip(delta + 0.1·tanh(u))`, rather than the whole hedge ratio.
+  An untrained policy therefore starts at the delta hedge.
+- **Validation checkpointing:** the checkpoint is the policy with the lowest
+  P&L std on 1,000 held-out paths, with the untrained policy as a candidate.
+  Selecting on the recent training reward instead mostly measured which
+  paths were drawn. It left the policies behind delta (call std 0.017-0.026,
+  put 0.013-0.020), and a plain non-residual policy did worse still (call
+  0.029-0.036).
+
+A likely reason the put policy can beat even the exact delta: episodes end
+at the *LSM's* exercise time, so the liability being hedged is the put
+under LSM's slightly suboptimal exercise rule, which a learned hedge can
+adapt to and a model delta cannot. This is a hypothesis, not yet verified.
+Full numbers are in `.claude/BUGS.md`, "RL hedging policy trails the LSM
+delta hedge". Settings with fixed trading costs, where delta hedging
+overtrades, are next.
 
 ### Test suite
 
@@ -231,9 +242,9 @@ hedge").
 python -m pytest tests/
 ```
 
-220 tests pass: 175 unit tests (closed-form formulas, basis-function analytic
+293 tests pass: 237 unit tests (closed-form formulas, basis-function analytic
 derivatives checked against finite differences, dataset splitting, hedging
-environment reward arithmetic, the SAC training loop) and 45 integration
+environment reward arithmetic, the SAC training loop) and 56 integration
 tests (Monte-Carlo/LSM convergence to their closed-form/tree counterparts,
 CLI argument wiring, plus CLI smoke tests for every subcommand).
 

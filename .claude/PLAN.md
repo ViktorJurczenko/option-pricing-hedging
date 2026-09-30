@@ -5,6 +5,44 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Checkpoint the hedging policy on a fixed validation set
+
+`train()` saves the policy with the best trailing-50 mean *raw* reward,
+which mostly measures which paths were drawn, not hedge quality, and never
+considers the untrained policy (≈ delta under the residual form). See
+BUGS.md, "RL hedging policy trails the LSM delta hedge".
+
+Design choices:
+- **Validation set:** paths simulated with their own seed (default
+  `seed + 1000`, which never hits the seed 999 used for evaluation), with
+  their own LSM fit, as `test-hedge` does. The first `val_paths` (1000)
+  paths are each run once, in fixed order, in terminal mode. The metric is
+  then exactly `test-hedge`'s P&L. The validation env is built before the
+  training simulation, because `GBM` reseeds the global `np.random` and the
+  training stream should stay the one `--seed` gives.
+- **Batched rollout:** a sequential rollout takes ~60 ms per episode, so
+  1000 paths every 50 episodes would roughly double training time.
+  `HedgingEnv.rollout_pnl(hedge_fn, path_idxs)` steps all paths together,
+  with one batched policy call per time step. It duplicates `step()`'s
+  terminal P&L arithmetic, so a test must check that it matches the
+  per-step loop exactly, fixed cost and early exercise included.
+- **Criterion:** P&L std by default (the hedging error); `cvar` is an
+  option. The untrained policy is scored and saved before training starts,
+  then the policy is re-scored every `val_every` (50) episodes and after the
+  last one. `--val_paths 0` restores the old trailing-50 criterion.
+- **Shared deterministic action:** `deterministic_hedge(policy, states)` in
+  `Hedge.py`, used by both validation and `test-hedge`, so the two can't
+  drift apart.
+
+- [x] Batched terminal-P&L rollout in HedgingEnv
+- [x] Validation checkpointing in train()
+- [x] Wire into train-hedge and test-hedge
+- [x] Dispatch test-agent/review-agent (APPROVE, 270/270 passing)
+- [x] Validate (puts beat LSM delta by 20-25% std, calls match it - see BUGS.md)
+- [x] Update README/CLAUDE.md
+- [x] Fix "CVaR" being the VaR in evaluate() and val_metric (see BUGS.md)
+- [x] Address review-agent suggestions (APPROVE, 293/293 passing)
+
 ## Residual-on-delta hedging policy
 
 With the fixed LSM, the plain RL policy's P&L std is ~2x the LSM delta
@@ -139,9 +177,7 @@ drowned by the entropy term (`α·log π` ~ 0.2 per step).
 - [x] Validate on puts (beats LSM delta on 4 seeds, out-of-sample - see BUGS.md)
 - [x] Fix LSM spurious early exercise / delta bias (own entry above)
 - [x] Residual-on-delta policy (own entry above)
-- [ ] Checkpoint on a fixed validation path set
-  Replace "best trailing-50 raw mean reward" (dominated by which paths were
-  drawn) with std/CVaR of P&L on a fixed held-out set of paths.
+- [x] Checkpoint on a fixed validation path set (own entry above)
 - [ ] Later: Deep Hedging (Buehler et al. 2019) as an alternative to SAC
   Hedge P&L is linear in the positions, so a policy network can be trained
   by direct backprop through whole simulated episodes, minimizing

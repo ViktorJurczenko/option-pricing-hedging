@@ -44,23 +44,77 @@ class HedgingEnv:
                 value_fn(t, lsm_model.simulation[t]) for t in range(self.n_steps)
             ])
 
-    def reset(self):
-        self.path_idx   = np.random.randint(self.n_paths)
+    def reset(self, path_idx: int | None = None):
+        """Start an episode on path `path_idx`, or on a random path if None."""
+        self.path_idx   = np.random.randint(self.n_paths) if path_idx is None else path_idx
         self.t          = 0
         self.position   = 0.0
         self.T_exercise = self.lsm.exercise_time[self.path_idx]
         return self._get_state()
 
     def _get_state(self):
-        t, i      = self.t, self.path_idx
+        return self._build_states(self.t, self.path_idx, self.position)
+
+    def _build_states(self, t, path_idx, position):
+        """State(s) at row t for path index/indices `path_idx` holding `position`.
+        Scalar path_idx/position give shape (5,); arrays give shape (n, 5)."""
         t_clamped = min(t, self.lsm.delta.shape[0] - 1)  # greeks undefined at maturity
-        return np.array([
-            self.lsm.simulation[t, i] / self.lsm.strike,  # normalized spot
-            t / (self.n_steps - 1),                       # normalized time (1 at expiry)
-            self.lsm.delta[t_clamped, i],                 # L-S delta
-            self.lsm.gamma[t_clamped, i],                 # L-S gamma
-            self.position,                                # current hedge held
-        ])
+        spot      = self.lsm.simulation[t, path_idx]
+        return np.stack(np.broadcast_arrays(
+            spot / self.lsm.strike,             # normalized spot
+            t / (self.n_steps - 1),             # normalized time (1 at expiry)
+            self.lsm.delta[t_clamped, path_idx],  # L-S delta
+            self.lsm.gamma[t_clamped, path_idx],  # L-S gamma
+            position,                           # current hedge held
+        ), axis=-1).astype(np.float64)
+
+    def _trading_cost(self, trade: float | np.ndarray, S_t: float | np.ndarray) -> float | np.ndarray:
+        """Proportional cost plus the fixed cost on any real trade (scalar or array).
+        Shared by step() and rollout_pnl() so the two can't drift apart."""
+        return self.tc * np.abs(trade) * S_t + self.fixed_cost * (np.abs(trade) > self._TRADE_EPS)
+
+    def _payoff(self, S: float | np.ndarray) -> float | np.ndarray:
+        """Option payoff at spot(s) S. Shared by step() and rollout_pnl()."""
+        if self.option_type == "put":
+            return np.maximum(self.lsm.strike - S, 0)
+        return np.maximum(S - self.lsm.strike, 0)
+
+    def rollout_pnl(self, hedge_fn: Callable[[np.ndarray], np.ndarray], path_idxs: np.ndarray) -> np.ndarray:
+        """Terminal-mode P&L (units of K) of one episode per path in `path_idxs`,
+        all stepped together: hedge_fn maps a batch of states (n, 5) to hedge
+        ratios (n,), so a policy is called once per time step instead of once
+        per path and step.
+
+        Must match (up to float rounding) summing step()'s terminal-mode
+        rewards over an episode on each path, whatever the env's reward_mode:
+        it shares _trading_cost/_payoff with step() and replicates the rest of
+        its arithmetic in vectorized form, including step()'s
+        convention that the P&L over [t, t+1] is earned by the position held
+        *before* the trade at t. Doesn't touch the env's episode state or
+        np.random.
+        """
+        path_idxs  = np.asarray(path_idxs)
+        sim        = self.lsm.simulation
+        T_exercise = self.lsm.exercise_time[path_idxs]
+        position   = np.zeros(len(path_idxs))
+        pnl        = np.zeros(len(path_idxs))
+
+        for t in range(int(T_exercise.max())):
+            active = t < T_exercise
+            idx    = path_idxs[active]
+            states = self._build_states(t, idx, position[active])
+            action = np.clip(np.asarray(hedge_fn(states), dtype=np.float64).reshape(-1), -1, 1)
+
+            S_t, S_t1 = sim[t, idx], sim[t + 1, idx]
+            step_pnl  = position[active] * (S_t1 - S_t) - self._trading_cost(action - position[active], S_t)
+
+            done = t + 1 >= T_exercise[active]
+            step_pnl -= np.where(done, self._payoff(S_t1), 0.0)
+
+            pnl[active]      += step_pnl
+            position[active]  = action
+
+        return pnl / self.lsm.strike
 
     def step(self, action: float):
         action = np.clip(action, -1, 1) # enforce valid hedge ratio
@@ -71,9 +125,7 @@ class HedgingEnv:
 
         trade     = action - self.position
         hedge_pnl = self.position * (S_t1 - S_t)
-        cost      = self.tc * abs(trade) * S_t
-        if abs(trade) > self._TRADE_EPS:
-            cost += self.fixed_cost
+        cost      = self._trading_cost(trade, S_t)
 
         t             = self.t
         self.position = action
@@ -81,10 +133,7 @@ class HedgingEnv:
         done          = self.t >= self.T_exercise
 
         if done:
-            if self.option_type == "put":
-                option_payoff = max(self.lsm.strike - S_t1, 0)
-            else:
-                option_payoff = max(S_t1 - self.lsm.strike, 0)
+            option_payoff = self._payoff(S_t1)
 
         if self.reward_mode == "accounting":
             V_t  = self.option_values[t, i]

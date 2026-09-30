@@ -16,7 +16,11 @@ fast and can assert on exactly what run() passed it.
 """
 import argparse
 
+import numpy as np
 import pytest
+
+from core.gbm import GBM
+from AmericanHedging.HedgeEnv import HedgingEnv
 
 import scripts.train_hedge as train_hedge_script
 
@@ -93,7 +97,12 @@ def test_add_arguments_risk_lambda_default_changed_to_1_0():
 
 def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
                     reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
-                    option_type="call", alpha_lr=None, residual_scale=0.1):
+                    option_type="call", alpha_lr=None, residual_scale=0.1,
+                    val_paths=0, val_every=50, val_metric="std", val_seed=None,
+                    fixed_cost=0.0):
+    # val_paths defaults to 0 (validation off) so the pre-existing tests keep
+    # observing exactly one LSM/env (the training ones); the validation tests
+    # below opt in explicitly.
     return argparse.Namespace(
         sigma=0.2,
         start_price=100.0,
@@ -106,7 +115,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         option_type=option_type,
         reg_type="simple",
         max_degree=2,
-        fixed_cost=0.0,
+        fixed_cost=fixed_cost,
         risk_lambda=risk_lambda,
         reward_mode=reward_mode,
         gamma=gamma,
@@ -121,6 +130,10 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         alpha_lr=alpha_lr,
         residual_scale=residual_scale,
         replay_buffer_size=1000,
+        val_paths=val_paths,
+        val_every=val_every,
+        val_metric=val_metric,
+        val_seed=val_seed,
         checkpoint_path="unused.pth",
     )
 
@@ -279,50 +292,54 @@ def test_run_accounting_mode_builds_a_value_fn_via_make_option_value_fn(monkeypa
     assert len(calls) == 1
 
 
-def test_run_passes_reward_mode_and_value_fn_presence_to_hedging_env(monkeypatch):
-    """End-to-end wiring check: HedgingEnv must actually receive
-    reward_mode="accounting" with a non-None value_fn, and
-    reward_mode="terminal" with value_fn=None -- not just that run() calls
-    make_option_value_fn somewhere (checked separately above)."""
-    captured = {}
+@pytest.mark.parametrize("val_paths", [0, 20])
+def test_run_passes_reward_mode_and_value_fn_presence_to_hedging_env(monkeypatch, val_paths):
+    """End-to-end wiring check: the training HedgingEnv (the last one built;
+    with validation on, the terminal-mode validation env is built before it)
+    must receive reward_mode="accounting" with a non-None value_fn, and
+    reward_mode="terminal" with value_fn=None."""
+    captured = []
     real_env_cls = train_hedge_script.HedgingEnv
 
     class SpyHedgingEnv(real_env_cls):
         def __init__(self, *args, **kwargs):
-            captured.update(kwargs)
+            captured.append(kwargs)
             super().__init__(*args, **kwargs)
 
     monkeypatch.setattr(train_hedge_script, "HedgingEnv", SpyHedgingEnv)
     monkeypatch.setattr(train_hedge_script, "train", lambda *args, **kwargs: None)
 
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="accounting"))
-    assert captured["reward_mode"] == "accounting"
-    assert captured["value_fn"] is not None
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="accounting", val_paths=val_paths))
+    assert len(captured) == (2 if val_paths else 1)
+    assert captured[-1]["reward_mode"] == "accounting"
+    assert captured[-1]["value_fn"] is not None
 
     captured.clear()
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="terminal"))
-    assert captured["reward_mode"] == "terminal"
-    assert captured["value_fn"] is None
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="terminal", val_paths=val_paths))
+    assert captured[-1]["reward_mode"] == "terminal"
+    assert captured[-1]["value_fn"] is None
 
 
+@pytest.mark.parametrize("val_paths", [0, 20])
 @pytest.mark.parametrize("option_type,expected", [("call", True), ("put", False)])
-def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type, expected):
+def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type, expected, val_paths):
     """The European control variate removes plain LSM's spurious early
     exercise for calls but is worse out of sample for puts, so run() must
-    pass control_variate=True for calls only."""
-    seen = {}
+    pass control_variate=True for calls only -- for the validation LSM too,
+    otherwise validation would score a different exercise rule than training."""
+    seen = []
     real_lsm = train_hedge_script.LongstaffSchwartz
 
     def spy(*args, **kwargs):
-        seen.update(kwargs)
+        seen.append(kwargs["control_variate"])
         return real_lsm(*args, **kwargs)
 
     monkeypatch.setattr(train_hedge_script, "LongstaffSchwartz", spy)
     monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: None)
 
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, option_type=option_type))
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, option_type=option_type, val_paths=val_paths))
 
-    assert seen["control_variate"] is expected
+    assert seen == [expected] * (2 if val_paths else 1)
 
 
 def test_add_arguments_residual_scale_default_0_1_and_parsed_as_float():
@@ -345,3 +362,65 @@ def test_run_builds_policy_with_residual_scale_from_args(monkeypatch):
     train_hedge_script.run(args)
 
     assert captured["scale"] == pytest.approx(0.37)
+
+
+# --- validation-set checkpointing wiring -----------------------------------
+
+def test_add_arguments_validation_flag_defaults_and_types():
+    args = _make_parser().parse_args([])
+    assert (args.val_paths, args.val_every, args.val_metric, args.val_seed) == (1000, 50, "std", None)
+    args = _make_parser().parse_args(["--val_paths", "0", "--val_every", "7", "--val_metric", "cvar", "--val_seed", "5"])
+    assert (args.val_paths, args.val_every, args.val_metric, args.val_seed) == (0, 7, "cvar", 5)
+
+
+def test_add_arguments_rejects_unknown_val_metric():
+    with pytest.raises(SystemExit):
+        _make_parser().parse_args(["--val_metric", "mean"])
+
+
+def _capture_train(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: captured.update(k))
+    return captured
+
+
+def test_run_forwards_validation_settings_and_builds_terminal_validation_env(monkeypatch):
+    captured = _capture_train(monkeypatch)
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="accounting", val_paths=20,
+                                          val_every=7, val_metric="cvar", fixed_cost=0.25))
+    assert (captured["val_paths"], captured["val_every"], captured["val_metric"]) == (20, 7, "cvar")
+    val_env = captured["val_env"]
+    assert isinstance(val_env, HedgingEnv)
+    assert val_env.reward_mode == "terminal"  # so the metric is test-hedge's P&L
+    assert val_env.fixed_cost == 0.25
+
+
+def test_run_with_val_paths_zero_disables_validation(monkeypatch):
+    captured = _capture_train(monkeypatch)
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=0))
+    assert captured["val_env"] is None
+
+
+@pytest.mark.parametrize("val_seed,expected_seed", [(None, 42 + 1000), (7, 7)])
+def test_run_simulates_validation_paths_with_val_seed(monkeypatch, val_seed, expected_seed):
+    captured = _capture_train(monkeypatch)
+    args = _make_run_args(lr=1e-4, alpha=0.2, val_paths=20, val_seed=val_seed)
+    train_hedge_script.run(args)
+
+    expected = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=expected_seed).simulate_paths(50, 0.1, 20)
+    np.testing.assert_array_equal(captured["val_env"].lsm.simulation, expected)
+
+
+@pytest.mark.parametrize("val_paths", [0, 20])
+def test_run_leaves_global_rng_at_the_training_seed_state(monkeypatch, val_paths):
+    """GBM.simulate_paths reseeds global np.random. The validation simulation
+    must therefore come first, so the stream train() then draws from (env.reset,
+    warmup actions) is the --seed one, identical with or without validation."""
+    draws = []
+    monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: draws.append(np.random.random(3)))
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=val_paths))
+
+    # Reference: the global RNG right after the --seed simulation (GBM seeds
+    # np.random and then draws its normals), with nothing reseeding afterwards.
+    GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=42).simulate_paths(50, 0.1, 20)
+    np.testing.assert_array_equal(draws[0], np.random.random(3))

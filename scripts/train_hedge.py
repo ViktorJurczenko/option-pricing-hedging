@@ -36,20 +36,20 @@ def add_arguments(parser):
     parser.add_argument("--auto_alpha", default=True, action=argparse.BooleanOptionalAction, help="Learn the SAC entropy coefficient toward a target entropy of -1 (--alpha is then its initial value). --no-auto_alpha keeps alpha fixed.")
     parser.add_argument("--alpha_lr", default=None, type=float, help="Adam learning rate for the learned entropy coefficient (with --auto_alpha; ignored with --no-auto_alpha). Defaults to --lr.")
     parser.add_argument("--residual_scale", default=0.1, type=float, help="The policy learns a correction to the LSM delta: hedge = clip(delta + residual_scale * tanh(output), -1, 1). Saved in the checkpoint, so test-hedge picks it up. 0 makes the policy output the hedge ratio directly.")
+    parser.add_argument("--val_paths", default=1000, type=int, help="Number of held-out validation paths the checkpoint is selected on (P&L std or CVaR, see --val_metric; the untrained policy is a candidate too). 0 falls back to the best trailing 50-episode mean training reward.")
+    parser.add_argument("--val_every", default=50, type=int, help="Episodes between validation scorings (the last episode is always scored).")
+    parser.add_argument("--val_metric", default="std", type=str, choices=["std", "cvar"], help="Checkpoint criterion on the validation P&L: lowest std (hedging error) or highest 95%% CVaR.")
+    parser.add_argument("--val_seed", default=None, type=int, help="Seed of the validation paths. Defaults to --seed + 1000; keep it away from the seed you evaluate on with test-hedge.")
     parser.add_argument("--checkpoint_path", default="checkpoints/best_policy_model.pth", type=str, help="Where to save the best policy.")
 
-def run(args):
+def _simulate_and_fit_lsm(args, seed):
     gbm = GBM(
         sigma=args.sigma,
         start_price=args.start_price,
         risk_free_rate=args.risk_free_rate,
-        seed=args.seed,
+        seed=seed,
     )
     simulation = gbm.simulate_paths(args.nb_predictions, args.maturity, args.sampling)
-
-    # State has shape [S_t/K, t/T, delta, gamma, current position]
-    policy_model = RLPolicy(5, 1, residual_scale=args.residual_scale)
-
     lsm = LongstaffSchwartz(
         simulation, args.strike, args.risk_free_rate, args.maturity, args.option_type, args.reg_type, args.max_degree,
         sigma=args.sigma,
@@ -58,6 +58,27 @@ def run(args):
         control_variate=args.option_type == "call",
     )
     lsm.predict_payoff()
+    return simulation, lsm
+
+def run(args):
+    # Built first: GBM reseeds the global np.random, and the training
+    # simulation's reseed below must be the last one, so the training stream
+    # (env.reset, warmup actions) stays the one --seed gives.
+    val_env = None
+    if args.val_paths > 0:
+        val_seed = args.seed + 1000 if args.val_seed is None else args.val_seed
+        _, val_lsm = _simulate_and_fit_lsm(args, val_seed)
+        # Terminal mode: the validation metric is then test-hedge's P&L.
+        val_env = HedgingEnv(val_lsm, fixed_cost=args.fixed_cost)
+        if args.val_paths > val_env.n_paths:
+            print(f"Warning: --val_paths {args.val_paths} exceeds the {val_env.n_paths} simulated paths "
+                  f"(--nb_predictions); validating on all {val_env.n_paths}.")
+
+    simulation, lsm = _simulate_and_fit_lsm(args, args.seed)
+
+    # State has shape [S_t/K, t/T, delta, gamma, current position]
+    policy_model = RLPolicy(5, 1, residual_scale=args.residual_scale)
+
     value_fn = None
     if args.reward_mode == "accounting":
         value_fn = make_option_value_fn(
@@ -76,5 +97,6 @@ def run(args):
         grad_steps_per_update=args.grad_steps_per_update, risk_lambda=args.risk_lambda,
         lr=args.lr, alpha=args.alpha, gamma=args.gamma,
         reward_scale=args.reward_scale, auto_alpha=args.auto_alpha, alpha_lr=args.alpha_lr,
+        val_env=val_env, val_paths=args.val_paths, val_every=args.val_every, val_metric=args.val_metric,
         checkpoint_path=args.checkpoint_path,
     )

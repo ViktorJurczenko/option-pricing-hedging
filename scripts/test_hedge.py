@@ -5,7 +5,7 @@ from core.gbm import GBM
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
 from AmericanHedging.HedgeEnv import HedgingEnv
 from AmericanHedging.RLPolicy import RLPolicy
-from AmericanHedging.Hedge import evaluate
+from AmericanHedging.Hedge import deterministic_hedge, evaluate
 from AmericanHedging.baselines import delta_hedge, no_hedge
 
 def add_arguments(parser):
@@ -48,11 +48,9 @@ def run(args):
         # residual_scale comes from the checkpoint, so it always matches training.
         policy_model = RLPolicy(5, 1)
         policy_model.load_state_dict(torch.load(args.checkpoint_path, map_location="cpu"))
-
         def action_fn(state):
-            with torch.no_grad():
-                state_t = torch.tensor(state, dtype=torch.float32)
-                return policy_model.hedge_ratio(state_t, torch.tanh(policy_model(state_t).mean)).item()
+            # Same deterministic action train()'s validation checkpointing scores.
+            return deterministic_hedge(policy_model, state).item()
     elif args.policy == "delta":
         action_fn = delta_hedge
     else:

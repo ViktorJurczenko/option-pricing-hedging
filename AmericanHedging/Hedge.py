@@ -44,13 +44,36 @@ def cvar(pnls: np.ndarray | list[float], level: float = 0.95) -> float:
     n_bad = max(1, int(np.ceil(round((1 - level) * len(pnls), 9))))
     return float(pnls[:n_bad].mean())
 
+def deterministic_hedge(policy, states: np.ndarray) -> np.ndarray:
+    """The policy's deterministic hedge ratio(s) for state(s) of shape (5,) or
+    (n, 5): tanh-squashed distribution mean (matching how train() squashes
+    sampled actions - see `_squash`) mapped through `policy.hedge_ratio`.
+    Returns shape (1,) or (n,). Shared by train()'s validation and test-hedge
+    so the two always evaluate the same action."""
+    device = next(policy.parameters()).device
+    with torch.no_grad():
+        x = torch.as_tensor(states, dtype=torch.float32, device=device)
+        return policy.hedge_ratio(x, torch.tanh(policy(x).mean)).reshape(-1).cpu().numpy()
+
 def train(policy, env, replay_buffer, critic1, critic2,
           gamma=0.99, tau=0.01, alpha=0.2, lr=1e-4,
           n_episodes=1000, update_every=10, warmup_steps=1000, batch_size=256,
           grad_steps_per_update=1, risk_lambda=0.0, reward_scale=1.0,
           auto_alpha=False, target_entropy=-1.0, alpha_lr=None,
+          val_env=None, val_paths=1000, val_every=50, val_metric="std",
           checkpoint_path="checkpoints/best_policy_model.pth"):
     """
+    val_env: a HedgingEnv on held-out paths. When given, the checkpoint is the
+        policy with the best `val_metric` over the terminal-mode P&L of its
+        first `val_paths` paths (all of them if it has fewer; each run once, deterministic action - the
+        same numbers test-hedge reports). The untrained policy is scored and
+        saved first, then the policy is re-scored every `val_every` episodes
+        and after the last one. When None, falls back to the best trailing
+        50-episode mean raw training reward, which mostly reflects which
+        paths were drawn.
+    val_metric: "std" (default; lower P&L std, i.e. hedging error, is
+        better) or "cvar" (higher 95% CVaR, i.e. mean of the worst 5% of
+        P&Ls - see `cvar` - is better).
     reward_scale: multiplies the env reward before the risk penalty, i.e. the
         critics/actor train on `x - risk_lambda * x**2` with x = reward_scale *
         reward. Hedging rewards are ~1e-2 per step, orders of magnitude below
@@ -76,6 +99,10 @@ def train(policy, env, replay_buffer, critic1, critic2,
     if alpha <= 0 and auto_alpha:
         # log(alpha) is the learned parameter.
         raise ValueError(f"alpha must be > 0 when auto_alpha is set, got {alpha}")
+    if val_metric not in ["std", "cvar"]:
+        raise ValueError(f"val_metric must be 'std' or 'cvar', got {val_metric!r}")
+    if val_env is not None and (val_paths < 1 or val_every < 1):
+        raise ValueError(f"val_paths and val_every must be >= 1, got {val_paths} and {val_every}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")
@@ -106,6 +133,24 @@ def train(policy, env, replay_buffer, critic1, critic2,
     recent_rewards = deque(maxlen=50)
     best_mean_reward = -np.inf
     total_steps = 0
+
+    if val_env is not None:
+        val_idxs = np.arange(min(val_paths, val_env.n_paths))
+
+        def val_score():
+            """Higher is better: -std or CVaR of the validation P&L."""
+            pnls = val_env.rollout_pnl(lambda s: deterministic_hedge(policy, s), val_idxs)
+            return -np.std(pnls) if val_metric == "std" else cvar(pnls)
+
+        def _metric(score):
+            """A val_score() back in the metric's own units, for display."""
+            return -score if val_metric == "std" else score
+
+        # The untrained policy is a candidate too: under the residual form it
+        # already hedges at delta, which training has to beat to replace it.
+        val_last = best_val = val_score()
+        torch.save(policy.state_dict(), checkpoint_path)
+        tqdm.write(f"Saved untrained policy (validation {val_metric}={_metric(best_val):.4f})")
 
     episode_bar = tqdm(range(n_episodes), desc="Training hedge policy", unit="episode")
     for ep in episode_bar:
@@ -189,12 +234,23 @@ def train(policy, env, replay_buffer, critic1, critic2,
 
         recent_rewards.append(episode_reward)
         mean_reward = np.mean(recent_rewards)
+
+        if val_env is not None and ((ep + 1) % val_every == 0 or ep == n_episodes - 1):
+            val_last = val_score()
+            if val_last > best_val:
+                best_val = val_last
+                torch.save(policy.state_dict(), checkpoint_path)
+                tqdm.write(f"Saved new best policy at episode {ep + 1} (validation {val_metric}={_metric(best_val):.4f})")
+
         postfix = {"reward": f"{episode_reward:.4f}", "mean_reward_50": f"{mean_reward:.4f}"}
+        if val_env is not None:
+            postfix[f"val_{val_metric}"] = f"{_metric(val_last):.4f}"
+            postfix[f"best_val_{val_metric}"] = f"{_metric(best_val):.4f}"
         if auto_alpha:
             postfix["alpha"] = f"{alpha:.4f}"
         episode_bar.set_postfix(**postfix)
 
-        if len(recent_rewards) == recent_rewards.maxlen and mean_reward > best_mean_reward:
+        if val_env is None and len(recent_rewards) == recent_rewards.maxlen and mean_reward > best_mean_reward:
             best_mean_reward = mean_reward
             torch.save(policy.state_dict(), checkpoint_path)
             tqdm.write(f"Saved new best policy (mean reward={mean_reward:.4f})")
@@ -202,9 +258,8 @@ def train(policy, env, replay_buffer, critic1, critic2,
 def evaluate(action_fn, env, n_episodes=1000):
     """
     action_fn: state (np.ndarray) -> hedge position (float). For a trained RL
-    policy, map the deterministic action (tanh-squashed distribution mean,
-    matching how train() squashes sampled actions - see `_squash`) through
-    `policy.hedge_ratio`, as scripts/test_hedge.py does; for a baseline, pass
+    policy, wrap `deterministic_hedge(policy, s).item()`, as
+    scripts/test_hedge.py does; for a baseline, pass
     one of AmericanHedging.baselines directly - they already match this
     signature.
 

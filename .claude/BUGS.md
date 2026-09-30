@@ -8,11 +8,13 @@ feature implementation that isn't a bug or a fix does not belong here; see
 
 ## "95% CVaR" in hedging evaluation is actually the 95% VaR (fixed)
 
-**Symptom:** found while reviewing a validation-checkpointing change.
+**Symptom:** found while reviewing the validation-checkpointing change.
 `AmericanHedging/Hedge.py::evaluate()` reports `cvar_95 =
 np.percentile(pnls, 5)`, printed as "CVaR 95%". That is the 5th-percentile
 P&L, i.e. the 95% VaR. CVaR (expected shortfall) is the *mean* P&L over the
-worst 5% of episodes, which is always at or below VaR.
+worst 5% of episodes, which is always at or below VaR. `train()`'s
+`val_metric="cvar"` reuses the same percentile, so it is consistent with
+`test-hedge`, but it carries the same mislabel.
 
 **Impact:** every "CVaR" figure in BUGS.md, README and the `test-hedge`
 output is a VaR. Rankings between policies are mostly unaffected, but VaR
@@ -21,60 +23,91 @@ to capture.
 
 **Fix:** a new `Hedge.cvar(pnls, level=0.95)` returns the mean of the worst
 `max(1, ceil(5% · n))` P&Ls. `evaluate()` returns it as `cvar_95` and
-prints the VaR on its own line.
+prints the VaR on its own line; `val_metric="cvar"` uses it too.
 
 **Past figures:** every "CVaR" in the entries below this one, and in any
 README table before this fix, is the 95% VaR. They are left as logged,
-since rankings between policies were mostly unaffected.
+since rankings between policies were mostly unaffected. The
+"RL hedging policy trails the LSM delta hedge" entry has recomputed
+numbers with both.
 
-## RL hedging policy trails the LSM delta hedge (open)
+## RL hedging policy trails the LSM delta hedge (fixed for puts; calls match delta)
 
 **Symptom:** once the LSM delta was fixed (see "LSM early-exercises American
 calls..."), the SAC policy's P&L std was ~2x the LSM delta hedge's. It
 tracked the exact delta but sat 0.07-0.10 away from it.
 
+All numbers below use the same protocol: `train-hedge` defaults, 1000
+episodes, training seeds 42/1/2/3, evaluated with `test-hedge` on the same
+2000 seed-999 episodes. P&L is in units of K, reported as mean / std / 95%
+VaR / 95% CVaR (CVaR as fixed in the entry above).
+
 **First attempt: residual-on-delta policy** (PLAN.md, "Residual-on-delta
-hedging policy"). The hedge is `clip(delta + 0.1·tanh(u), -1, 1)`. Same
-protocol as the table in that entry: `train-hedge` defaults, 1000 episodes,
-training seeds 42/1/2/3, evaluated on the same 2000 seed-999 episodes. P&L
-in units of K, reported as mean / std / 95% CVaR; the last column is the
-policy's mean |hedge - LSM delta| over 200 of those episodes:
+hedging policy"). The hedge is `clip(delta + 0.1·tanh(u), -1, 1)`, with the
+old checkpoint criterion (best trailing-50 raw mean reward). The last
+column is the policy's mean |hedge - LSM delta| over 200 of those episodes:
 
 | Policy | Call | Put |
 |---|---|---|
-| LSM delta | -0.084 / **0.014** / **-0.108** | -0.082 / **0.012** / -0.103 |
-| RL residual, seed 42 | -0.085 / 0.017 / -0.114 (0.038) | -0.082 / 0.020 / -0.117 (0.046) |
-| RL residual, seed 1 | -0.083 / 0.026 / -0.125 (0.063) | -0.080 / 0.015 / -0.106 (0.035) |
-| RL residual, seed 2 | -0.084 / 0.022 / -0.120 (0.045) | -0.081 / 0.016 / -0.110 (0.028) |
-| RL residual, seed 3 | -0.084 / 0.020 / -0.118 (0.034) | -0.081 / 0.013 / **-0.101** (0.026) |
+| LSM delta | -0.084 / **0.014** / -0.108 / -0.112 | -0.082 / **0.012** / -0.103 / -0.110 |
+| RL residual, seed 42 | -0.085 / 0.017 / -0.114 / -0.122 (0.038) | -0.082 / 0.020 / -0.117 / -0.127 (0.046) |
+| RL residual, seed 1 | -0.083 / 0.026 / -0.125 / -0.133 (0.063) | -0.080 / 0.015 / -0.106 / -0.113 (0.035) |
+| RL residual, seed 2 | -0.084 / 0.022 / -0.120 / -0.127 (0.045) | -0.081 / 0.016 / -0.110 / -0.118 (0.028) |
+| RL residual, seed 3 | -0.084 / 0.020 / -0.118 / -0.126 (0.034) | -0.081 / 0.013 / -0.101 / -0.106 (0.026) |
 | RL plain (previous) | 0.029-0.036 std | 0.019-0.023 std |
-| No hedge | -0.107 / 0.154 / -0.435 | -0.064 / 0.073 / -0.173 |
+| No hedge | -0.107 / 0.154 / -0.435 / -0.571 | -0.064 / 0.073 / -0.173 / -0.186 |
 
 - **The residual policy is clearly better than the plain one.** Std fell
   from 0.029-0.036 to 0.017-0.026 for calls and from 0.019-0.023 to
   0.013-0.020 for puts.
-- **It still doesn't beat LSM delta.** Only put seed 3 gets close: its CVaR
-  is marginally better (-0.101 vs -0.103), but its std is slightly worse
+- **It still didn't beat LSM delta.** Only put seed 3 got close: its CVaR
+  is marginally better (-0.106 vs -0.110), but its std is slightly worse
   (0.013 vs 0.012).
-- **Std rises with how far the policy strays from delta.** For both option
-  types, the seed that deviates least has the lowest std and the one that
-  deviates most has the highest. The learned corrections are noise, not
-  improvements.
+- **Std rose with how far the policy strayed from delta.** For both option
+  types, the seed that deviated least had the lowest std and the one that
+  deviated most had the highest.
 
-**Root cause (current reading):** in this setup there is nothing for the
-residual to learn. Costs are proportional (`tc = 0.001`) with no fixed cost,
-and the LSM delta is now close to exact (0.005-0.010 from it). Delta hedging
-is then close to optimal, so any learned deviation only adds variance. Two
-things make it worse:
-- **The checkpoint criterion** (best trailing-50 raw mean reward) selects on
-  path luck, not hedge quality.
-- **The untrained policy is never a candidate.** It is ≈ delta, but the
-  first checkpoint is only saved after 50 episodes of training.
+**Root cause:** the checkpoint criterion. The best trailing-50 raw mean
+reward selects on which paths were drawn, not on hedge quality, and the
+untrained policy (≈ delta under the residual form) was never a candidate,
+since the first save only came after 50 training episodes.
 
-**Status:** open. Next candidates: checkpointing on std/CVaR over a fixed
-validation path set (already in PLAN.md), and evaluating with a nonzero
-`--fixed_cost` or higher proportional cost, where delta hedging overtrades
-and a correction has something real to learn.
+**Fix: checkpoint on a fixed validation set** (PLAN.md, "Checkpoint the
+hedging policy on a fixed validation set"). The policy is scored by P&L
+std on 1000 held-out paths (seed `--seed + 1000`); the untrained policy is
+saved first, then re-scored every 50 episodes. Same residual policy,
+retrained:
+
+| Policy | Call | Put |
+|---|---|---|
+| LSM delta | -0.084 / 0.0142 / -0.108 / -0.112 | -0.082 / 0.0119 / -0.103 / -0.110 |
+| RL, val-checkpointed, seed 42 | -0.084 / 0.0143 / -0.108 / -0.112 | -0.081 / 0.0096 / -0.097 / -0.102 |
+| RL, val-checkpointed, seed 1 | -0.084 / 0.0149 / -0.108 / -0.113 | -0.081 / 0.0095 / -0.097 / -0.103 |
+| RL, val-checkpointed, seed 2 | -0.084 / 0.0142 / -0.107 / -0.112 | -0.081 / 0.0093 / -0.097 / -0.102 |
+| RL, val-checkpointed, seed 3 | -0.084 / 0.0142 / -0.107 / -0.112 | -0.081 / **0.0089** / **-0.096** / **-0.100** |
+
+- **Puts: RL now beats the LSM delta hedge on every seed.** Std is
+  0.0089-0.0096 against 0.0119 (20-25% lower), and CVaR is -0.100 to
+  -0.103 against -0.110. Validation std fell steadily from ~0.012 to
+  ~0.009 over the first 300-550 episodes, then stopped improving; the old
+  criterion never kept those policies. The put policies also beat the
+  exact tree-delta hedge from the LSM entry below (std 0.012-0.013).
+- **Calls: RL matches the delta hedge.** Training never beat the untrained
+  policy on validation (except seed 1, marginally, at episode 50), so the
+  saved call policies are essentially delta: std 0.0142-0.0149 against
+  0.0142.
+- **Why puts can beat even the exact delta (hypothesis, not verified):**
+  each episode ends at the *LSM's* exercise time. For puts, which LSM
+  exercises early on about half the paths, the liability being hedged is
+  therefore the put under LSM's slightly suboptimal exercise rule, not the
+  tree's optimal one. A learned hedge can adapt to that; a model delta
+  cannot. Calls are never exercised early, so there is nothing to adapt
+  to, and with only proportional costs delta is already close to optimal.
+
+**Status:** fixed for puts. Calls match delta rather than beat it. Next is
+testing with a nonzero `--fixed_cost` or a higher proportional cost, where
+delta hedging overtrades and a learned correction has something real to
+learn (PLAN.md).
 
 ## Simulated horizon was one step short of the maturity (fixed)
 
