@@ -13,6 +13,9 @@ def test_monte_carlo_converges_to_black_scholes():
     mc = MonteCarlo(simulation, strike=100.0, risk_free_rate=0.05, option_type="call")
     bs = BlackScholes(sigma=0.2, start_price=100.0, strike=100.0, risk_free_rate=0.05, option_type="call")
 
+    # MC discounts by the full T and the last row is now exactly at T, so the
+    # estimator is unbiased for BS(T=1); std error ~0.045 on 10.45 (<0.5%) at
+    # 100k paths, so 3% is conservative.
     assert mc.calculate_option_price(1) == pytest.approx(bs.calculate_option_price(1), rel=0.03)
 
 def test_longstaff_schwartz_converges_to_binomial_tree_for_american_put():

@@ -17,15 +17,9 @@ back each step.
 
 - [x] Pathwise-delta regression for the Greeks, drop bins/ridge (APPROVE, 167/167 passing)
 - [x] European control variate in the continuation regression, calls only (APPROVE, 179/179 passing)
-- [ ] Fix the 364-day horizon
-  `GBM.simulate_paths` produces `T*sampling` rows, i.e. one fewer interval
-  than the stated maturity. Every consumer, including the ML labels, prices
-  a slightly shorter option.
-- [ ] Reference-based tests
-  Replace the "delta inside [0,1]" check with tests against BS (call) and
-  the CRR tree (put): price, exercise agreement, and ITM/OTM delta MAE per
-  time bucket.
-- [ ] Dispatch test-agent/review-agent
+- [x] Fix the 364-day horizon (APPROVE, 190/190 passing)
+- [x] Reference-based tests
+- [x] Dispatch test-agent/review-agent (APPROVE on each step, 196/196 passing)
 - [ ] Retrain the hedging policies; decide whether to regenerate the ML dataset
   Rerun the call/put out-of-sample evaluation with the fixed LSM (the
   `delta` baseline should approach the exact-delta std of ~0.015/0.012).

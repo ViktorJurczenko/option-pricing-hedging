@@ -84,8 +84,9 @@ def test_evaluate_passes_current_env_state_to_action_fn(monkeypatch):
 
     # First call must see the reset state: S0/K=1.0, t/T=0, delta=gamma=0, position=0.
     np.testing.assert_allclose(seen_states[0], [1.0, 0.0, 0.0, 0.0, 0.0])
-    # Second call: after step 1, t=1, S=105/100, t/n_steps=1/3, position now 0 (no_hedge action).
-    np.testing.assert_allclose(seen_states[1], [1.05, 1 / 3, 0.0, 0.0, 0.0])
+    # Second call: after step 1, t=1, S=105/100, normalized time t/(n_steps-1)=1/2
+    # (3 rows -> last row index 2 is expiry), position now 0 (no_hedge action).
+    np.testing.assert_allclose(seen_states[1], [1.05, 1 / 2, 0.0, 0.0, 0.0])
 
 
 def test_evaluate_with_delta_hedge_baseline_hand_calculated_reward(monkeypatch):

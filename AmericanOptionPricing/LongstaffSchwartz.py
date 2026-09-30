@@ -65,6 +65,8 @@ class LongstaffSchwartz(OptionPricing):
             raise ValueError("sigma must be > 0")
         if control_variate and sigma is None:
             raise ValueError("control_variate requires sigma")
+        if simulation.shape[0] < 2:
+            raise ValueError("simulation needs at least 2 rows (start and expiry)")
 
         self.simulation = simulation
         self.continue_val = np.zeros(simulation.shape)
@@ -75,6 +77,9 @@ class LongstaffSchwartz(OptionPricing):
         self.strike = strike
         self.risk_free_rate = risk_free_rate
         self.maturity = maturity
+        # Row 0 is today and the last row is expiry, so the rows are
+        # simulation.shape[0] - 1 intervals apart.
+        self.dt = maturity / (simulation.shape[0] - 1)
         self.option_type = option_type
         self.reg_type = reg_type
         self.max_degree = max_degree
@@ -99,8 +104,7 @@ class LongstaffSchwartz(OptionPricing):
     def _realized_european_payoff(self, index: int) -> np.ndarray:
         """Each path's realized European payoff, discounted from expiry to row `index`."""
         n_steps = self.simulation.shape[0]
-        dt = self.maturity / n_steps
-        return np.exp(-self.risk_free_rate * (n_steps - 1 - index) * dt) * self._intrinsic(self.simulation[-1])
+        return np.exp(-self.risk_free_rate * (n_steps - 1 - index) * self.dt) * self._intrinsic(self.simulation[-1])
 
     def fit(self, payoff_next: np.ndarray, index: int):
         """Regressions at row `index`, given each path's realized cashflow
@@ -124,7 +128,7 @@ class LongstaffSchwartz(OptionPricing):
         targets (the plain Monte-Carlo estimate) at that single spot.
         """
         n_steps = self.simulation.shape[0]
-        dt = self.maturity / n_steps
+        dt = self.dt
         S = self.simulation[index]
         x = S / self.strike
 
@@ -172,7 +176,7 @@ class LongstaffSchwartz(OptionPricing):
         """
         Predicts the payoff of each paths at all times
         """
-        dt = self.maturity / self.simulation.shape[0]
+        dt = self.dt
 
         self.payoff[-1] = self._intrinsic(self.simulation[-1])
 
@@ -196,7 +200,6 @@ class LongstaffSchwartz(OptionPricing):
         if self.control_variate:
             # Same control variate as the regressions: exact European price plus
             # the simulated early-exercise premium (cashflow minus European payoff).
-            tau = self.maturity * (self.simulation.shape[0] - 1) / self.simulation.shape[0]
-            european_price = self._european(self.simulation[0]).calculate_option_price(tau)
+            european_price = self._european(self.simulation[0]).calculate_option_price(self.maturity)
             return np.mean(european_price + self.payoff[0] - self._realized_european_payoff(0), dtype=float)
         return np.mean(self.payoff[0], dtype=float)

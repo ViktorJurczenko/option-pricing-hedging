@@ -56,7 +56,7 @@ class HedgingEnv:
         t_clamped = min(t, self.lsm.delta.shape[0] - 1)  # greeks undefined at maturity
         return np.array([
             self.lsm.simulation[t, i] / self.lsm.strike,  # normalized spot
-            t / self.n_steps,                             # normalized time
+            t / (self.n_steps - 1),                       # normalized time (1 at expiry)
             self.lsm.delta[t_clamped, i],                 # L-S delta
             self.lsm.gamma[t_clamped, i],                 # L-S gamma
             self.position,                                # current hedge held

@@ -66,7 +66,7 @@ def test_non_positive_sigma_raises(sigma):
 # ITM-only continuation fit extrapolated to OTM paths, giving deltas in the tens) ---
 
 SIGMA, R, K, T = 0.2, 0.05, 100.0, 1.0
-N_STEPS, N_PATHS = 50, 4000
+N_STEPS, N_PATHS = 50, 4000  # N_STEPS time intervals -> N_STEPS + 1 simulation rows; last row index N_STEPS
 
 
 def _fitted_lsm(option_type="call", sigma=SIGMA, seed=42):
@@ -77,8 +77,8 @@ def _fitted_lsm(option_type="call", sigma=SIGMA, seed=42):
 
 
 def _bs(lsm, t, option_type):
-    # Same grid convention as the implementation: last row is expiry.
-    tau = (N_STEPS - 1 - t) * T / N_STEPS
+    # Row 0 is today, row N_STEPS is expiry, rows are T / N_STEPS apart.
+    tau = (N_STEPS - t) * T / N_STEPS
     return BlackScholes(SIGMA, lsm.simulation[t], K, R, option_type), tau
 
 
@@ -140,7 +140,7 @@ def test_put_delta_is_negative_and_bounded_on_average(put_lsm):
 def test_put_delta_close_to_tree_reference(put_lsm):
     # Central difference of the American-put tree value. Measured mean abs
     # error 0.004-0.03 on a larger config; 0.1 leaves margin for 4000 paths.
-    value_fn = binomial_value_fn(100.0, K, R, SIGMA, T, N_STEPS, "put")
+    value_fn = binomial_value_fn(100.0, K, R, SIGMA, T, N_STEPS + 1, "put")  # n_steps = row count
     for t in [10, 25]:
         S = put_lsm.simulation[t]
         near = (S > 85) & (S < 115)
@@ -204,22 +204,21 @@ def test_plain_lsm_call_early_exercises_on_this_config():
     # seeded config does spuriously exercise a call early, so "no early
     # exercise with it on" is a real difference and not a vacuous pass.
     lsm = _lsm("call", sigma=SIGMA)
-    assert (lsm.exercise_time < N_STEPS - 1).mean() > 0.05
+    assert (lsm.exercise_time < N_STEPS).mean() > 0.05
 
 
 def test_call_with_control_variate_never_exercises_early():
     # Regression: early exercise of a non-dividend call is never optimal.
     lsm = _lsm("call", sigma=SIGMA, control_variate=True)
-    assert np.all(lsm.exercise_time == N_STEPS - 1)
+    assert np.all(lsm.exercise_time == N_STEPS)
 
 
 def test_call_with_control_variate_prices_exactly_at_european_bs_price():
     # With no early exercise, payoff[0] equals the discounted European payoff
-    # path by path, so the estimator collapses to the exact BS price at
-    # tau = (n-1)*T/n (the grid's expiry convention). Exact up to float error.
+    # path by path, so the estimator collapses to the exact BS price at the
+    # full maturity T (the grid's last row sits exactly at T). Exact up to float error.
     lsm = _lsm("call", sigma=SIGMA, control_variate=True)
-    tau = (N_STEPS - 1) * T / N_STEPS
-    bs_price = BlackScholes(SIGMA, 100.0, K, R, "call").calculate_option_price(tau)
+    bs_price = BlackScholes(SIGMA, 100.0, K, R, "call").calculate_option_price(T)
     assert lsm.calculate_option_price() == pytest.approx(float(bs_price), abs=1e-6)
 
 
@@ -242,13 +241,46 @@ def test_control_variate_false_matches_omitting_the_argument():
 
 def test_put_with_control_variate_runs_and_prices_near_tree_price():
     # Put still gets a sane value: between the European price and a band
-    # around the binomial reference (true ~6.08). The band (+-0.4) covers the
-    # measured 5.92-6.08 spread across seeds plus the smaller sample here.
+    # around the binomial reference (CRR tree at T=1 is 6.09). The band (+-0.4)
+    # covers the measured 6.12-6.13 (10000 paths, seeds 1 and 42) plus the
+    # smaller sample here.
     lsm = _lsm("put", sigma=SIGMA, control_variate=True)
-    tau = (N_STEPS - 1) * T / N_STEPS
-    european = float(BlackScholes(SIGMA, 100.0, K, R, "put").calculate_option_price(tau))
+    european = float(BlackScholes(SIGMA, 100.0, K, R, "put").calculate_option_price(T))
     price = lsm.calculate_option_price()
     assert price > european - 0.2
-    assert abs(price - 6.08) < 0.4
-    assert lsm.exercise_time.min() >= 0 and lsm.exercise_time.max() == N_STEPS - 1
-    assert (lsm.exercise_time < N_STEPS - 1).mean() > 0.2  # puts do exercise early
+    assert abs(price - 6.09) < 0.4
+    assert lsm.exercise_time.min() >= 0 and lsm.exercise_time.max() == N_STEPS
+    assert (lsm.exercise_time < N_STEPS).mean() > 0.2  # puts do exercise early
+
+
+# --- Grid/horizon: the last simulation row is expiry at exactly `maturity` ---
+
+def test_dt_is_maturity_over_number_of_intervals():
+    # Regression: dt used to be maturity / rows, so the last row sat at
+    # (rows-1)/rows of the maturity and the option was priced too short.
+    lsm = LongstaffSchwartz(np.ones((11, 3)), strike=100.0, risk_free_rate=0.05, maturity=2.0, option_type="put")
+    assert lsm.dt == pytest.approx(2.0 / 10)
+
+
+@pytest.mark.parametrize("rows", [0, 1])
+def test_simulation_with_fewer_than_two_rows_raises(rows):
+    with pytest.raises(ValueError, match="2 rows"):
+        LongstaffSchwartz(np.ones((rows, 3)))
+
+
+def test_two_row_simulation_prices_the_one_step_option():
+    # Minimal grid: start and expiry only. A single ITM-at-expiry path must be
+    # discounted by the full maturity (dt = maturity / 1).
+    sim = np.array([[100.0], [80.0]])
+    lsm = LongstaffSchwartz(sim, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put")
+    lsm.predict_payoff()
+    assert lsm.calculate_option_price() == pytest.approx(20.0 * np.exp(-0.05))
+
+
+def test_constant_itm_put_exercises_immediately_on_five_row_grid():
+    # Deep ITM put: holding to expiry is worth 99*exp(-rT) < 99, so exercise at
+    # row 0 and the price is intrinsic.
+    sim = np.full((5, 4), 1.0)
+    lsm = LongstaffSchwartz(sim, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2)
+    lsm.predict_payoff()
+    assert lsm.calculate_option_price() == pytest.approx(99.0)

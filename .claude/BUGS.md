@@ -6,6 +6,40 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## Simulated horizon was one step short of the maturity (fixed)
+
+**Symptom:** found during the LSM diagnosis below. With `maturity=1,
+sampling=365`, the LSM call price with an exact control variate came out at
+10.433, the Black-Scholes price for 364/365 of a year, not 10.451 for one
+year.
+
+**Root cause:** `GBM.simulate_paths` produced `int(maturity*sampling)` rows
+spaced `maturity / rows` apart, starting at row 0 = S0, so the last row sat
+at `maturity * (rows-1)/rows`. Every consumer treated that last row as
+expiry, so they all priced a shorter option:
+- `LongstaffSchwartz`, `option_value.py` and `HedgingEnv`.
+- The ML dataset labels, where `generate_dataset.py` uses a weekly grid for
+  puts. At T=0.25 there are 13 rows, so the option was 7.7% short. Measured
+  against a CRR tree, the label error is up to -0.0012·K: -3.4% ATM and
+  -20% relative deep OTM. It shrinks to ~-0.0002·K at T=3. For scale, the
+  MLP's test MAE is 0.0028·K.
+- `MonteCarlo` discounted by the full T while using the short last row.
+
+**Fix:**
+- `simulate_paths` returns `int(maturity*sampling) + 1` rows, so the last
+  row is exactly at `maturity`.
+- LSM (`self.dt`), `option_value.py` and `HedgingEnv`'s normalized time now
+  use a spacing of `maturity / (rows - 1)`.
+- The LSM call with the control variate now prices 10.4506 = BS(T=1), and
+  the CRR put reference is 6.090.
+
+**Status of artifacts built on the old grid:**
+- `data/american_option_dataset.npz` and `data/features_norm.npz` carry the
+  label bias above.
+- The hedging checkpoints were trained with the old state normalization and
+  the old LSM.
+- Both need regenerating or retraining; see PLAN.md.
+
 ## LSM early-exercises American calls and mis-estimates delta (open)
 
 **Symptom:** found while sanity-checking the accounting-P&L reward's value

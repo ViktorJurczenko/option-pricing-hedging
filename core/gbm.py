@@ -37,19 +37,23 @@ class GBM():
             nb_predictions: Number of simulation paths.
 
         Returns:
-            self.simulations: 2D array of shape (maturity * sampling, nb_predictions).
+            self.simulations: 2D array of shape (maturity * sampling + 1, nb_predictions).
+                Row 0 is the start price and the last row sits exactly at `maturity`
+                (maturity * sampling intervals of maturity / (maturity * sampling)).
         """
         if self.seed is not None:
             np.random.seed(self.seed)
 
-        size = int(maturity * sampling)
+        size = int(maturity * sampling)  # number of time intervals
+        if size < 1:
+            raise ValueError("maturity * sampling must be >= 1")
         dt = maturity / size
 
-        self.simulations = np.zeros((size, nb_predictions))
+        self.simulations = np.zeros((size + 1, nb_predictions))
 
         self.simulations[0] = self.start_price
 
-        for i in range(1, size):
+        for i in range(1, size + 1):
             Z = np.random.standard_normal(nb_predictions)
             self.simulations[i] = self.simulations[i - 1] * np.exp((self.risk_free_rate - 0.5 * self.sigma**2) * dt +(self.sigma * np.sqrt(dt) * Z))
 

@@ -16,8 +16,8 @@ def black_scholes_value_fn(strike: float, risk_free_rate: float, sigma: float,
                            maturity: float, n_steps: int, option_type: str) -> ValueFn:
     """Closed-form option value on the simulation's time grid.
 
-    Row t of a `GBM.simulate_paths` array sits at time t*dt with
-    dt = maturity / n_steps, and LongstaffSchwartz treats the last row as
+    `n_steps` is the number of rows of a `GBM.simulate_paths` array: row t
+    sits at time t*dt with dt = maturity / (n_steps - 1), and the last row is
     expiry, so the remaining time at row t is (n_steps - 1 - t) * dt. On the
     last row the value is exactly the intrinsic payoff.
 
@@ -27,7 +27,9 @@ def black_scholes_value_fn(strike: float, risk_free_rate: float, sigma: float,
     """
     if option_type not in ["call", "put"]:
         raise ValueError("option_type must be 'call' or 'put'")
-    dt = maturity / n_steps
+    if n_steps < 2:
+        raise ValueError("n_steps (simulation rows) must be >= 2")
+    dt = maturity / (n_steps - 1)
 
     def value_fn(t: int, S: np.ndarray) -> np.ndarray:
         S = np.asarray(S, dtype=float)
@@ -65,8 +67,10 @@ def binomial_value_fn(start_price: float, strike: float, risk_free_rate: float, 
         raise ValueError("option_type must be 'call' or 'put'")
     if substeps < 1:
         raise ValueError("substeps must be >= 1")
+    if n_steps < 2:
+        raise ValueError("n_steps (simulation rows) must be >= 2")
 
-    dt_tree = maturity / n_steps / substeps
+    dt_tree = maturity / (n_steps - 1) / substeps
     n_tree = (n_steps - 1) * substeps
     u = np.exp(sigma * np.sqrt(dt_tree))
     d = 1 / u

@@ -43,15 +43,13 @@ def test_black_scholes_value_fn_raises_type_error_when_option_type_omitted():
         black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS)
 
 
-def test_black_scholes_value_fn_matches_direct_bs_at_reduced_tau():
+def test_black_scholes_value_fn_matches_direct_bs_at_remaining_time():
     """value_fn(t, S) must equal a fresh BlackScholes priced at the row's
-    remaining time tau = (n_steps-1-t)*maturity/n_steps -- this is the core
-    formula the function implements, checked against an independently
-    constructed BlackScholes instance rather than the internals reused."""
+    remaining time tau = (n_steps-1-t)*dt with dt = maturity/(n_steps-1)."""
     value_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call")
     t = 5
     S = np.array([80.0, 100.0, 120.0])
-    tau = (N_STEPS - 1 - t) * MATURITY / N_STEPS
+    tau = (N_STEPS - 1 - t) * MATURITY / (N_STEPS - 1)
     expected = BlackScholes(
         sigma=SIGMA, start_price=S, strike=STRIKE, risk_free_rate=R, option_type="call"
     ).calculate_option_price(T=tau)
@@ -80,24 +78,14 @@ def test_black_scholes_value_fn_accepts_vectorized_spot_input():
     assert np.all(np.diff(result) > 0)
 
 
-def test_black_scholes_value_fn_t_zero_uses_reduced_maturity_not_full_maturity():
-    """Regression guard for an off-by-one in tau: t=0's remaining time is
-    (n_steps-1)/n_steps * maturity, strictly less than the full maturity, so
-    this must differ from (and not equal) pricing with T=maturity."""
+def test_black_scholes_value_fn_t_zero_uses_full_maturity():
+    """Regression: row 0 used to have remaining time (n-1)/n * maturity
+    (the grid ended short of maturity). It is now the full maturity."""
     value_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="put")
-    S = np.array([STRIKE])
-
-    tau0 = (N_STEPS - 1) * MATURITY / N_STEPS
-    expected_reduced = BlackScholes(
-        sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R, option_type="put"
-    ).calculate_option_price(T=tau0)
-    full_maturity_price = BlackScholes(
+    expected = BlackScholes(
         sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R, option_type="put"
     ).calculate_option_price(T=MATURITY)
-
-    result = value_fn(0, S)[0]
-    assert result == pytest.approx(expected_reduced)
-    assert result != pytest.approx(full_maturity_price)
+    assert value_fn(0, np.array([STRIKE]))[0] == pytest.approx(float(expected))
 
 
 # --- binomial_value_fn -------------------------------------------------------
@@ -129,17 +117,14 @@ def test_binomial_value_fn_last_row_is_exactly_intrinsic():
     np.testing.assert_allclose(result, np.maximum(STRIKE - S, 0.0))
 
 
-def test_binomial_value_fn_at_t_zero_matches_binomial_tree_with_scaled_maturity_and_steps():
-    """Per the implementation's own docstring: value_fn(0, start_price) is
-    the price of the exact same CRR tree, just built directly through
-    BinomialTree with maturity*(n_steps-1)/n_steps and nb_steps=(n_steps-1)*substeps
-    instead of through the row-grid wrapper. This pins the substeps/scaling
-    arithmetic precisely, not just approximately."""
+def test_binomial_value_fn_at_t_zero_matches_binomial_tree_at_full_maturity():
+    """value_fn(0, start_price) is the price of the same CRR tree built
+    directly through BinomialTree with the full maturity and
+    nb_steps=(n_steps-1)*substeps."""
     substeps = 4
-    n_tree_steps = (N_STEPS - 1) * substeps
     tree = BinomialTree(
         sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R,
-        maturity=MATURITY * (N_STEPS - 1) / N_STEPS, nb_steps=n_tree_steps, option_type="put",
+        maturity=MATURITY, nb_steps=(N_STEPS - 1) * substeps, option_type="put",
     )
     tree.predict_payoff()
     expected = tree.calculate_option_price()
@@ -227,3 +212,18 @@ def test_make_option_value_fn_put_delegates_to_binomial_value_fn():
     S = np.array([90.0, 100.0, 110.0])
 
     np.testing.assert_allclose(combined(2, S), direct(2, S))
+
+
+# --- n_steps (simulation row count) must leave at least one interval ---------
+
+@pytest.mark.parametrize("n_steps", [0, 1])
+def test_black_scholes_value_fn_raises_when_fewer_than_two_rows(n_steps):
+    # Regression: dt = maturity / (n_steps - 1) divided by zero for one row.
+    with pytest.raises(ValueError, match="n_steps"):
+        black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, n_steps, option_type="call")
+
+
+@pytest.mark.parametrize("n_steps", [0, 1])
+def test_binomial_value_fn_raises_when_fewer_than_two_rows(n_steps):
+    with pytest.raises(ValueError, match="n_steps"):
+        binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, n_steps, option_type="put")
