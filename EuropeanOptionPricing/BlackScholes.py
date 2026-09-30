@@ -35,6 +35,9 @@ class BlackScholes(OptionPricing):
         self.risk_free_rate = risk_free_rate
         self.option_type = option_type
 
+    def _d1(self, T: float):
+        return (np.log(self.start_price / self.strike) + (self.risk_free_rate + (self.sigma ** 2) / 2) * T) / (self.sigma * np.sqrt(T))
+
     def calculate_option_price(self, T: float = 1) -> float:
         """
         Calculate the price of the option using Black and Scholes formula.
@@ -45,7 +48,7 @@ class BlackScholes(OptionPricing):
         Returns:
             option_price: Estimated option price.
         """
-        d1 = (np.log(self.start_price / self.strike) + (self.risk_free_rate + (self.sigma ** 2) / 2) * T) / (self.sigma * np.sqrt(T))
+        d1 = self._d1(T)
         d2 = d1 - (self.sigma * np.sqrt(T))
 
         if self.option_type == 'call':
@@ -53,3 +56,14 @@ class BlackScholes(OptionPricing):
         else:
             option_price = self.strike * np.exp(-self.risk_free_rate * T) * norm.cdf(-d2) - self.start_price * norm.cdf(-d1)
         return option_price
+
+    def calculate_delta(self, T: float = 1) -> float:
+        """Derivative of the price with respect to the spot: N(d1) for a call,
+        N(d1) - 1 for a put."""
+        delta = norm.cdf(self._d1(T))
+        return delta if self.option_type == "call" else delta - 1
+
+    def calculate_gamma(self, T: float = 1) -> float:
+        """Second derivative of the price with respect to the spot, the same
+        for a call and a put: n(d1) / (S * sigma * sqrt(T))."""
+        return norm.pdf(self._d1(T)) / (self.start_price * self.sigma * np.sqrt(T))

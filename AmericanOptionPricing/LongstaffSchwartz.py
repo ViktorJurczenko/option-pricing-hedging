@@ -1,7 +1,7 @@
 import numpy as np
-from sklearn.linear_model import LinearRegression, Ridge
 
 from core.base import OptionPricing
+from EuropeanOptionPricing.BlackScholes import BlackScholes
 from AmericanOptionPricing.basis_functions import (
     simple_poly,
     simple_poly_deriv_k,
@@ -24,9 +24,7 @@ class LongstaffSchwartz(OptionPricing):
             option_type: str = "call",
             reg_type: str = "simple",
             max_degree: int = 3,
-            ridge_lambda: float = 0.0,
-            moneyness_bins: int = 1,
-            moneyness_bins_window: float = 1.0
+            sigma: float | None = None
         ):
         """
         Initialize the Longstaff-Schwartz model.
@@ -39,28 +37,12 @@ class LongstaffSchwartz(OptionPricing):
             option_type: Type of option ("call" or "put").
             reg_type: The type of polynomial used for regression
             max_degree: The maximum degree of the features of the regression.
-            ridge_lambda: L2 regularization strength for the per-timestep regression.
-                0.0 (default) fits an unregularized LinearRegression, matching prior
-                behavior exactly; > 0 switches to Ridge, to discourage the exploding
-                coefficients that cause delta/gamma to overshoot near maturity.
-            moneyness_bins: number of quantile bins (by in-the-money S_t) to split
-                each timestep's regression into, fitting one model per bin instead of
-                a single global fit. 1 (default) reduces to exactly the prior
-                single-global-fit behavior. A local/binned fit only has to bend
-                sharply where paths in that bin actually sit, rather than
-                compromising its shape across the whole in-the-money range to
-                accommodate the near-maturity kink - but splitting a timestep's
-                paths into more, smaller fits also makes each fit less stable, so
-                this should only be applied where the kink actually needs it (see
-                moneyness_bins_window).
-            moneyness_bins_window: fraction of the timeline, counted backward from
-                maturity, over which moneyness_bins is actually applied; outside
-                that window a single global fit is used regardless of
-                moneyness_bins. 1.0 (default) applies it across the whole timeline.
-                The value function's kink only sharpens close to maturity - binning
-                timesteps where it hasn't (most of the timeline) trades away
-                accuracy for no benefit, since a smaller per-bin sample makes an
-                already-well-behaved global fit worse, not better.
+            sigma: Volatility the simulation was generated with. Optional: when
+                given, the Black-Scholes delta of the European option is added
+                as a feature of the delta regression (see fit()). Without it,
+                a cubic basis can't follow delta's steepening near expiry.
+                It must be the simulation's own volatility; any other value
+                makes that feature a biased guide.
         """
         if option_type not in ["call", "put"]:
             raise ValueError("option_type must be 'call' or 'put'")
@@ -68,12 +50,8 @@ class LongstaffSchwartz(OptionPricing):
             raise ValueError("reg_type must be 'simple' or 'laguerre'")
         if max_degree < 0:
             raise ValueError("max_degree must be >= 0")
-        if ridge_lambda < 0:
-            raise ValueError("ridge_lambda must be >= 0")
-        if moneyness_bins < 1:
-            raise ValueError("moneyness_bins must be >= 1")
-        if not 0.0 <= moneyness_bins_window <= 1.0:
-            raise ValueError("moneyness_bins_window must be in [0, 1]")
+        if sigma is not None and sigma <= 0:
+            raise ValueError("sigma must be > 0")
 
         self.simulation = simulation
         self.continue_val = np.zeros(simulation.shape)
@@ -87,86 +65,80 @@ class LongstaffSchwartz(OptionPricing):
         self.option_type = option_type
         self.reg_type = reg_type
         self.max_degree = max_degree
-        self.ridge_lambda = ridge_lambda
-        self.moneyness_bins = moneyness_bins
-        self.moneyness_bins_window = moneyness_bins_window
+        self.sigma = sigma
 
-    def _fit_model(self, X: np.ndarray, y: np.ndarray) -> LinearRegression | Ridge:
-        if self.ridge_lambda > 0:
-            return Ridge(alpha=self.ridge_lambda, fit_intercept=False).fit(X, y)
-        return LinearRegression(fit_intercept=False).fit(X, y)
+    def _basis(self, x: np.ndarray, k: int = 0) -> np.ndarray:
+        """k-th derivative (0 = the values) of the regression basis at x = S/K."""
+        if self.reg_type == "laguerre":
+            return laguerre_poly_gen(x, self.max_degree) if k == 0 else laguerre_deriv_k(x, self.max_degree, k)
+        return simple_poly(x, self.max_degree) if k == 0 else simple_poly_deriv_k(x, self.max_degree, k)
+
+    def _intrinsic(self, S: np.ndarray) -> np.ndarray:
+        if self.option_type == "call":
+            return np.maximum(S - self.strike, 0)
+        return np.maximum(self.strike - S, 0)
+
+    def _european(self, S: np.ndarray) -> BlackScholes:
+        """The European option on the same strike at spots S (callers pass the row's remaining maturity)."""
+        return BlackScholes(self.sigma, S, self.strike, self.risk_free_rate, self.option_type)
 
     def fit(self, payoff_next: np.ndarray, index: int):
-        dt = self.maturity / self.simulation.shape[0]
-        S_t = self.simulation[index] / self.strike
+        """Regressions at row `index`, given each path's realized cashflow
+        `payoff_next` (discounted to row index + 1) under the exercise rule
+        already fitted for the later rows.
 
-        if self.option_type == "put":
-            itm_mask = self.simulation[index] < self.strike   # S < K → put is ITM
-        else:
-            itm_mask = self.simulation[index] > self.strike   # S > K → call is ITM
+        - Continuation value: regressed on in-the-money paths only, as in the
+          original method. It drives the exercise decision in predict_payoff().
+        - Delta: its own regression, over all paths, of the pathwise delta
+          (the derivative of each path's discounted cashflow with respect to
+          S_index: +-S_stop/S_index discounted, if the path pays off). Gamma is
+          the derivative of that fit. Differentiating the continuation fit
+          instead extrapolates the ITM-only polynomial to out-of-the-money
+          paths, where it gave deltas in the tens (see BUGS.md).
 
-        true_continue = np.exp(-self.risk_free_rate * dt) * payoff_next
-
-        # Only fit on ITM paths
-        S_t_itm = S_t[itm_mask]
-        true_continue_itm = true_continue[itm_mask]
-
-        if len(S_t_itm) == 0:
-            # No ITM paths → discount next payoff forward for all paths, no exercise
-            self.continue_val[index] = np.exp(-self.risk_free_rate * dt) * payoff_next
-            return
-
-        if self.reg_type == "laguerre":
-            features_itm = laguerre_poly_gen(S_t_itm, self.max_degree)
-            features_all = laguerre_poly_gen(S_t, self.max_degree)
-            deriv_1 = laguerre_deriv_k(S_t, self.max_degree, 1)
-            deriv_2 = laguerre_deriv_k(S_t, self.max_degree, 2)
-        else:
-            features_itm = simple_poly(S_t_itm, self.max_degree)
-            features_all = simple_poly(S_t, self.max_degree)
-            deriv_1 = simple_poly_deriv_k(S_t, self.max_degree, 1)
-            deriv_2 = simple_poly_deriv_k(S_t, self.max_degree, 2)
-
-        # Moneyness-binned regression: split ITM paths into `moneyness_bins`
-        # quantile bins by S_t and fit one model per bin, instead of a single
-        # global fit across every ITM path. moneyness_bins=1 reduces to
-        # exactly the prior single-global-fit behavior (interior_edges is
-        # then empty, so every path maps to bin 0 - see np.digitize below).
+        At row 0 every path shares S0, so both regressions are degenerate:
+        lstsq returns the minimum-norm fit, whose prediction is the mean of the
+        targets (the plain Monte-Carlo estimate) at that single spot.
+        """
         n_steps = self.simulation.shape[0]
-        t_frac_to_maturity = (index + 1) / n_steps  # 0 at the first step, ~1 at the step before maturity
-        near_maturity = t_frac_to_maturity >= 1 - self.moneyness_bins_window
+        dt = self.maturity / n_steps
+        S = self.simulation[index]
+        x = S / self.strike
 
-        n_bins = self.moneyness_bins if near_maturity else 1
-        min_points_per_bin = max(self.max_degree + 2, 10)
-        if len(S_t_itm) < n_bins * min_points_per_bin:
-            # Not enough ITM paths to support this many bins reliably at
-            # this timestep - fall back to a single bin just for it.
-            n_bins = 1
+        realized_continuation = np.exp(-self.risk_free_rate * dt) * payoff_next
+        features = self._basis(x)
 
-        bin_edges = np.quantile(S_t_itm, np.linspace(0, 1, n_bins + 1))
-        interior_edges = bin_edges[1:-1]
-        # Paths outside the ITM range (e.g. OTM paths, for which we still
-        # need a continuation-value/Greeks estimate) are clipped to the
-        # nearest bin rather than left unassigned.
-        bin_idx_itm = np.clip(np.digitize(S_t_itm, interior_edges), 0, n_bins - 1)
-        bin_idx_all = np.clip(np.digitize(S_t, interior_edges), 0, n_bins - 1)
+        # Continuation value, on ITM paths only
+        itm_mask = self._intrinsic(S) > 0
+        if not np.any(itm_mask):
+            # No ITM paths → no exercise decision to make at this row
+            self.continue_val[index] = realized_continuation
+        else:
+            beta = np.linalg.lstsq(features[itm_mask], realized_continuation[itm_mask], rcond=None)[0]
+            self.continue_val[index] = features @ beta
 
-        for b in range(n_bins):
-            train_mask = bin_idx_itm == b
-            if not np.any(train_mask):
-                # Not reachable with continuous GBM-sourced S_t (quantile
-                # bins guarantee every bin gets points), but guards against
-                # an empty bin if that ever stops holding (e.g. a different
-                # path-generation source with many duplicate/degenerate
-                # prices).
-                continue
+        # Pathwise delta. At this point exercise_time holds each path's
+        # cashflow row under the rule for rows index + 1 onward.
+        stop = self.exercise_time
+        stop_price = self.simulation[stop, np.arange(S.shape[0])]
+        sign = 1.0 if self.option_type == "call" else -1.0
+        pathwise_delta = np.where(
+            payoff_next > 0,
+            sign * stop_price / S * np.exp(-self.risk_free_rate * (stop - index) * dt),
+            0.0,
+        )
 
-            model = self._fit_model(features_itm[train_mask], true_continue_itm[train_mask])
+        delta_features = features
+        gamma_features = self._basis(x, 1) / self.strike
+        if self.sigma is not None:
+            tau = (n_steps - 1 - index) * dt
+            european = self._european(S)
+            delta_features = np.column_stack([delta_features, european.calculate_delta(tau)])
+            gamma_features = np.column_stack([gamma_features, european.calculate_gamma(tau)])
 
-            pred_mask = bin_idx_all == b
-            self.continue_val[index, pred_mask] = model.predict(features_all[pred_mask])
-            self.delta[index, pred_mask] = model.predict(deriv_1[pred_mask]) / self.strike
-            self.gamma[index, pred_mask] = model.predict(deriv_2[pred_mask]) / self.strike ** 2
+        coef = np.linalg.lstsq(delta_features, pathwise_delta, rcond=None)[0]
+        self.delta[index] = delta_features @ coef
+        self.gamma[index] = gamma_features @ coef
 
     def predict_payoff(self) -> None:
         """
@@ -174,21 +146,15 @@ class LongstaffSchwartz(OptionPricing):
         """
         dt = self.maturity / self.simulation.shape[0]
 
-        if self.option_type == "call":
-            self.payoff[-1] = np.maximum(self.simulation[-1] - self.strike, 0)
-        else:
-            self.payoff[-1] = np.maximum(self.strike - self.simulation[-1], 0)
+        self.payoff[-1] = self._intrinsic(self.simulation[-1])
 
         for i in range(self.simulation.shape[0] - 2, -1, -1): # Traverses prediction backward starting from the second last element
             self.fit(self.payoff[i + 1], i)
 
-            if self.option_type == "call":
-                exercice_payoff = np.maximum(self.simulation[i] - self.strike, 0)
-            else:
-                exercice_payoff = np.maximum(self.strike - self.simulation[i], 0)
+            exercice_payoff = self._intrinsic(self.simulation[i])
 
             exercice_mask = (exercice_payoff > 0) & (exercice_payoff >= self.continue_val[i])
-            # Note : it's important to make sure exercice payoff is positive as it could be null but still selected since
+            # It's important to make sure exercice payoff is positive as it could be null but still selected since
             # the continue payoff which is found via regression may be negative
 
             self.payoff[i, exercice_mask] = exercice_payoff[exercice_mask]

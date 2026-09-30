@@ -19,9 +19,6 @@ def add_arguments(parser):
     parser.add_argument("--option_type", default="call", type=str, choices=["call", "put"], help="Type of option ('call' or 'put').")
     parser.add_argument("--max_degree", default=3, type=int, help="Maximum degree of the polynomial used in Longstaff-Schwartz regression.")
     parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="polynomials used for regression.")
-    parser.add_argument("--ridge_lambda", default=0.06, type=float, help="L2 regularization strength for the Longstaff-Schwartz regression. Should match the value used for --policy rl's training run for a fair comparison (the delta baseline and the RL policy's state both depend on this model's Greeks).")
-    parser.add_argument("--moneyness_bins", default=30, type=int, help="Number of quantile bins (by in-the-money S_t) to split each near-maturity timestep's regression into, instead of one global fit. See moneyness_bins_window for which timesteps this applies to.")
-    parser.add_argument("--moneyness_bins_window", default=0.3, type=float, help="Fraction of the timeline, counted backward from maturity, over which moneyness_bins is applied; outside that window a single global fit is used regardless of moneyness_bins.")
     parser.add_argument("--seed", default=42, type=int, help="Random seed for reproducibility.")
     parser.add_argument("--n_episodes", default=1000, type=int, help="Number of evaluation episodes.")
     parser.add_argument("--fixed_cost", default=0.0, type=float, help="Flat cost charged whenever the hedge position is changed, regardless of trade size. Should match the value used for --policy rl's training run for a fair comparison.")
@@ -39,7 +36,7 @@ def run(args):
 
     lsm = LongstaffSchwartz(
         simulation, args.strike, args.risk_free_rate, args.maturity, args.option_type, args.reg_type, args.max_degree,
-        ridge_lambda=args.ridge_lambda, moneyness_bins=args.moneyness_bins, moneyness_bins_window=args.moneyness_bins_window,
+        sigma=args.sigma,
     )
     lsm.predict_payoff()
     env = HedgingEnv(lsm, fixed_cost=args.fixed_cost)

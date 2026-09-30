@@ -15,13 +15,7 @@ ML dataset (price only) and the RL environment (exercise times, delta,
 gamma) depend on this. Prototypes in the scratchpad, 4 seeds, call + put,
 back each step.
 
-- [ ] Pathwise-delta regression for the Greeks, drop bins/ridge
-  In `LongstaffSchwartz`, estimate delta by regressing the pathwise delta
-  (`±e^{-r(τ-t)} S_τ/S_t` if the path pays off, 0 otherwise) on
-  `[1, x, x², x³, BS delta]` over all alive paths. Gamma is the derivative
-  of that fit. Remove `ridge_lambda`/`moneyness_bins` from the hedging
-  defaults in the same change, never as a standalone revert. Prototype:
-  delta MAE ≤ 0.035 in every time bucket, ITM and OTM.
+- [x] Pathwise-delta regression for the Greeks, drop bins/ridge (APPROVE, 167/167 passing)
 - [ ] European control variate in the continuation regression
   Regress `y - Z` (realized payoff minus realized discounted European
   payoff) on the basis and add back the exact European price. It removes

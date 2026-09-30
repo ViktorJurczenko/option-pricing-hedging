@@ -55,9 +55,9 @@ expiry, and at each timestep, regress the already-known future discounted
 payoff on the current stock price, across all in-the-money paths at that
 timestep, to fit an estimate of continuation value — then compare that
 estimate to the immediate exercise payoff to decide the optimal exercise
-point for each path. The regression's coefficients also give delta and
-gamma for free, as the fitted function's analytic derivatives, without a
-separate finite-difference pass.
+point for each path. Delta and gamma originally came for free as the
+fitted function's analytic derivatives, without a separate
+finite-difference pass.
 
 ```
 python main.py test-hedge --policy delta
@@ -82,31 +82,28 @@ amplifies the wiggle into large Greek swings — worse at higher polynomial
 degree, not better (more degrees of freedom to oscillate), which rules out
 "just fit a higher-degree polynomial" as a fix.
 
-**Fix:** two opt-in `LongstaffSchwartz` parameters, both off by default (so
-every other consumer — `price`, the ML surrogate's dataset generation — is
-unaffected unless it explicitly opts in):
-- `ridge_lambda` — L2-regularizes the per-timestep regression, directly
-  discouraging the exploding coefficients that cause the overshoot.
-- `moneyness_bins` / `moneyness_bins_window` — splits in-the-money paths
-  into quantile bins by spot price and fits one regression per bin, but
-  *only* for timesteps within `moneyness_bins_window` of maturity. Applying
-  this to every timestep was tried first and made the already well-behaved
-  middle of the timeline worse — a fit on ~250 points per bin is less
-  stable than one on ~5,000, and most timesteps aren't kinked sharply
-  enough to need localizing.
+**First fix, later reverted:** ridge regularization plus per-moneyness-bin
+regressions near maturity. It brought the "delta inside `[0, 1]`" rate up,
+but checking against the exact Black-Scholes delta showed that was the
+wrong yardstick. Inside each narrow bin the slope was unidentifiable and
+ridge shrank it to ~0, which is a valid-looking but wrong delta. The small
+bins also overfit each path's own future, triggering spurious early
+exercise (57% of American-call paths, where the correct answer is 0%).
 
-`train-hedge`/`test-hedge` now default to `--ridge_lambda 0.06
---moneyness_bins 30 --moneyness_bins_window 0.3` — found by sweeping both
-parameters together and picking the combination that maximized
-near-maturity Greeks accuracy subject to keeping the option price within
-the unregularized baseline's own natural error vs. a Binomial Tree
-benchmark. Validated across 3 random seeds:
+**Current fix:** delta gets its own regression instead of being the
+derivative of the continuation fit. Each path's *pathwise delta* (the
+derivative of its discounted cashflow with respect to today's spot,
+`±S_exercise/S_t` discounted, if it pays off) is regressed over all paths,
+in and out of the money, on the polynomial basis plus the European
+Black-Scholes delta. Gamma is the derivative of that fit. Against exact
+references (Black-Scholes for the call, a binomial tree for the put), on
+4 seeds:
 
-| | Baseline | Fixed |
+| Delta error (mean absolute) | Derivative of ITM value fit | Pathwise regression |
 |---|---|---|
-| Invalid delta, last 20 timesteps (avg) | 9.6-14.5% | 1.8-9.5% |
-| Invalid delta, single worst timestep | 15.3-91.6% | 0.9-1.2% |
-| Price drift vs. Binomial Tree | -1.33% to +1.31% | within the same noise band |
+| In the money | 0.03-0.18 | 0.001-0.035 |
+| Out of the money | 0.2-0.9 | 0.001-0.017 |
+| Largest \|delta\| | 13-48 | 1.8 |
 
 Full incident writeup (symptom, root cause, ruled-out fixes) is in
 `.claude/BUGS.md`.
@@ -297,9 +294,8 @@ Module layout mirrors option class for pricing, and role for everything else:
   (path-average payoff).
 - **`AmericanOptionPricing/`** — `BinomialTree` (CRR tree with backward
   induction), `LongstaffSchwartz` (LSM with simple/Laguerre polynomial
-  regression bases and analytic delta/gamma; optional `ridge_lambda` and
-  near-maturity `moneyness_bins`/`moneyness_bins_window` to fix Greeks
-  overshoot close to expiry — see Results above), `basis_functions.py` (the
+  regression bases; delta/gamma from a regression of pathwise deltas — see
+  Results above), `basis_functions.py` (the
   regression bases, unit-tested independently), `ML.py` (the `MLP` surrogate,
   4 inputs → 1 output: `(price - smooth_intrinsic_value) / K` — a smoothly
   decomposed residual, not raw price; see Results above for why), `evaluation.py`
