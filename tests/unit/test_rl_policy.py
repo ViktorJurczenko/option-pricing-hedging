@@ -1,0 +1,149 @@
+import numpy as np
+import pytest
+import torch
+
+from AmericanHedging.HedgeEnv import HedgingEnv
+from AmericanHedging.RLPolicy import _DELTA_IDX, RLPolicy
+from AmericanOptionPricing import LongstaffSchwartz
+from core.gbm import GBM
+
+
+def _state(delta, batch=None):
+    """State in HedgingEnv layout [S/K, t/T, delta, gamma, position]; other
+    entries are deliberately non-zero so a wrong index would change results."""
+    row = torch.tensor([1.1, 0.4, delta, 0.7, -0.3])
+    return row if batch is None else row.repeat(batch, 1)
+
+
+@pytest.mark.parametrize("bad", [-0.1, float("nan"), float("inf"), float("-inf")])
+def test_invalid_residual_scale_raises(bad):
+    # NaN fails `>= 0` silently if only negativity is checked; inf would make
+    # the residual unbounded, defeating the clamp-around-delta design.
+    with pytest.raises(ValueError, match="residual_scale"):
+        RLPolicy(5, 1, residual_scale=bad)
+
+
+@pytest.mark.parametrize("ok", [0.0, 0.1])
+def test_valid_residual_scale_accepted(ok):
+    assert RLPolicy(5, 1, residual_scale=ok).residual_scale.item() == pytest.approx(ok)
+
+
+def test_residual_scale_is_buffer_saved_in_state_dict():
+    policy = RLPolicy(5, 1, residual_scale=0.25)
+    sd = policy.state_dict()
+    assert "residual_scale" in sd
+    assert sd["residual_scale"].item() == pytest.approx(0.25)
+    # A buffer, not a trainable parameter: the optimizer must never touch it.
+    assert "residual_scale" not in dict(policy.named_parameters())
+
+
+def test_hedge_ratio_is_identity_when_residual_scale_zero():
+    policy = RLPolicy(5, 1)
+    squashed = torch.tensor([0.37])
+    out = policy.hedge_ratio(_state(0.9), squashed)
+    assert torch.equal(out, squashed)  # delta must be ignored entirely
+
+
+def test_hedge_ratio_adds_scaled_residual_to_delta_single_state():
+    policy = RLPolicy(5, 1, residual_scale=0.1)
+    out = policy.hedge_ratio(_state(0.5), torch.tensor([-0.4]))
+    assert out.shape == (1,)
+    assert out.item() == pytest.approx(0.5 + 0.1 * -0.4)
+
+
+def test_hedge_ratio_batched_uses_each_rows_own_delta():
+    policy = RLPolicy(5, 1, residual_scale=0.2)
+    states = torch.stack([_state(0.1), _state(-0.6), _state(0.5)])
+    squashed = torch.tensor([[1.0], [0.5], [-0.5]])
+    out = policy.hedge_ratio(states, squashed)
+    assert out.shape == (3, 1)
+    torch.testing.assert_close(out, torch.tensor([[0.3], [-0.5], [0.4]]))
+
+
+@pytest.mark.parametrize("delta,squashed,expected", [
+    (0.98, 0.9, 1.0),     # 0.98 + 0.09 = 1.07 -> upper clamp
+    (-0.98, -0.9, -1.0),  # lower clamp
+])
+def test_hedge_ratio_clamped_to_unit_interval(delta, squashed, expected):
+    policy = RLPolicy(5, 1, residual_scale=0.1)
+    out = policy.hedge_ratio(_state(delta, batch=2), torch.tensor([[squashed]] * 2))
+    torch.testing.assert_close(out, torch.full((2, 1), expected))
+
+
+def test_hedge_ratio_residual_is_bounded_around_delta():
+    # Even the extreme action only moves the hedge by residual_scale.
+    policy = RLPolicy(5, 1, residual_scale=0.1)
+    hi = policy.hedge_ratio(_state(0.0), torch.tensor([1.0])).item()
+    lo = policy.hedge_ratio(_state(0.0), torch.tensor([-1.0])).item()
+    assert hi == pytest.approx(0.1)
+    assert lo == pytest.approx(-0.1)
+
+
+def test_load_legacy_state_dict_without_residual_scale_sets_zero_strict():
+    source = RLPolicy(5, 1)
+    legacy = {k: v for k, v in source.state_dict().items() if k != "residual_scale"}
+    target = RLPolicy(5, 1, residual_scale=0.3)
+
+    target.load_state_dict(legacy)  # strict=True by default; must not raise
+
+    assert target.residual_scale.item() == 0.0
+    # and the mapping is back to absolute-action behaviour
+    squashed = torch.tensor([0.42])
+    assert torch.equal(target.hedge_ratio(_state(0.9), squashed), squashed)
+
+
+def test_load_legacy_state_dict_does_not_mutate_callers_dict():
+    legacy = {k: v for k, v in RLPolicy(5, 1).state_dict().items() if k != "residual_scale"}
+    keys_before = set(legacy)
+    RLPolicy(5, 1).load_state_dict(legacy)
+    assert set(legacy) == keys_before
+
+
+def test_load_new_checkpoint_restores_residual_scale_and_weights():
+    torch.manual_seed(0)
+    source = RLPolicy(5, 1, residual_scale=0.35)
+    target = RLPolicy(5, 1)  # default 0
+
+    target.load_state_dict(source.state_dict())
+
+    assert target.residual_scale.item() == pytest.approx(0.35)
+    x = _state(0.2)
+    torch.testing.assert_close(target(x).mean, source(x).mean)
+
+
+def test_load_still_rejects_unexpected_keys():
+    # The legacy shim must only relax the missing residual_scale key, not strictness in general.
+    sd = RLPolicy(5, 1).state_dict()
+    sd["bogus"] = torch.zeros(1)
+    with pytest.raises(RuntimeError):
+        RLPolicy(5, 1).load_state_dict(sd)
+
+
+def test_delta_idx_matches_hedging_env_state_layout():
+    # _DELTA_IDX is a hand-copied constant; this fails if HedgingEnv._get_state
+    # reorders its entries without the constant being updated.
+    np.random.seed(0)
+    simulation = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=1).simulate_paths(
+        nb_predictions=60, maturity=1, sampling=6)
+    lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0,
+                            option_type="put", max_degree=2)
+    lsm.predict_payoff()
+    env = HedgingEnv(lsm)
+
+    state = env.reset()
+    steps_checked = 0
+    while True:
+        t = min(env.t, lsm.delta.shape[0] - 1)
+        expected_delta = lsm.delta[t, env.path_idx]
+        assert state[_DELTA_IDX] == expected_delta
+        # Guard against coincidental matches: delta must differ from the
+        # neighbouring entries (gamma, position, S/K) at the checked point.
+        assert expected_delta != lsm.gamma[t, env.path_idx]
+        assert expected_delta != state[4]
+        steps_checked += 1
+        if steps_checked >= 3:
+            break
+        state, _, done = env.step(0.5)
+        if done:
+            break
+    assert steps_checked >= 2

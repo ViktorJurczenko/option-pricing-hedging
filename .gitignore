@@ -4,7 +4,7 @@ __pycache__/
 
 # Generated dataset artifacts and model checkpoints
 data/*.npz
-checkpoints/*.pth
+checkpoints/**/*.pth
 
 # Editor and Claude Code session-local state (machine-specific, not project content)
 .vscode/

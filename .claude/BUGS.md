@@ -6,6 +6,55 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## RL hedging policy trails the LSM delta hedge (open)
+
+**Symptom:** once the LSM delta was fixed (see "LSM early-exercises American
+calls..."), the SAC policy's P&L std was ~2x the LSM delta hedge's. It
+tracked the exact delta but sat 0.07-0.10 away from it.
+
+**First attempt: residual-on-delta policy** (PLAN.md, "Residual-on-delta
+hedging policy"). The hedge is `clip(delta + 0.1·tanh(u), -1, 1)`. Same
+protocol as the table in that entry: `train-hedge` defaults, 1000 episodes,
+training seeds 42/1/2/3, evaluated on the same 2000 seed-999 episodes. P&L
+in units of K, reported as mean / std / 95% CVaR; the last column is the
+policy's mean |hedge - LSM delta| over 200 of those episodes:
+
+| Policy | Call | Put |
+|---|---|---|
+| LSM delta | -0.084 / **0.014** / **-0.108** | -0.082 / **0.012** / -0.103 |
+| RL residual, seed 42 | -0.085 / 0.017 / -0.114 (0.038) | -0.082 / 0.020 / -0.117 (0.046) |
+| RL residual, seed 1 | -0.083 / 0.026 / -0.125 (0.063) | -0.080 / 0.015 / -0.106 (0.035) |
+| RL residual, seed 2 | -0.084 / 0.022 / -0.120 (0.045) | -0.081 / 0.016 / -0.110 (0.028) |
+| RL residual, seed 3 | -0.084 / 0.020 / -0.118 (0.034) | -0.081 / 0.013 / **-0.101** (0.026) |
+| RL plain (previous) | 0.029-0.036 std | 0.019-0.023 std |
+| No hedge | -0.107 / 0.154 / -0.435 | -0.064 / 0.073 / -0.173 |
+
+- **The residual policy is clearly better than the plain one.** Std fell
+  from 0.029-0.036 to 0.017-0.026 for calls and from 0.019-0.023 to
+  0.013-0.020 for puts.
+- **It still doesn't beat LSM delta.** Only put seed 3 gets close: its CVaR
+  is marginally better (-0.101 vs -0.103), but its std is slightly worse
+  (0.013 vs 0.012).
+- **Std rises with how far the policy strays from delta.** For both option
+  types, the seed that deviates least has the lowest std and the one that
+  deviates most has the highest. The learned corrections are noise, not
+  improvements.
+
+**Root cause (current reading):** in this setup there is nothing for the
+residual to learn. Costs are proportional (`tc = 0.001`) with no fixed cost,
+and the LSM delta is now close to exact (0.005-0.010 from it). Delta hedging
+is then close to optimal, so any learned deviation only adds variance. Two
+things make it worse:
+- **The checkpoint criterion** (best trailing-50 raw mean reward) selects on
+  path luck, not hedge quality.
+- **The untrained policy is never a candidate.** It is ≈ delta, but the
+  first checkpoint is only saved after 50 episodes of training.
+
+**Status:** open. Next candidates: checkpointing on std/CVaR over a fixed
+validation path set (already in PLAN.md), and evaluating with a nonzero
+`--fixed_cost` or higher proportional cost, where delta hedging overtrades
+and a correction has something real to learn.
+
 ## Simulated horizon was one step short of the maturity (fixed)
 
 **Symptom:** found during the LSM diagnosis below. With `maturity=1,
@@ -205,7 +254,7 @@ and put with 10000 paths.
     from.
   - The earlier "RL beats the delta baseline" result held only because the
     old LSM delta was broken.
-  - This is what the residual-on-delta policy step in PLAN.md targets.
+  - Tracked in "RL hedging policy trails the LSM delta hedge".
 
 ## RL hedging objective gives no incentive to hedge (fixed)
 

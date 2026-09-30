@@ -179,3 +179,34 @@ def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type
     test_hedge_script.run(args)
 
     assert seen["control_variate"] is expected
+
+
+def test_action_fn_for_rl_policy_applies_residual_on_delta_from_checkpoint(monkeypatch, tmp_path):
+    """A checkpoint saved with residual_scale=c must make the rl action_fn
+    return clip(delta + c*tanh(mean), -1, 1), even though run() builds the
+    policy without being told c (it comes from the checkpoint)."""
+    c = 0.2
+    policy = RLPolicy(5, 1, residual_scale=c)
+    with torch.no_grad():
+        for p in policy.parameters():
+            p.zero_()
+        policy.layer3.bias[0] = 0.5  # tanh(0.5) ~ 0.462 for every state
+    checkpoint_path = tmp_path / "policy.pth"
+    torch.save(policy.state_dict(), checkpoint_path)
+
+    seen = {}
+
+    def fake_evaluate(action_fn, env, n_episodes=1000):
+        seen["fn"] = action_fn
+        return (0.0, 0.0, 0.0)
+
+    monkeypatch.setattr(test_hedge_script, "evaluate", fake_evaluate)
+    args = _make_args("rl", seed=1)
+    args.checkpoint_path = str(checkpoint_path)
+    test_hedge_script.run(args)
+
+    t = float(np.tanh(0.5))
+    for delta in (0.3, -0.4, 0.95):  # the last one hits the upper clamp
+        state = np.array([1.0, 0.5, delta, 0.02, 0.0], dtype=np.float32)
+        expected = float(np.clip(delta + c * t, -1.0, 1.0))
+        assert seen["fn"](state) == pytest.approx(expected, abs=1e-6)

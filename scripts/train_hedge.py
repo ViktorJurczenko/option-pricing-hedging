@@ -35,6 +35,7 @@ def add_arguments(parser):
     parser.add_argument("--reward_scale", default=100.0, type=float, help="Multiplier on the env reward before the risk penalty, so per-step rewards (~1e-2) aren't drowned out by the entropy term.")
     parser.add_argument("--auto_alpha", default=True, action=argparse.BooleanOptionalAction, help="Learn the SAC entropy coefficient toward a target entropy of -1 (--alpha is then its initial value). --no-auto_alpha keeps alpha fixed.")
     parser.add_argument("--alpha_lr", default=None, type=float, help="Adam learning rate for the learned entropy coefficient (with --auto_alpha; ignored with --no-auto_alpha). Defaults to --lr.")
+    parser.add_argument("--residual_scale", default=0.1, type=float, help="The policy learns a correction to the LSM delta: hedge = clip(delta + residual_scale * tanh(output), -1, 1). Saved in the checkpoint, so test-hedge picks it up. 0 makes the policy output the hedge ratio directly.")
     parser.add_argument("--checkpoint_path", default="checkpoints/best_policy_model.pth", type=str, help="Where to save the best policy.")
 
 def run(args):
@@ -46,7 +47,8 @@ def run(args):
     )
     simulation = gbm.simulate_paths(args.nb_predictions, args.maturity, args.sampling)
 
-    policy_model = RLPolicy(5, 1)  # State has shape [S_t/K, t/T, delta, gamma, current position]
+    # State has shape [S_t/K, t/T, delta, gamma, current position]
+    policy_model = RLPolicy(5, 1, residual_scale=args.residual_scale)
 
     lsm = LongstaffSchwartz(
         simulation, args.strike, args.risk_free_rate, args.maturity, args.option_type, args.reg_type, args.max_degree,

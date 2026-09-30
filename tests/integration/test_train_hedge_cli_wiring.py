@@ -93,7 +93,7 @@ def test_add_arguments_risk_lambda_default_changed_to_1_0():
 
 def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
                     reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
-                    option_type="call", alpha_lr=None):
+                    option_type="call", alpha_lr=None, residual_scale=0.1):
     return argparse.Namespace(
         sigma=0.2,
         start_price=100.0,
@@ -119,6 +119,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         lr=lr,
         alpha=alpha,
         alpha_lr=alpha_lr,
+        residual_scale=residual_scale,
         replay_buffer_size=1000,
         checkpoint_path="unused.pth",
     )
@@ -322,3 +323,25 @@ def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type
     train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, option_type=option_type))
 
     assert seen["control_variate"] is expected
+
+
+def test_add_arguments_residual_scale_default_0_1_and_parsed_as_float():
+    args = _make_parser().parse_args([])
+    assert args.residual_scale == pytest.approx(0.1)
+    args = _make_parser().parse_args(["--residual_scale", "0"])
+    assert args.residual_scale == 0.0 and isinstance(args.residual_scale, float)
+
+
+def test_run_builds_policy_with_residual_scale_from_args(monkeypatch):
+    """--residual_scale must reach RLPolicy (and thus the saved checkpoint),
+    not just exist on the parser."""
+    captured = {}
+
+    def fake_train(policy, *a, **k):
+        captured["scale"] = policy.residual_scale.item()
+
+    monkeypatch.setattr(train_hedge_script, "train", fake_train)
+    args = _make_run_args(lr=1e-4, alpha=0.2, residual_scale=0.37)
+    train_hedge_script.run(args)
+
+    assert captured["scale"] == pytest.approx(0.37)

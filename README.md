@@ -190,38 +190,40 @@ python main.py test-hedge --policy delta
 python main.py test-hedge --policy no_hedge
 ```
 
-Each policy's deterministic action, evaluated over 1,000 simulated hedging
-episodes with a 0.1% proportional transaction cost. All three runs use the
-same `--seed`, which `test-hedge` reseeds `np.random` from right before
-evaluation (`scripts/test_hedge.py`) so all three see identical simulated
-paths — otherwise differences below could just be path-sampling noise rather
-than a real difference between policies:
+Each policy's deterministic action on an American call (the default),
+evaluated over the same 2,000 simulated hedging episodes (`--seed 999
+--n_episodes 2000`) with a 0.1% proportional transaction cost. `test-hedge`
+reseeds `np.random` from `--seed` right before evaluation
+(`scripts/test_hedge.py`), so every policy sees identical simulated paths —
+otherwise differences below could just be path-sampling noise rather than a
+real difference between policies. RL rows give the range over four
+policies trained with the `train-hedge` defaults (seeds 42/1/2/3, 1,000
+episodes each):
 
 | Policy | Mean P&L | Std P&L | 95% CVaR |
 |---|---|---|---|
-| RL (SAC) | -0.11 (×K) | 0.15 (×K) | -0.41 (×K) |
-| Delta-hedge (analytic) | -0.10 (×K) | 0.05 (×K) | -0.18 (×K) |
-| No hedge | -0.11 (×K) | 0.15 (×K) | -0.40 (×K) |
+| Delta-hedge (LSM delta) | -0.084 (×K) | **0.014** (×K) | **-0.108** (×K) |
+| RL, residual on delta (default) | -0.083 to -0.085 | 0.017-0.026 | -0.114 to -0.125 |
+| RL, plain (`--residual_scale 0`) | -0.079 to -0.083 | 0.029-0.036 | -0.126 to -0.137 |
+| No hedge | -0.107 | 0.154 | -0.435 |
 
 P&L is the hedge's cash flow minus the option payoff at exercise, scaled by
 the strike; std P&L is the hedging error, and 95% CVaR is the tail risk a
 hedger actually cares about minimizing.
 
-The honest reading of this: at these settings, the trained SAC policy does
-**not** beat the trivial baseline of rebalancing to the Longstaff-Schwartz
-model's own analytic delta every step (`AmericanHedging/baselines.py`) —
-delta-hedging has roughly 3x lower variance and well over 2x better tail
-risk. No-hedge is a sanity floor (not hedging at all should be worse than
-hedging), and the RL policy currently lands right on top of it rather than
-above it — essentially indistinguishable on all three metrics. That's a real
-result, not a bug: training is numerically stable (a real actor-divergence
-bug was found and fixed here — see `.claude/BUGS.md`) and the state's
-delta/gamma features are now reliable near maturity (see the LSM fix
-above) — retraining after fixing both confirmed the gap isn't explained by
-either of those, so it's a genuine open question in the RL setup itself
-(reward shaping, exploration/entropy balance, network capacity, training
-budget), tracked in `.claude/PLAN.md`'s "Close the RL hedging policy's gap
-to the delta baseline" entry.
+The RL policy hedges (it's ~6x better than not hedging) but still does
+**not** beat the baseline of rebalancing to the Longstaff-Schwartz model's
+own delta every step (`AmericanHedging/baselines.py`). The default policy
+learns a bounded correction to that delta, `clip(delta + 0.1·tanh(u))`,
+rather than the whole hedge ratio, which cut its std by roughly a third
+against the plain policy. Puts show the same picture (LSM delta std 0.012
+vs 0.013-0.020 for the residual policy). The policies' std grows with how
+far they stray from delta: with only proportional costs and an accurate
+delta, delta hedging is already close to optimal and there is little for a
+correction to learn. Checkpoint selection on a fixed validation set and
+settings with fixed trading costs, where delta hedging overtrades, are the
+next steps (`.claude/BUGS.md`, "RL hedging policy trails the LSM delta
+hedge").
 
 ### Test suite
 
@@ -229,11 +231,11 @@ to the delta baseline" entry.
 python -m pytest tests/
 ```
 
-49 tests pass: 42 unit tests (closed-form formulas, basis-function analytic
+220 tests pass: 175 unit tests (closed-form formulas, basis-function analytic
 derivatives checked against finite differences, dataset splitting, hedging
-environment reward arithmetic) and 7 integration tests (Monte-Carlo/LSM
-convergence to their closed-form/tree counterparts, plus CLI smoke tests for
-every subcommand).
+environment reward arithmetic, the SAC training loop) and 45 integration
+tests (Monte-Carlo/LSM convergence to their closed-form/tree counterparts,
+CLI argument wiring, plus CLI smoke tests for every subcommand).
 
 ## Setup
 
@@ -303,7 +305,8 @@ Module layout mirrors option class for pricing, and role for everything else:
 - **`AmericanHedging/`** — a SAC-style continuous-control setup: `HedgeEnv.py`
   (wraps a fitted `LongstaffSchwartz` instance; state = spot/strike, time,
   delta, gamma, position; episodes run to each path's optimal exercise time),
-  `RLPolicy.py` (Gaussian actor), `Critic.py` (twin Q-networks), `Hedge.py`
+  `RLPolicy.py` (Gaussian actor; by default its output is a correction to
+  the LSM delta rather than the hedge ratio itself), `Critic.py` (twin Q-networks), `Hedge.py`
   (SAC training loop with target networks, warmup, and CVaR-based evaluation).
 - **`datasets/`** — `AmericanOptionDataset` (seeded, disjoint train/test split)
   and `generate_dataset.py` (parallel LSM dataset generation).

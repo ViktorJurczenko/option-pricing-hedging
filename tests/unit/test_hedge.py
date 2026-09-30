@@ -575,3 +575,77 @@ def test_train_feeds_only_bounded_actions_to_critics(tmp_path):
     for action in seen_actions:
         assert torch.all(action > -1.0), "action fed to a critic was <= -1"
         assert torch.all(action < 1.0), "action fed to a critic was >= 1"
+
+
+# --- residual-on-delta hedge mapping in train() ---------------------------
+
+class DeltaEnv:
+    """Env stand-in whose states carry a known, varying delta (state index 2),
+    recording every action passed to step()."""
+
+    DELTAS = [0.30, 0.95, -0.97, 0.5]  # states seen at steps 0..3 (+ terminal)
+
+    def __init__(self):
+        self.step_actions = []
+
+    def _state(self, i):
+        return np.array([1.0, 0.0, self.DELTAS[i], 0.0, 0.0], dtype=np.float32)
+
+    def reset(self):
+        self._i = 0
+        return self._state(0)
+
+    def step(self, action):
+        self.step_actions.append(action)
+        self._i += 1
+        done = self._i >= 3
+        return self._state(self._i), 0.0, done
+
+
+class ActionSpyBuffer(ReplayBuffer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pushed = []  # (state, action)
+
+    def push(self, state, action, reward, next_state, done):
+        self.pushed.append((state.copy(), action))
+        super().push(state, action, reward, next_state, done)
+
+
+def _run_delta_env(tmp_path, residual_scale, warmup_steps):
+    env = DeltaEnv()
+    buffer = ActionSpyBuffer(max_size=100)
+    policy = RLPolicy(5, 1, residual_scale=residual_scale)
+    train(
+        policy, env, buffer, Critic(5, 1), Critic(5, 1),
+        n_episodes=1, warmup_steps=warmup_steps, batch_size=10 ** 6,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
+    return env, buffer
+
+
+@pytest.mark.parametrize("warmup_steps", [10 ** 6, 0], ids=["warmup_random", "policy_sampled"])
+def test_train_sends_residual_hedge_to_env_but_stores_squashed_action(tmp_path, warmup_steps):
+    """The env must see clip(delta + c*action, -1, 1) while the replay buffer
+    (what the critics train on) keeps the raw squashed action. Deltas 0.95 and
+    -0.97 with c=0.5 make the clamp bind for large same-sign actions."""
+    torch.manual_seed(0)
+    np.random.seed(0)
+    c = 0.5
+    env, buffer = _run_delta_env(tmp_path, c, warmup_steps)
+
+    assert len(env.step_actions) == len(buffer.pushed) == 3
+    for sent, (state, pushed_action) in zip(env.step_actions, buffer.pushed):
+        assert -1.0 < pushed_action < 1.0
+        expected = float(np.clip(state[2] + c * pushed_action, -1.0, 1.0))
+        assert sent == pytest.approx(expected, abs=1e-6)
+    # The mapping really is applied: the env value differs from the stored action.
+    assert env.step_actions[0] != pytest.approx(buffer.pushed[0][1], abs=1e-3)
+
+
+def test_train_with_zero_residual_scale_sends_squashed_action_unchanged(tmp_path):
+    torch.manual_seed(0)
+    np.random.seed(0)
+    env, buffer = _run_delta_env(tmp_path, 0.0, warmup_steps=10 ** 6)
+    for sent, (_, pushed_action) in zip(env.step_actions, buffer.pushed):
+        assert sent == pytest.approx(pushed_action, abs=1e-6)  # float32 rounding only

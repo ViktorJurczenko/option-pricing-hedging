@@ -5,6 +5,34 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Residual-on-delta hedging policy
+
+With the fixed LSM, the plain RL policy's P&L std is ~2x the LSM delta
+hedge's (BUGS.md, "LSM early-exercises American calls..."): it tracks the
+exact delta (corr 0.92-0.96) but sits 0.07-0.10 away from it. Learning the
+whole hedge ratio from scratch wastes the policy's capacity on recovering a
+delta the state already contains. Instead the policy outputs a correction:
+`hedge = clip(delta + c·tanh(u), -1, 1)`, so an untrained policy (u ~ 0)
+already hedges at delta and only has to learn deviations (e.g. trading less
+under costs).
+
+Design choices:
+- The critic sees the squashed residual `tanh(u)`, not the final hedge
+  ratio. Delta is in the state, so no information is lost, and `_squash`'s
+  log-prob/entropy machinery stays unchanged. Warmup's uniform random
+  actions become uniform residuals, i.e. delta ± c.
+- `c` is a `residual_scale` buffer on `RLPolicy`, so it is saved in the
+  checkpoint and `test-hedge` cannot use a value that differs from training.
+  `0` disables it (the policy outputs the hedge ratio directly, as before).
+  Old checkpoints without the key load as `0`.
+- Default `c = 0.1` in `train-hedge`, the scale of the RL/exact-delta gap.
+
+- [x] Residual mapping in RLPolicy
+- [x] Use it in train() and test-hedge
+- [x] Dispatch test-agent/review-agent (APPROVE, 220/220 passing)
+- [x] Validate (beats plain RL, still trails LSM delta - see BUGS.md)
+- [x] Update README/CLAUDE.md
+
 ## Support dividend-paying stocks
 
 Everything assumes a non-dividend stock, which is why an American call
@@ -110,11 +138,7 @@ drowned by the entropy term (`α·log π` ~ 0.2 per step).
 - [x] Address review-agent suggestions (APPROVE, 152/152 passing)
 - [x] Validate on puts (beats LSM delta on 4 seeds, out-of-sample - see BUGS.md)
 - [x] Fix LSM spurious early exercise / delta bias (own entry above)
-- [ ] Residual-on-delta policy
-  `action = clip(delta + c·tanh(output))`, so an untrained policy already
-  starts at the delta baseline and only has to learn corrections (e.g.
-  trading less under costs). Now needed: with the fixed LSM, the plain RL
-  policy's std is 2x the delta baseline's (see BUGS.md).
+- [x] Residual-on-delta policy (own entry above)
 - [ ] Checkpoint on a fixed validation path set
   Replace "best trailing-50 raw mean reward" (dominated by which paths were
   drawn) with std/CVaR of P&L on a fixed held-out set of paths.

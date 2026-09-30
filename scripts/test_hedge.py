@@ -45,9 +45,14 @@ def run(args):
     env = HedgingEnv(lsm, fixed_cost=args.fixed_cost)
 
     if args.policy == "rl":
+        # residual_scale comes from the checkpoint, so it always matches training.
         policy_model = RLPolicy(5, 1)
         policy_model.load_state_dict(torch.load(args.checkpoint_path, map_location="cpu"))
-        action_fn = lambda state: torch.tanh(policy_model(torch.tensor(state, dtype=torch.float32)).mean).item()
+
+        def action_fn(state):
+            with torch.no_grad():
+                state_t = torch.tensor(state, dtype=torch.float32)
+                return policy_model.hedge_ratio(state_t, torch.tanh(policy_model(state_t).mean)).item()
     elif args.policy == "delta":
         action_fn = delta_hedge
     else:

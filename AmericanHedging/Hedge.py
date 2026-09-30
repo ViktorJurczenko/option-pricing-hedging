@@ -103,18 +103,24 @@ def train(policy, env, replay_buffer, critic1, critic2,
             total_steps += 1
 
             # --- Act ---
+            # `action` is the squashed policy output the critics train on; the env
+            # gets policy.hedge_ratio of it (delta + a correction for a residual policy).
+            state_t = torch.tensor(state, dtype=torch.float32, device=device)
             # Random actions during warmup collect diverse experience before the policy starts driving exploration.
             if total_steps <= warmup_steps:
                 action = np.random.uniform(-1, 1)
             else:
                 with torch.no_grad():
-                    dist   = policy(torch.tensor(state, dtype=torch.float32, device=device))
                     # Not routed through _squash: no gradient is taken here (no_grad,
                     # single scalar action for the env), so .sample() over .rsample()
                     # and skipping the unused log-prob term are both fine.
-                    action = torch.tanh(dist.sample()).item()
+                    action = torch.tanh(policy(state_t).sample()).item()
+            with torch.no_grad():
+                hedge = policy.hedge_ratio(
+                    state_t, torch.tensor([action], dtype=torch.float32, device=device)
+                ).item()
 
-            next_state, reward, done = env.step(action)
+            next_state, reward, done = env.step(hedge)
             # Critic/actor train on a scaled, risk-shaped reward (mean-variance
             # style); episode_reward (and thus the checkpoint criterion) stays
             # on the raw env reward so it remains comparable to test-hedge's P&L.
@@ -182,9 +188,9 @@ def train(policy, env, replay_buffer, critic1, critic2,
 def evaluate(action_fn, env, n_episodes=1000):
     """
     action_fn: state (np.ndarray) -> hedge position (float). For a trained RL
-    policy, pass e.g. `lambda s: torch.tanh(policy(torch.tensor(s, dtype=torch.float32)).mean).item()`
-    (the deterministic action: tanh-squashed distribution mean, matching how
-    train() squashes sampled actions - see `_squash`); for a baseline, pass
+    policy, map the deterministic action (tanh-squashed distribution mean,
+    matching how train() squashes sampled actions - see `_squash`) through
+    `policy.hedge_ratio`, as scripts/test_hedge.py does; for a baseline, pass
     one of AmericanHedging.baselines directly - they already match this
     signature.
     """
