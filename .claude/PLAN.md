@@ -5,6 +5,45 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Fix LSM exercise decisions and Greeks
+
+Diagnosis in BUGS.md ("LSM early-exercises American calls and mis-estimates
+delta"). The moneyness bins zero out ITM delta and cause look-ahead bias in
+exercise, and the ITM-only value fit extrapolates OTM Greeks. Plain LSM's
+spurious call exercise is regression noise against a ~0.1 margin. Both the
+ML dataset (price only) and the RL environment (exercise times, delta,
+gamma) depend on this. Prototypes in the scratchpad, 4 seeds, call + put,
+back each step.
+
+- [ ] Pathwise-delta regression for the Greeks, drop bins/ridge
+  In `LongstaffSchwartz`, estimate delta by regressing the pathwise delta
+  (`±e^{-r(τ-t)} S_τ/S_t` if the path pays off, 0 otherwise) on
+  `[1, x, x², x³, BS delta]` over all alive paths. Gamma is the derivative
+  of that fit. Remove `ridge_lambda`/`moneyness_bins` from the hedging
+  defaults in the same change, never as a standalone revert. Prototype:
+  delta MAE ≤ 0.035 in every time bucket, ITM and OTM.
+- [ ] European control variate in the continuation regression
+  Regress `y - Z` (realized payoff minus realized discounted European
+  payoff) on the basis and add back the exact European price. It removes
+  the call's spurious exercise (0% on 4 seeds). The put result is mixed, so
+  compare plain vs control-variate exercise rules out of sample (fit on one
+  path set, apply to another) against the tree before choosing the put
+  default.
+- [ ] Fix the 364-day horizon
+  `GBM.simulate_paths` produces `T*sampling` rows, i.e. one fewer interval
+  than the stated maturity. Every consumer, including the ML labels, prices
+  a slightly shorter option.
+- [ ] Reference-based tests
+  Replace the "delta inside [0,1]" check with tests against BS (call) and
+  the CRR tree (put): price, exercise agreement, and ITM/OTM delta MAE per
+  time bucket.
+- [ ] Dispatch test-agent/review-agent
+- [ ] Retrain the hedging policies; decide whether to regenerate the ML dataset
+  Rerun the call/put out-of-sample evaluation with the fixed LSM (the
+  `delta` baseline should approach the exact-delta std of ~0.015/0.012).
+  Regenerate the ML dataset if the horizon or control-variate changes move
+  the labels materially.
+
 ## Fix the hedging objective so SAC has a reason to hedge
 
 Analysis of why the five diagnostics in the entry below all plateaued on
@@ -28,15 +67,8 @@ drowned by the entropy term (`α·log π` ~ 0.2 per step). This supersedes the
 - [x] Validate: rerun training, check action_delta_corr and test-hedge metrics (beats LSM delta on 4 seeds, out-of-sample - see BUGS.md)
 - [x] Address review-agent suggestions (APPROVE, 152/152 passing)
 - [x] Validate on puts (beats LSM delta on 4 seeds, out-of-sample - see BUGS.md)
-- [ ] Fix LSM spurious early exercise / delta bias (see BUGS.md)
-  Found during sanity checks: LSM early-exercises 57% of American-call
-  paths (should be 0%) and its delta is far from exact BS delta. The delta
-  is what matters for hedging (it explains the ~3x std gap to an exact
-  delta hedge); the exercise timing was measured to have little effect,
-  since spurious exercises cluster near maturity. Decide
-  between fixing LSM (feature standardization before Ridge, reference-based
-  validation) and sourcing the hedging state's delta/exercise boundary from
-  `option_value.py`'s exact/tree value functions instead.
+- [ ] Fix LSM spurious early exercise / delta bias
+  Moved to its own entry above ("Fix LSM exercise decisions and Greeks").
 - [ ] Residual-on-delta policy (only if the above is still flat)
   `action = clip(delta + c·tanh(output))`, so an untrained policy already
   starts at the delta baseline and only has to learn corrections (e.g.

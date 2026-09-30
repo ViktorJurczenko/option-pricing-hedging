@@ -30,17 +30,119 @@ maturity (mean episode length 343 vs 364 steps), and forcing every path
 to maturity shifts every policy's metrics by only ~0.001-0.006 std (see
 the validation below).
 
-**Root cause (suspected, not confirmed):** exercise happens whenever
-`exercise_payoff >= continue_val`, so any downward bias or noise in the
-regressed continuation value triggers spurious exercise. Ridge shrinkage on
-the raw, highly collinear `[1, x, x², x³]` features (x = S/K ≈ 1) biases the
-fit, which fits the jump from 22% to 57% when ridge + binning are enabled.
+**Diagnosis (seed 42, 10000 paths, degree 3; reference = exact BS for the
+call, CRR tree for the put; five regression configs compared):**
 
-**Status:** open. Candidate directions: evaluate Greeks and exercise
-against a reference (exact BS for calls, binomial tree for puts) rather than
-a range check; standardize features before Ridge; use the
-`AmericanHedging/option_value.py` value functions (exact call / tree put)
-for the hedging state's delta and the exercise boundary, instead of LSM.
+| Config | Call price | Call early-ex | Put price | Put early-ex (tree 46%) |
+|---|---|---|---|---|
+| plain LR | 10.309 | 35% | 6.118 | 43% |
+| ridge 0.06 | 10.269 | 36% | 6.020 | 46% |
+| bins only | 10.903 | 57% | 6.430 | 50% |
+| ridge + bins (hedging default) | 10.400 | 56% | 6.030 | 52% |
+| standardized ridge + bins | 10.702 | 54% | 6.281 | 50% |
+
+References: call 10.433 (BS), put 6.084 (tree). On these paths the European call
+payoff averages 10.282 ± 0.145, so no feasible stopping rule can beat ~10.28.
+
+1. **Moneyness binning is the main cause of both symptoms, and the earlier
+   Greeks fix made delta worse.**
+   - 30 quantile bins leave each bin with ~170 paths spanning ~0.3% of S/K.
+     Inside a bin the columns `[1, x, x², x³]` are nearly identical, so the
+     slope is unidentifiable.
+   - Without ridge, delta explodes: ITM MAE 4.7, and 95% of deltas fall
+     outside the valid range.
+   - With ridge (the default), the weak direction is shrunk away. The fit is
+     flat within each bin, so ITM delta is ~0: the bias is -0.47 to -0.56
+     for the call and +0.66 to +0.74 for the put over the last 30% of the
+     timeline. A zero delta passes the old "inside [0,1]" check, which is
+     why the earlier fix looked like a success.
+2. **Small bins also cause in-sample foresight bias.** A 4-parameter fit on
+   ~170 paths fits the paths' own future noise. Paths whose realized future
+   is poor get a low continuation value and are exercised. Evidence:
+   - Bins-only prices the call at 10.90, ~4 SE above anything a real
+     stopping rule can reach on these paths.
+   - Early exercise jumps from 35% to 57% and starts much earlier (median 44
+     days before expiry vs 9).
+   - The inflated cashflows propagate backward as regression targets:
+     targets exceed the reference by +0.8 even in the first half of the
+     timeline, where binning is off.
+   - With the defaults, ridge's downward shrinkage partly cancels this, so
+     the price (10.40) looks right for the wrong reason.
+3. **Plain LSM still exercises the call spuriously, but only in the last
+   ~10 days.** For an ITM call, continuation minus intrinsic is
+   `K(1-e^{-rτ}) + put(τ)`, about 0.11 near expiry. The regression error
+   there has std 0.15, so each of those rows is close to a coin flip
+   (35% of paths, median 9 days to expiry). Spurious exercise is structural
+   whenever the true early-exercise premium is 0. It costs almost nothing
+   in price (10.309 vs 10.282 achievable) and, as measured, little in
+   hedging.
+4. **OTM Greeks are pure extrapolation.** The fit uses ITM paths only, and
+   about half of alive paths are OTM.
+   - Plain LR: OTM delta bias of +0.4 to +0.9 for the call near expiry. The
+     true delta goes to 0, but the cubic's slope stays near 1.
+   - The put has similar OTM errors of 0.5 to 0.8.
+   - This accounts for most of plain LR's 7-13% invalid deltas. Plain LR's
+     ITM delta is reasonable (MAE 0.03-0.12).
+5. **Ridge penalizes the intercept.** Ridge runs with `fit_intercept=False`
+   and a constant column, so the intercept is shrunk along with the other
+   coefficients. The continuation value is biased low (-0.07 for the call,
+   up to -0.24 for the put), which moves exercise earlier. The suspicion
+   that ridge caused the 22%→57% jump was wrong: ridge alone gives 36%,
+   the same as plain LR's 35%. Binning causes the jump.
+6. **Minor: the simulated horizon is 364 days, not 365.** 365 rows give
+   364 intervals of `T/365`, so every model built on the simulation prices
+   a 0.9973y option. GBM, LSM and `option_value.py` agree with each other,
+   but comparisons against `BinomialTree`/BS at `T=1` carry a small bias
+   (~0.02 in price).
+
+**Prototype results.** A standalone LSM, reproducing the current class
+exactly with the plain basis (10.309, 35.2%), was run on 4 seeds × call
+and put with 10000 paths.
+
+- **The call's 35% early exercise is estimation noise, not a code bug.**
+  - It falls with more paths: 42% at 2500, 35% at 10000, 12% at 40000.
+  - It varies from 19% to 35% across seeds.
+  - LSM estimates the price, not per-path exercise times. Wrong decisions
+    near the boundary cost at most the ~0.1 margin, so the price stays right
+    while individual exercise times don't. `HedgingEnv` treats
+    `exercise_time` as ground truth, which LSM doesn't guarantee.
+- **The European price as an extra basis function does not fix it.** Early
+  exercise stays at 28-50% at 10000 paths. The right function being in the
+  span doesn't reduce coefficient noise. This retracts the claim in the
+  earlier version of this entry.
+- **The European price as a control variate on the regression target does
+  fix the call.**
+  - Regress `y - Z` on the polynomial basis, where `Z` is the realized
+    discounted European payoff, and add back the exact European value.
+  - For paths never exercised early, `y - Z = 0` exactly, so the noise
+    vanishes. The call gets 0% early exercise and 100% agreement on all
+    4 seeds.
+  - For the put it is mixed: early exercise is 46-51% (tree 44-46%) with
+    94-98% agreement, and the in-sample price is 1-2% lower than plain LSM.
+    It needs an out-of-sample comparison.
+- **Delta: regress pathwise deltas on `[1, x, x², x³, BS delta]` over all
+  alive paths.**
+  - The pathwise delta target is `±e^{-r(τ-t)} S_τ/S_t` if the path pays
+    off, 0 otherwise.
+  - Delta MAE is 0.001-0.017 (call) and 0.009-0.035 (put) in every time
+    bucket, ITM and OTM alike. At most 1.5% of deltas fall outside the
+    valid range, and max |Δ| is 1.8, with no binning or ridge.
+  - By comparison, differentiating the value fit gives OTM MAE of 0.3-0.9
+    and max |Δ| of 13-48, which is where the old "huge deltas" came from.
+  - Without the BS-delta feature, pathwise regression still reaches MAE
+    0.15-0.23 near expiry, because a cubic can't follow the steepening
+    delta curve.
+
+**Status:** open. Fix directions, in order:
+1. Replace the Greeks with the pathwise-delta regression (with the BS-delta
+   feature; gamma is its derivative), and drop binning and ridge in the
+   same change.
+2. Add the European control variate to the continuation regression, and
+   compare exercise rules out-of-sample for the put (fit on one path set,
+   apply to another).
+3. Fix the 364-day horizon.
+4. Validate against the BS/tree references (price, exercise agreement, and
+   ITM/OTM delta MAE per time bucket), not against a range check.
 
 ## RL hedging objective gives no incentive to hedge (fixed)
 
