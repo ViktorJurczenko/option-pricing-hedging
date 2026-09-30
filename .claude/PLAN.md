@@ -16,13 +16,7 @@ gamma) depend on this. Prototypes in the scratchpad, 4 seeds, call + put,
 back each step.
 
 - [x] Pathwise-delta regression for the Greeks, drop bins/ridge (APPROVE, 167/167 passing)
-- [ ] European control variate in the continuation regression
-  Regress `y - Z` (realized payoff minus realized discounted European
-  payoff) on the basis and add back the exact European price. It removes
-  the call's spurious exercise (0% on 4 seeds). The put result is mixed, so
-  compare plain vs control-variate exercise rules out of sample (fit on one
-  path set, apply to another) against the tree before choosing the put
-  default.
+- [x] European control variate in the continuation regression, calls only (APPROVE, 179/179 passing)
 - [ ] Fix the 364-day horizon
   `GBM.simulate_paths` produces `T*sampling` rows, i.e. one fewer interval
   than the stated maturity. Every consumer, including the ML labels, prices

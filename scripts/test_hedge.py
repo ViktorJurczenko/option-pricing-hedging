@@ -37,6 +37,9 @@ def run(args):
     lsm = LongstaffSchwartz(
         simulation, args.strike, args.risk_free_rate, args.maturity, args.option_type, args.reg_type, args.max_degree,
         sigma=args.sigma,
+        # European control variate only for calls: it removes plain LSM's spurious
+        # early exercise there; for puts the plain rule is as good or better (BUGS.md).
+        control_variate=args.option_type == "call",
     )
     lsm.predict_payoff()
     env = HedgingEnv(lsm, fixed_cost=args.fixed_cost)

@@ -302,3 +302,23 @@ def test_run_passes_reward_mode_and_value_fn_presence_to_hedging_env(monkeypatch
     train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="terminal"))
     assert captured["reward_mode"] == "terminal"
     assert captured["value_fn"] is None
+
+
+@pytest.mark.parametrize("option_type,expected", [("call", True), ("put", False)])
+def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type, expected):
+    """The European control variate removes plain LSM's spurious early
+    exercise for calls but is worse out of sample for puts, so run() must
+    pass control_variate=True for calls only."""
+    seen = {}
+    real_lsm = train_hedge_script.LongstaffSchwartz
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real_lsm(*args, **kwargs)
+
+    monkeypatch.setattr(train_hedge_script, "LongstaffSchwartz", spy)
+    monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: None)
+
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, option_type=option_type))
+
+    assert seen["control_variate"] is expected

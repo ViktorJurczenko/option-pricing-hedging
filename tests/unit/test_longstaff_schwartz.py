@@ -177,3 +177,78 @@ def test_price_matches_known_value_independent_of_delta_change():
     lsm = _fitted_lsm("call")
     ref = BlackScholes(SIGMA, 100.0, K, R, "call").calculate_option_price(T)
     assert lsm.calculate_option_price() == pytest.approx(ref, abs=0.5)
+
+
+# --- European control variate (BUGS.md: plain LSM spuriously early-exercises
+# an American call near expiry because regression noise exceeds the tiny gap
+# between continuation and intrinsic value) ---
+
+def _lsm(option_type, **kwargs):
+    sim = GBM(sigma=SIGMA, start_price=100.0, risk_free_rate=R, seed=42).simulate_paths(N_PATHS, T, N_STEPS)
+    lsm = LongstaffSchwartz(sim, K, R, T, option_type, "simple", 3, **kwargs)
+    lsm.predict_payoff()
+    return lsm
+
+
+def test_control_variate_without_sigma_raises():
+    with pytest.raises(ValueError, match="sigma"):
+        LongstaffSchwartz(np.ones((2, 2)), control_variate=True)
+
+
+def test_control_variate_defaults_to_off():
+    assert LongstaffSchwartz(np.ones((2, 2))).control_variate is False
+
+
+def test_plain_lsm_call_early_exercises_on_this_config():
+    # Guards the premise of the tests below: without the control variate this
+    # seeded config does spuriously exercise a call early, so "no early
+    # exercise with it on" is a real difference and not a vacuous pass.
+    lsm = _lsm("call", sigma=SIGMA)
+    assert (lsm.exercise_time < N_STEPS - 1).mean() > 0.05
+
+
+def test_call_with_control_variate_never_exercises_early():
+    # Regression: early exercise of a non-dividend call is never optimal.
+    lsm = _lsm("call", sigma=SIGMA, control_variate=True)
+    assert np.all(lsm.exercise_time == N_STEPS - 1)
+
+
+def test_call_with_control_variate_prices_exactly_at_european_bs_price():
+    # With no early exercise, payoff[0] equals the discounted European payoff
+    # path by path, so the estimator collapses to the exact BS price at
+    # tau = (n-1)*T/n (the grid's expiry convention). Exact up to float error.
+    lsm = _lsm("call", sigma=SIGMA, control_variate=True)
+    tau = (N_STEPS - 1) * T / N_STEPS
+    bs_price = BlackScholes(SIGMA, 100.0, K, R, "call").calculate_option_price(tau)
+    assert lsm.calculate_option_price() == pytest.approx(float(bs_price), abs=1e-6)
+
+
+def test_call_with_control_variate_delta_stays_close_to_black_scholes():
+    # Measured mean abs error of the same regression is <0.02 without the
+    # control variate; 0.05 matches the existing call-delta tolerance.
+    lsm = _lsm("call", sigma=SIGMA, control_variate=True)
+    for t in [10, 25, 40]:
+        bs, tau = _bs(lsm, t, "call")
+        assert np.abs(lsm.delta[t] - bs.calculate_delta(tau)).mean() < 0.05
+
+
+def test_control_variate_false_matches_omitting_the_argument():
+    a = _lsm("put", sigma=SIGMA, control_variate=False)
+    b = _lsm("put", sigma=SIGMA)
+    np.testing.assert_array_equal(a.exercise_time, b.exercise_time)
+    assert a.calculate_option_price() == b.calculate_option_price()
+    np.testing.assert_array_equal(a.delta, b.delta)
+
+
+def test_put_with_control_variate_runs_and_prices_near_tree_price():
+    # Put still gets a sane value: between the European price and a band
+    # around the binomial reference (true ~6.08). The band (+-0.4) covers the
+    # measured 5.92-6.08 spread across seeds plus the smaller sample here.
+    lsm = _lsm("put", sigma=SIGMA, control_variate=True)
+    tau = (N_STEPS - 1) * T / N_STEPS
+    european = float(BlackScholes(SIGMA, 100.0, K, R, "put").calculate_option_price(tau))
+    price = lsm.calculate_option_price()
+    assert price > european - 0.2
+    assert abs(price - 6.08) < 0.4
+    assert lsm.exercise_time.min() >= 0 and lsm.exercise_time.max() == N_STEPS - 1
+    assert (lsm.exercise_time < N_STEPS - 1).mean() > 0.2  # puts do exercise early

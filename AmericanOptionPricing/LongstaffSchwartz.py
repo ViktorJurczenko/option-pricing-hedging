@@ -24,7 +24,8 @@ class LongstaffSchwartz(OptionPricing):
             option_type: str = "call",
             reg_type: str = "simple",
             max_degree: int = 3,
-            sigma: float | None = None
+            sigma: float | None = None,
+            control_variate: bool = False
         ):
         """
         Initialize the Longstaff-Schwartz model.
@@ -43,6 +44,16 @@ class LongstaffSchwartz(OptionPricing):
                 a cubic basis can't follow delta's steepening near expiry.
                 It must be the simulation's own volatility; any other value
                 makes that feature a biased guide.
+            control_variate: use the European option as a control variate in
+                the continuation regression (requires sigma): regress the
+                realized cashflow minus the realized discounted European payoff,
+                then add back the exact Black-Scholes price. Paths that aren't
+                exercised early contribute exactly 0 to that target, which
+                removes most of the regression noise. For an American call
+                (never optimally exercised early) this eliminates the spurious
+                early exercise plain LSM makes near expiry; for a put the plain
+                rule is as good or better out of sample, so this is opt-in
+                (see BUGS.md). Also applied to calculate_option_price().
         """
         if option_type not in ["call", "put"]:
             raise ValueError("option_type must be 'call' or 'put'")
@@ -52,6 +63,8 @@ class LongstaffSchwartz(OptionPricing):
             raise ValueError("max_degree must be >= 0")
         if sigma is not None and sigma <= 0:
             raise ValueError("sigma must be > 0")
+        if control_variate and sigma is None:
+            raise ValueError("control_variate requires sigma")
 
         self.simulation = simulation
         self.continue_val = np.zeros(simulation.shape)
@@ -66,6 +79,7 @@ class LongstaffSchwartz(OptionPricing):
         self.reg_type = reg_type
         self.max_degree = max_degree
         self.sigma = sigma
+        self.control_variate = control_variate
 
     def _basis(self, x: np.ndarray, k: int = 0) -> np.ndarray:
         """k-th derivative (0 = the values) of the regression basis at x = S/K."""
@@ -82,6 +96,12 @@ class LongstaffSchwartz(OptionPricing):
         """The European option on the same strike at spots S (callers pass the row's remaining maturity)."""
         return BlackScholes(self.sigma, S, self.strike, self.risk_free_rate, self.option_type)
 
+    def _realized_european_payoff(self, index: int) -> np.ndarray:
+        """Each path's realized European payoff, discounted from expiry to row `index`."""
+        n_steps = self.simulation.shape[0]
+        dt = self.maturity / n_steps
+        return np.exp(-self.risk_free_rate * (n_steps - 1 - index) * dt) * self._intrinsic(self.simulation[-1])
+
     def fit(self, payoff_next: np.ndarray, index: int):
         """Regressions at row `index`, given each path's realized cashflow
         `payoff_next` (discounted to row index + 1) under the exercise rule
@@ -89,6 +109,9 @@ class LongstaffSchwartz(OptionPricing):
 
         - Continuation value: regressed on in-the-money paths only, as in the
           original method. It drives the exercise decision in predict_payoff().
+          With control_variate, the regression target is the realized
+          cashflow minus the realized European payoff, and the exact European
+          price is added back to the fit.
         - Delta: its own regression, over all paths, of the pathwise delta
           (the derivative of each path's discounted cashflow with respect to
           S_index: +-S_stop/S_index discounted, if the path pays off). Gamma is
@@ -107,15 +130,22 @@ class LongstaffSchwartz(OptionPricing):
 
         realized_continuation = np.exp(-self.risk_free_rate * dt) * payoff_next
         features = self._basis(x)
+        tau = (n_steps - 1 - index) * dt
+        if self.sigma is not None:
+            european = self._european(S)
 
         # Continuation value, on ITM paths only
         itm_mask = self._intrinsic(S) > 0
         if not np.any(itm_mask):
             # No ITM paths → no exercise decision to make at this row
             self.continue_val[index] = realized_continuation
+        elif self.control_variate:
+            target = realized_continuation - self._realized_european_payoff(index)
+            continuation_weights = np.linalg.lstsq(features[itm_mask], target[itm_mask], rcond=None)[0]
+            self.continue_val[index] = features @ continuation_weights + european.calculate_option_price(tau)
         else:
-            beta = np.linalg.lstsq(features[itm_mask], realized_continuation[itm_mask], rcond=None)[0]
-            self.continue_val[index] = features @ beta
+            continuation_weights = np.linalg.lstsq(features[itm_mask], realized_continuation[itm_mask], rcond=None)[0]
+            self.continue_val[index] = features @ continuation_weights
 
         # Pathwise delta. At this point exercise_time holds each path's
         # cashflow row under the rule for rows index + 1 onward.
@@ -131,14 +161,12 @@ class LongstaffSchwartz(OptionPricing):
         delta_features = features
         gamma_features = self._basis(x, 1) / self.strike
         if self.sigma is not None:
-            tau = (n_steps - 1 - index) * dt
-            european = self._european(S)
             delta_features = np.column_stack([delta_features, european.calculate_delta(tau)])
             gamma_features = np.column_stack([gamma_features, european.calculate_gamma(tau)])
 
-        coef = np.linalg.lstsq(delta_features, pathwise_delta, rcond=None)[0]
-        self.delta[index] = delta_features @ coef
-        self.gamma[index] = gamma_features @ coef
+        greeks_weights = np.linalg.lstsq(delta_features, pathwise_delta, rcond=None)[0]
+        self.delta[index] = delta_features @ greeks_weights
+        self.gamma[index] = gamma_features @ greeks_weights
 
     def predict_payoff(self) -> None:
         """
@@ -165,4 +193,10 @@ class LongstaffSchwartz(OptionPricing):
     def calculate_option_price(self, T: float = 1) -> float:
         # It's important to note that we don't use T here because we are evaluating the price of an american option which can be exercised
         # at any time so the time to maturity is pointless in american option pricing.
+        if self.control_variate:
+            # Same control variate as the regressions: exact European price plus
+            # the simulated early-exercise premium (cashflow minus European payoff).
+            tau = self.maturity * (self.simulation.shape[0] - 1) / self.simulation.shape[0]
+            european_price = self._european(self.simulation[0]).calculate_option_price(tau)
+            return np.mean(european_price + self.payoff[0] - self._realized_european_payoff(0), dtype=float)
         return np.mean(self.payoff[0], dtype=float)

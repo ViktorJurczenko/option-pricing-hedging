@@ -159,3 +159,23 @@ def test_action_fn_for_rl_policy_applies_tanh_squashing_to_mean(monkeypatch, tmp
     actual = seen["action_fn"](state)
     assert actual == pytest.approx(expected)
     assert -1.0 < actual < 1.0  # would also catch a reversion to the unsquashed mean
+
+
+@pytest.mark.parametrize("option_type,expected", [("call", True), ("put", False)])
+def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type, expected):
+    # Same policy as train-hedge: the control variate helps calls, not puts.
+    seen = {}
+    real_lsm = test_hedge_script.LongstaffSchwartz
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real_lsm(*args, **kwargs)
+
+    monkeypatch.setattr(test_hedge_script, "LongstaffSchwartz", spy)
+    monkeypatch.setattr(test_hedge_script, "evaluate", lambda *a, **k: (0.0, 0.0, 0.0))
+
+    args = _make_args("delta", seed=1)
+    args.option_type = option_type
+    test_hedge_script.run(args)
+
+    assert seen["control_variate"] is expected
