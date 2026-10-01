@@ -6,6 +6,89 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## RL policy under trading costs keeps trading every day; a simple band beats it (open)
+
+**Symptom:** found in PLAN.md's "Hedge under trading costs". Training with
+a 1% proportional cost (`--transaction_cost 0.01 --residual_scale 0.25
+--val_metric cvar`; 4 seeds, 1000 episodes; evaluated on the 2000
+seed-999 episodes at the same cost). 95% CVaR (×K):
+
+| Policy | Call | Put |
+|---|---|---|
+| Daily delta | -0.198 | -0.208 |
+| **Band 0.1, rebalance to edge** | **-0.136** | **-0.130** |
+| RL, 4 seeds | -0.173 to -0.186 | -0.140 to -0.153 |
+
+RL beats daily delta clearly, but not the simple no-trade band. Its
+validation CVaR improved until about episode 550 for calls, while for puts
+it stopped improving after episode 100-150.
+
+**Diagnosis** (300 of the same episodes, call / put):
+
+| Policy | Trading cost (×K) | Turnover | Days holding |
+|---|---|---|---|
+| Daily delta | 0.066 / 0.062 | 6.6 / 6.2 | 14% / 11% |
+| Band 0.1 (edge) | 0.015 / 0.012 | 1.5 / 1.2 | 85% / 84% |
+| RL, seeds 3 and 42 | 0.038-0.040 / 0.025-0.027 | 3.8-4.1 / 2.5-2.6 | 26-27% / 14-17% |
+
+RL halves delta's trading but still trades almost every day, while the
+band sits still 85% of the time. Cost is the gap: RL's extra trading cost
+over the band (≈0.025 call, ≈0.013 put) is the same size as its CVaR gap
+to the band.
+
+**Likely root cause (hypothesis):** the residual action is defined
+relative to *delta*: `hedge = delta + c·tanh(u)`. To hold still, the
+policy must output exactly `tanh(u) = (position - delta)/c` every day,
+tracking delta as it moves. Any error in that tracking is a small trade
+that costs money. A band holds by construction. So "do nothing", the most
+valuable action under costs, is the hardest one for this parametrization
+to represent.
+
+**First fix: fraction-of-gap action** (chosen by the user;
+`--action_mode gap_fraction`): `hedge = position + w·(delta - position)`
+with `w ∈ (0, 1)`, initialised at `w ≈ 0.9`. Same protocol, 1000 episodes:
+
+| Policy | Call CVaR | Put CVaR |
+|---|---|---|
+| RL residual (above) | -0.173 to -0.186 | -0.140 to -0.153 |
+| **RL gap fraction** | **-0.143 to -0.147** | **-0.135 to -0.144** |
+| Band 0.1 (edge) | -0.136 | -0.130 |
+
+A large improvement, especially for calls, but still behind the band.
+Diagnosis on the same 300 episodes (seeds 3 and 42):
+
+| Policy | Cost (×K) | Turnover | Days with ~no trade | Mean distance from delta |
+|---|---|---|---|---|
+| Band 0.1 (edge), call / put | 0.015 / 0.012 | 1.5 / 1.2 | 85% / 84% | 0.066 / 0.064 |
+| RL gap fraction, call | 0.032-0.033 | 3.2-3.3 | 18-19% | 0.016 |
+| RL gap fraction, put | 0.022-0.024 | 2.2-2.4 | 18% | 0.026-0.032 |
+
+The hypothesis is only partly confirmed. The gap-fraction policy improved
+by tracking delta more tightly while trading smoothly ("close part of the
+gap every day"), not by learning to hold still: it still trades on ~82% of
+days. Holding is now easy to represent, but training hasn't found that
+behaviour, and validation CVaR was still improving at episodes 900-1000
+in every run.
+
+**Longer training doesn't close it.** Same runs with 3000 episodes: call
+CVaR -0.142 to -0.145, put -0.136 to -0.137. Every run's best checkpoint
+came at episode 900-1750 with no improvement afterwards, so the policy
+plateaus 0.006-0.009 behind the band (-0.136 / -0.130).
+
+**Current reading (hypothesis):** an objective mismatch. SAC is trained on
+a per-step mean-variance reward, `x - risk_lambda·x²` with `risk_lambda =
+1` (accounting mode), but judged on CVaR of terminal P&L. The policy
+tracks delta ~4x more tightly than the band (0.016 vs 0.066) and trades
+~2x more, i.e. its objective prices tracking error higher, relative to
+trading cost, than CVaR does. `risk_lambda` sets that exchange rate, so a
+smaller value should move the policy toward the band's trade-off.
+
+**Status:** open, parked by the user's decision. RL with the gap-fraction
+action clearly beats daily delta under a 1% cost but stays 0.006-0.009
+CVaR behind the hand-tuned band. Untried levers: a `--risk_lambda` sweep
+(e.g. 0.1, 0.3) to test the mismatch hypothesis directly, and Deep
+Hedging, which trains on CVaR itself.
+
 ## "95% CVaR" in hedging evaluation is actually the 95% VaR (fixed)
 
 **Symptom:** found while reviewing the validation-checkpointing change.

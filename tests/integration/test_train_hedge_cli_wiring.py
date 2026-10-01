@@ -97,7 +97,7 @@ def test_add_arguments_risk_lambda_default_changed_to_1_0():
 
 def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
                     reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
-                    option_type="call", alpha_lr=None, residual_scale=0.1,
+                    option_type="call", alpha_lr=None, residual_scale=0.1, action_mode="residual",
                     val_paths=0, val_every=50, val_metric="std", val_seed=None,
                     fixed_cost=0.0, transaction_cost=0.001):
     # val_paths defaults to 0 (validation off) so the pre-existing tests keep
@@ -130,6 +130,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         alpha=alpha,
         alpha_lr=alpha_lr,
         residual_scale=residual_scale,
+        action_mode=action_mode,
         replay_buffer_size=1000,
         val_paths=val_paths,
         val_every=val_every,
@@ -363,6 +364,27 @@ def test_run_builds_policy_with_residual_scale_from_args(monkeypatch):
     train_hedge_script.run(args)
 
     assert captured["scale"] == pytest.approx(0.37)
+
+
+def test_add_arguments_action_mode_default_and_choices():
+    assert _make_parser().parse_args([]).action_mode == "residual"
+    assert _make_parser().parse_args(["--action_mode", "gap_fraction"]).action_mode == "gap_fraction"
+    with pytest.raises(SystemExit):
+        _make_parser().parse_args(["--action_mode", "bogus"])
+
+
+@pytest.mark.parametrize("mode,flag", [("residual", 0.0), ("gap_fraction", 1.0)])
+def test_run_builds_policy_with_action_mode_from_args(monkeypatch, mode, flag):
+    """--action_mode must reach RLPolicy (and thus the saved checkpoint)."""
+    captured = {}
+
+    def fake_train(policy, *a, **k):
+        captured["flag"] = policy.gap_fraction.item()
+
+    monkeypatch.setattr(train_hedge_script, "train", fake_train)
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, action_mode=mode))
+
+    assert captured["flag"] == flag
 
 
 # --- validation-set checkpointing wiring -----------------------------------

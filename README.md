@@ -236,6 +236,48 @@ Full numbers are in `.claude/BUGS.md`, "RL hedging policy trails the LSM
 delta hedge". Settings with fixed trading costs, where delta hedging
 overtrades, are next.
 
+### Hedging under trading costs
+
+```
+python main.py train-hedge --transaction_cost 0.01 --action_mode gap_fraction --val_metric cvar
+python main.py test-hedge  --transaction_cost 0.01 --policy rl
+python main.py test-hedge  --transaction_cost 0.01 --policy delta_band --band 0.1 --band_target edge
+```
+
+With a 0.1% cost, daily delta hedging is already close to optimal. With
+larger costs, rebalancing to delta every day spends most of the P&L on
+small trades. The classical fix is a **no-trade band** (`--policy
+delta_band`): hold the position until it drifts more than `b` from delta,
+then rebalance to delta (best under fixed costs) or only back to the
+band's edge (best under proportional costs). Under costs the band, not
+daily delta, is the bar for RL. The comparison is on CVaR rather than std,
+because std ignores how much a policy spends on trading.
+
+At a 1% proportional cost (95% CVaR ×K, same 2,000 test episodes; RL rows
+give the range over 4 training seeds):
+
+| Policy | Call | Put |
+|---|---|---|
+| Daily delta | -0.198 | -0.208 |
+| RL, residual action (`--residual_scale 0.25`) | -0.173 to -0.186 | -0.140 to -0.153 |
+| RL, gap-fraction action (`--action_mode gap_fraction`) | -0.142 to -0.147 | -0.135 to -0.144 |
+| **Band 0.1, rebalance to edge** | **-0.136** | **-0.130** |
+
+- **RL clearly beats daily delta**, and the `gap_fraction` action helped
+  most. There the policy chooses what fraction of the gap to delta to close
+  each day, so holding still is easy to represent. With the residual
+  action, holding means tracking a moving target exactly, and every miss is
+  a paid trade.
+- **RL still trails the hand-tuned band** by 0.006-0.009, even with 3,000
+  training episodes. It learned to close part of the gap every day (a
+  smoothed delta hedge) rather than the band's "sit still, then act", and
+  it trades about twice as much.
+- **The likely reason is an objective mismatch:** SAC trains on a per-step
+  mean-variance reward but is judged on terminal CVaR. Tuning
+  `--risk_lambda`, or Deep Hedging (training directly on CVaR), are the
+  natural next steps. Details are in `.claude/BUGS.md`, "RL policy under
+  trading costs keeps trading every day".
+
 ### Test suite
 
 ```

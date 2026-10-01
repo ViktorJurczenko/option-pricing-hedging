@@ -5,6 +5,62 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Hedge under trading costs (where delta hedging overtrades)
+
+With only a 0.1% proportional cost and an accurate LSM delta, daily delta
+hedging is close to optimal: the call policy learned nothing beyond it (see
+BUGS.md, "RL hedging policy trails the LSM delta hedge"). With larger costs,
+rebalancing to delta every day spends a lot on small trades, so a policy
+that trades less should do better. That's the setting where learned hedging
+is supposed to pay off.
+
+Two issues shape the plan:
+- **Fair baseline.** The classical answer to costs is a no-trade band:
+  rebalance to delta only when the position has drifted more than `b` away
+  from it. RL has to beat that, not just daily delta.
+- **Fixed costs can't currently be avoided by the policy.** HedgingEnv
+  charges the fixed cost on any trade above 1e-8. A continuous Gaussian
+  policy never outputs exactly its current position, so it would pay the
+  fixed cost every step whatever it learns. Proportional costs don't have
+  this problem. A fixed-cost regime therefore needs a "no trade" mechanism
+  first. That's a design decision for the user, taken after the baseline
+  numbers are in.
+
+- [x] Expose the proportional cost as `--transaction_cost`
+- [x] Add a banded-delta baseline (`--policy delta_band --band b --band_target {delta,edge}`)
+- [x] Measure baselines over a cost grid
+  95% CVaR (×K) on the 2000 seed-999 episodes. Each band column gives the
+  best band and its target:
+
+  | Regime | Call: delta | Call: best band | Put: delta | Put: best band |
+  |---|---|---|---|---|
+  | tc 0.1% | -0.112 | -0.110 (0.02 edge) | -0.110 | -0.105 (0.05 edge) |
+  | tc 0.5% | -0.148 | -0.123 (0.05 edge) | -0.152 | -0.119 (0.05 edge) |
+  | tc 1% | -0.198 | -0.136 (0.1 edge) | -0.208 | -0.130 (0.1 edge) |
+  | tc 2% | -0.302 | -0.156 (0.1 edge) | -0.322 | -0.151 (0.1 edge) |
+  | fixed $0.01 | -0.149 | -0.116 (0.05 delta) | -0.145 | -0.112 (0.1 delta) |
+  | fixed $0.05 | -0.295 | -0.126 (0.1 delta) | -0.290 | -0.125 (0.1 delta) |
+
+  - At today's 0.1% cost a band barely helps, which matches RL learning
+    nothing for calls.
+  - From 0.5% upward, daily delta is badly beaten. At 2% its put CVaR
+    (-0.322) is worse than not hedging at all (-0.186).
+  - As expected, band-edge wins under proportional costs and
+    rebalance-to-delta wins under fixed costs, and the best band widens
+    with cost (0.05-0.1).
+  - That width matters for the residual policy: with `residual_scale` 0.1
+    it can only stay 0.1 from delta by saturating tanh, so cost regimes
+    need a wider residual (0.2-0.3).
+- [x] Decide with the user (proportional 1%, residual_scale 0.25, fixed-cost mechanism deferred)
+- [x] Train and validate RL at proportional 1% (beats daily delta, loses to the band: keeps trading daily - see BUGS.md)
+- [x] Decide with the user: action parametrization that can hold still (fraction of gap)
+- [x] Add `action_mode="gap_fraction"` to RLPolicy (`--action_mode`)
+- [x] Retrain at 1% with `--action_mode gap_fraction` (big gain, still behind the band; still improving at episode 1000 - see BUGS.md)
+- [x] Retrain with 3000 episodes (plateaus by episode ~1750, still 0.006-0.009 behind the band - see BUGS.md)
+- [x] Decide with the user: next lever (stop here and commit; risk_lambda sweep and Deep Hedging left for later)
+- [x] Dispatch test-agent/review-agent (APPROVE, 351/351 passing)
+- [x] Update README/CLAUDE.md, record results in BUGS.md
+
 ## Checkpoint the hedging policy on a fixed validation set
 
 `train()` saves the policy with the best trailing-50 mean *raw* reward,

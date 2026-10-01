@@ -743,6 +743,75 @@ def test_train_with_zero_residual_scale_sends_squashed_action_unchanged(tmp_path
         assert sent == pytest.approx(pushed_action, abs=1e-6)  # float32 rounding only
 
 
+# --- gap_fraction mode in train() and deterministic_hedge --------------------
+
+class PositionEnv:
+    """Env stand-in whose states carry a known delta (index 2) and a known,
+    varying position (index 4), recording every action passed to step()."""
+
+    DELTAS = [0.30, 0.95, -0.50, 0.5]
+    POSITIONS = [0.0, 0.6, -0.4, 0.2]
+
+    def __init__(self):
+        self.step_actions = []
+
+    def _state(self, i):
+        return np.array([1.0, 0.0, self.DELTAS[i], 0.0, self.POSITIONS[i]], dtype=np.float32)
+
+    def reset(self):
+        self._i = 0
+        return self._state(0)
+
+    def step(self, action):
+        self.step_actions.append(action)
+        self._i += 1
+        return self._state(self._i), 0.0, self._i >= 3
+
+
+@pytest.mark.parametrize("warmup_steps", [10 ** 6, 0], ids=["warmup_random", "policy_sampled"])
+def test_train_gap_fraction_sends_interpolated_hedge_but_stores_squashed_action(tmp_path, warmup_steps):
+    torch.manual_seed(0)
+    np.random.seed(0)
+    env, buffer = PositionEnv(), ActionSpyBuffer(max_size=100)
+    policy = RLPolicy(5, 1, action_mode="gap_fraction")
+    train(policy, env, buffer, Critic(5, 1), Critic(5, 1),
+          n_episodes=1, warmup_steps=warmup_steps, batch_size=10 ** 6,
+          checkpoint_path=str(tmp_path / "policy.pth"))
+
+    assert len(env.step_actions) == len(buffer.pushed) == 3
+    for sent, (state, pushed_action) in zip(env.step_actions, buffer.pushed):
+        assert -1.0 < pushed_action < 1.0
+        w = (pushed_action + 1) / 2
+        expected = float(np.clip(state[4] + w * (state[2] - state[4]), -1.0, 1.0))
+        assert sent == pytest.approx(expected, abs=1e-6)
+    # The mapping is really applied: env value differs from the stored action.
+    assert env.step_actions[0] != pytest.approx(buffer.pushed[0][1], abs=1e-3)
+
+
+def test_train_gap_fraction_runs_gradient_updates_and_keeps_mode(tmp_path):
+    torch.manual_seed(0)
+    np.random.seed(0)
+    policy = RLPolicy(5, 1, action_mode="gap_fraction")
+    before = policy.layer1.weight.detach().clone()
+    path = tmp_path / "policy.pth"
+    train(policy, PositionEnv(), ReplayBuffer(max_size=100), Critic(5, 1), Critic(5, 1),
+          n_episodes=3, warmup_steps=0, update_every=1, batch_size=2,
+          checkpoint_path=str(path))
+    assert not torch.equal(before, policy.layer1.weight)
+    # The mode is a buffer, so training must never change it.
+    assert policy.gap_fraction.item() == 1.0
+
+
+def test_deterministic_hedge_gap_fraction_fresh_policy_closes_90_percent_of_gap():
+    policy = RLPolicy(5, 1, action_mode="gap_fraction")
+    with torch.no_grad():
+        policy.layer3.weight.zero_()
+    states = np.array([[1.0, 0.1, 0.8, 0.2, 0.0],
+                       [1.0, 0.1, -0.5, 0.2, 0.5]])
+    out = hedge_module.deterministic_hedge(policy, states)
+    np.testing.assert_allclose(out, [0.9 * 0.8, 0.5 + 0.9 * (-1.0)], atol=1e-6)
+
+
 # --- deterministic_hedge ----------------------------------------------------
 
 def test_deterministic_hedge_matches_hedge_ratio_of_tanh_mean_for_batch_and_single():

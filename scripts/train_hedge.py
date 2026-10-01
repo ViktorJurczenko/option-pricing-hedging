@@ -37,6 +37,7 @@ def add_arguments(parser):
     parser.add_argument("--auto_alpha", default=True, action=argparse.BooleanOptionalAction, help="Learn the SAC entropy coefficient toward a target entropy of -1 (--alpha is then its initial value). --no-auto_alpha keeps alpha fixed.")
     parser.add_argument("--alpha_lr", default=None, type=float, help="Adam learning rate for the learned entropy coefficient (with --auto_alpha; ignored with --no-auto_alpha). Defaults to --lr.")
     parser.add_argument("--residual_scale", default=0.1, type=float, help="The policy learns a correction to the LSM delta: hedge = clip(delta + residual_scale * tanh(output), -1, 1). Saved in the checkpoint, so test-hedge picks it up. 0 makes the policy output the hedge ratio directly.")
+    parser.add_argument("--action_mode", default="residual", type=str, choices=["residual", "gap_fraction"], help="How the policy's output becomes a hedge. residual: delta + residual_scale * tanh(output). gap_fraction: position + w * (delta - position) with w in (0, 1), the fraction of the gap to delta closed each step - holding still is easy, which matters under trading costs. Saved in the checkpoint.")
     parser.add_argument("--val_paths", default=1000, type=int, help="Number of held-out validation paths the checkpoint is selected on (P&L std or CVaR, see --val_metric; the untrained policy is a candidate too). 0 falls back to the best trailing 50-episode mean training reward.")
     parser.add_argument("--val_every", default=50, type=int, help="Episodes between validation scorings (the last episode is always scored).")
     parser.add_argument("--val_metric", default="std", type=str, choices=["std", "cvar"], help="Checkpoint criterion on the validation P&L: lowest std (hedging error) or highest 95%% CVaR.")
@@ -78,7 +79,7 @@ def run(args):
     simulation, lsm = _simulate_and_fit_lsm(args, args.seed)
 
     # State has shape [S_t/K, t/T, delta, gamma, current position]
-    policy_model = RLPolicy(5, 1, residual_scale=args.residual_scale)
+    policy_model = RLPolicy(5, 1, residual_scale=args.residual_scale, action_mode=args.action_mode)
 
     value_fn = None
     if args.reward_mode == "accounting":
