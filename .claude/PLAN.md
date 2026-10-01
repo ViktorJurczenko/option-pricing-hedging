@@ -26,7 +26,7 @@ Two issues shape the plan:
   first. That's a design decision for the user, taken after the baseline
   numbers are in.
 
-- [x] Expose the proportional cost as `--transaction_cost`
+- [x] Expose the proportional cost as `--prop_tc`
 - [x] Add a banded-delta baseline (`--policy delta_band --band b --band_target {delta,edge}`)
 - [x] Measure baselines over a cost grid
   95% CVaR (×K) on the 2000 seed-999 episodes. Each band column gives the

@@ -18,7 +18,7 @@ from AmericanHedging.baselines import delta_hedge, no_hedge
 from AmericanHedging.RLPolicy import RLPolicy
 
 
-def _make_args(policy, seed, transaction_cost=0.001, band=0.05, band_target="delta"):
+def _make_args(policy, seed, prop_tc=0.001, band=0.05, band_target="delta"):
     return argparse.Namespace(
         sigma=0.2,
         start_price=100.0,
@@ -32,7 +32,7 @@ def _make_args(policy, seed, transaction_cost=0.001, band=0.05, band_target="del
         reg_type="simple",
         seed=seed,
         n_episodes=5,
-        transaction_cost=transaction_cost,
+        prop_tc=prop_tc,
         fixed_cost=0.0,
         checkpoint_path="unused.pth",
         policy=policy,
@@ -215,7 +215,7 @@ def test_action_fn_for_rl_policy_applies_residual_on_delta_from_checkpoint(monke
         assert seen["fn"](state) == pytest.approx(expected, abs=1e-6)
 
 
-def test_run_passes_transaction_cost_to_evaluation_env(monkeypatch):
+def test_run_passes_prop_tc_to_evaluation_env(monkeypatch):
     seen = {}
 
     def fake_evaluate(action_fn, env, n_episodes=1000):
@@ -223,19 +223,19 @@ def test_run_passes_transaction_cost_to_evaluation_env(monkeypatch):
         return (0.0, 0.0, 0.0)
 
     monkeypatch.setattr(test_hedge_script, "evaluate", fake_evaluate)
-    test_hedge_script.run(_make_args("delta", seed=1, transaction_cost=0.0123))
+    test_hedge_script.run(_make_args("delta", seed=1, prop_tc=0.0123))
     assert seen["tc"] == pytest.approx(0.0123)  # distinct from the 0.001 default
 
 
-def test_add_arguments_transaction_cost_band_and_policy_choices():
+def test_add_arguments_prop_tc_band_and_policy_choices():
     parser = argparse.ArgumentParser()
     test_hedge_script.add_arguments(parser)
     args = parser.parse_args([])
-    assert args.transaction_cost == pytest.approx(0.001)
+    assert args.prop_tc == pytest.approx(0.001)
     assert args.band == pytest.approx(0.05) and args.band_target == "delta"
     args = parser.parse_args(["--policy", "delta_band", "--band", "0.2", "--band_target", "edge",
-                              "--transaction_cost", "0.01"])
-    assert (args.policy, args.band, args.band_target, args.transaction_cost) == ("delta_band", 0.2, "edge", 0.01)
+                              "--prop_tc", "0.01"])
+    assert (args.policy, args.band, args.band_target, args.prop_tc) == ("delta_band", 0.2, "edge", 0.01)
     with pytest.raises(SystemExit):
         parser.parse_args(["--band_target", "middle"])
 

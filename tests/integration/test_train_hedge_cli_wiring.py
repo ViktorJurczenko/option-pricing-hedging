@@ -99,7 +99,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
                     reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
                     option_type="call", alpha_lr=None, residual_scale=0.1, action_mode="residual",
                     val_paths=0, val_every=50, val_metric="std", val_seed=None,
-                    fixed_cost=0.0, transaction_cost=0.001):
+                    fixed_cost=0.0, prop_tc=0.001):
     # val_paths defaults to 0 (validation off) so the pre-existing tests keep
     # observing exactly one LSM/env (the training ones); the validation tests
     # below opt in explicitly.
@@ -115,7 +115,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         option_type=option_type,
         reg_type="simple",
         max_degree=2,
-        transaction_cost=transaction_cost,
+        prop_tc=prop_tc,
         fixed_cost=fixed_cost,
         risk_lambda=risk_lambda,
         reward_mode=reward_mode,
@@ -449,25 +449,25 @@ def test_run_leaves_global_rng_at_the_training_seed_state(monkeypatch, val_paths
     np.testing.assert_array_equal(draws[0], np.random.random(3))
 
 
-# --- --transaction_cost wiring ------------------------------------------------
+# --- --prop_tc wiring ------------------------------------------------
 
-def test_add_arguments_transaction_cost_default_0_001_and_parsed_as_float():
+def test_add_arguments_prop_tc_default_0_001_and_parsed_as_float():
     args = _make_parser().parse_args([])
-    assert args.transaction_cost == pytest.approx(0.001)
-    args = _make_parser().parse_args(["--transaction_cost", "0.02"])
-    assert args.transaction_cost == pytest.approx(0.02) and isinstance(args.transaction_cost, float)
+    assert args.prop_tc == pytest.approx(0.001)
+    args = _make_parser().parse_args(["--prop_tc", "0.02"])
+    assert args.prop_tc == pytest.approx(0.02) and isinstance(args.prop_tc, float)
 
 
-def test_run_passes_transaction_cost_to_validation_env(monkeypatch):
+def test_run_passes_prop_tc_to_validation_env(monkeypatch):
     """Validation picks the checkpoint, so it must score the same cost regime
     as training. 0.0123 is distinct from HedgingEnv's 0.001 default so a
     dropped kwarg is caught."""
     captured = _capture_train(monkeypatch)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=20, transaction_cost=0.0123))
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=20, prop_tc=0.0123))
     assert captured["val_env"].tc == pytest.approx(0.0123)
 
 
-def test_run_passes_transaction_cost_to_training_env(monkeypatch):
+def test_run_passes_prop_tc_to_training_env(monkeypatch):
     envs = []
     real_env_cls = train_hedge_script.HedgingEnv
 
@@ -478,7 +478,7 @@ def test_run_passes_transaction_cost_to_training_env(monkeypatch):
 
     monkeypatch.setattr(train_hedge_script, "HedgingEnv", SpyHedgingEnv)
     monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: None)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=20, transaction_cost=0.0123))
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=20, prop_tc=0.0123))
 
     assert len(envs) == 2  # validation env first, training env last
     assert [e.tc for e in envs] == [pytest.approx(0.0123)] * 2

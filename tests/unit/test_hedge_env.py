@@ -344,8 +344,8 @@ def test_rollout_pnl_equals_summed_terminal_step_rewards(option_type, tc, fixed_
     kwargs = {}
     if reward_mode == "accounting":
         kwargs = dict(reward_mode="accounting", value_fn=lambda t, S: np.full_like(S, 7.0 + t))
-    env = HedgingEnv(lsm, transaction_cost=tc, fixed_cost=fixed_cost, **kwargs)
-    ref_env = HedgingEnv(lsm, transaction_cost=tc, fixed_cost=fixed_cost)  # terminal
+    env = HedgingEnv(lsm, prop_tc=tc, fixed_cost=fixed_cost, **kwargs)
+    ref_env = HedgingEnv(lsm, prop_tc=tc, fixed_cost=fixed_cost)  # terminal
 
     idxs = np.arange(n_paths)
     got = env.rollout_pnl(_batch_hedge, idxs)
@@ -378,8 +378,8 @@ def test_rollout_pnl_does_not_touch_rng_or_episode_state(monkeypatch):
 def test_rollout_pnl_fixed_cost_not_charged_when_position_held():
     # Holding a constant position 0.5 after the first trade: fixed cost is paid once only.
     lsm = RandomLSMModel("call")
-    env = HedgingEnv(lsm, transaction_cost=0.0, fixed_cost=1.0)
-    free = HedgingEnv(lsm, transaction_cost=0.0, fixed_cost=0.0)
+    env = HedgingEnv(lsm, prop_tc=0.0, fixed_cost=1.0)
+    free = HedgingEnv(lsm, prop_tc=0.0, fixed_cost=0.0)
     hold = lambda s: np.full(len(s), 0.5)
     idxs = np.arange(12)
     diff = free.rollout_pnl(hold, idxs) - env.rollout_pnl(hold, idxs)
@@ -389,20 +389,20 @@ def test_rollout_pnl_fixed_cost_not_charged_when_position_held():
 # --- _trading_cost / _payoff helpers (shared by step() and rollout_pnl()) ---
 
 def test_trading_cost_scalar_combines_proportional_and_fixed():
-    env = HedgingEnv(FakeLSMModel(), transaction_cost=0.01, fixed_cost=0.5)
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.01, fixed_cost=0.5)
     # 0.01 * |-2| * 100 + 0.5 = 2.5 ; sign of the trade must not matter
     assert env._trading_cost(-2.0, 100.0) == pytest.approx(2.5)
     assert env._trading_cost(2.0, 100.0) == pytest.approx(2.5)
 
 def test_trading_cost_array_is_elementwise():
-    env = HedgingEnv(FakeLSMModel(), transaction_cost=0.01, fixed_cost=0.5)
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.01, fixed_cost=0.5)
     trades = np.array([1.0, -2.0, 0.0])
     spots  = np.array([100.0, 50.0, 80.0])
     # [1.0 + 0.5, 1.0 + 0.5, 0 + 0 (no trade -> no fixed cost)]
     np.testing.assert_allclose(env._trading_cost(trades, spots), [1.5, 1.5, 0.0])
 
 def test_trading_cost_fixed_cost_threshold_at_trade_eps():
-    env = HedgingEnv(FakeLSMModel(), transaction_cost=0.0, fixed_cost=1.0)
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.0, fixed_cost=1.0)
     eps = HedgingEnv._TRADE_EPS
     # at or below eps is float noise (strict ">"): no fixed cost; above it: charged
     assert env._trading_cost(eps, 100.0) == 0.0
@@ -411,7 +411,7 @@ def test_trading_cost_fixed_cost_threshold_at_trade_eps():
     np.testing.assert_allclose(env._trading_cost(np.array([eps, -eps * 10]), 100.0), [0.0, 1.0])
 
 def test_trading_cost_zero_fixed_cost_is_purely_proportional():
-    env = HedgingEnv(FakeLSMModel(), transaction_cost=0.002, fixed_cost=0.0)
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.002, fixed_cost=0.0)
     assert env._trading_cost(0.5, 120.0) == pytest.approx(0.002 * 0.5 * 120.0)
 
 def test_payoff_call_scalar_and_array():

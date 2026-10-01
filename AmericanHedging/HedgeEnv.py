@@ -8,7 +8,7 @@ class HedgingEnv:
     # charged for floating-point noise around holding the same position.
     _TRADE_EPS = 1e-8
 
-    def __init__(self, lsm_model: LongstaffSchwartz, transaction_cost: float = 0.001, fixed_cost: float = 0.0,
+    def __init__(self, lsm_model: LongstaffSchwartz, prop_tc: float = 0.001, fixed_cost: float = 0.0,
                  reward_mode: str = "terminal", value_fn: Callable[[int, np.ndarray], np.ndarray] | None = None):
         """
         reward_mode:
@@ -32,7 +32,7 @@ class HedgingEnv:
 
         self.lsm         = lsm_model
         self.option_type = lsm_model.option_type
-        self.tc          = transaction_cost
+        self.tc          = prop_tc
         self.fixed_cost  = fixed_cost
         self.reward_mode = reward_mode
         self.n_steps     = lsm_model.simulation.shape[0]

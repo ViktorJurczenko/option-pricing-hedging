@@ -43,7 +43,7 @@ def _implied_costs(env, action_fn, n_paths):
 
 @pytest.mark.parametrize("target", ["delta", "edge"])
 def test_delta_band_holds_are_not_charged_fixed_cost_and_trades_are(lsm, target):
-    env = HedgingEnv(lsm, transaction_cost=0.0, fixed_cost=FIXED_COST)
+    env = HedgingEnv(lsm, prop_tc=0.0, fixed_cost=FIXED_COST)
     steps = _implied_costs(env, delta_band(0.15, target), n_paths=30)
 
     held = [c for traded, c in steps if not traded]
@@ -54,7 +54,7 @@ def test_delta_band_holds_are_not_charged_fixed_cost_and_trades_are(lsm, target)
 
 
 def test_delta_band_charges_fewer_fixed_costs_than_daily_delta(lsm):
-    env = HedgingEnv(lsm, transaction_cost=0.0, fixed_cost=FIXED_COST)
+    env = HedgingEnv(lsm, prop_tc=0.0, fixed_cost=FIXED_COST)
     banded = sum(c for _, c in _implied_costs(env, delta_band(0.15), 30))
     daily = sum(c for _, c in _implied_costs(env, delta_band(0.0), 30))
     assert banded < daily

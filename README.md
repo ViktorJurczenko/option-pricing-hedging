@@ -239,9 +239,9 @@ overtrades, the picture changes: see the next section.
 ### Hedging under trading costs
 
 ```
-python main.py train-hedge --transaction_cost 0.01 --action_mode gap_fraction --val_metric cvar
-python main.py test-hedge  --transaction_cost 0.01 --policy rl
-python main.py test-hedge  --transaction_cost 0.01 --policy delta_band --band 0.1 --band_target edge
+python main.py train-hedge --prop_tc 0.01 --action_mode gap_fraction --val_metric cvar
+python main.py test-hedge  --prop_tc 0.01 --policy rl
+python main.py test-hedge  --prop_tc 0.01 --policy delta_band --band 0.1 --band_target edge
 ```
 
 With a 0.1% cost, daily delta hedging is already close to optimal. With

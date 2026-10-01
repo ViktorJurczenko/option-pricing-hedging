@@ -9,7 +9,7 @@ feature implementation that isn't a bug or a fix does not belong here; see
 ## RL policy under trading costs keeps trading every day; a simple band beats it (open)
 
 **Symptom:** found in PLAN.md's "Hedge under trading costs". Training with
-a 1% proportional cost (`--transaction_cost 0.01 --residual_scale 0.25
+a 1% proportional cost (`--prop_tc 0.01 --residual_scale 0.25
 --val_metric cvar`; 4 seeds, 1000 episodes; evaluated on the 2000
 seed-999 episodes at the same cost). 95% CVaR (×K):
 
