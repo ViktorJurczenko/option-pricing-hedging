@@ -188,7 +188,7 @@ retrained:
   to, and with only proportional costs delta is already close to optimal.
 
 **Status:** fixed for puts. Calls match delta rather than beat it. Next is
-testing with a nonzero `--fixed_cost` or a higher proportional cost, where
+testing with a nonzero `--fixed_tc` or a higher proportional cost, where
 delta hedging overtrades and a learned correction has something real to
 learn (PLAN.md).
 

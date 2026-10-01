@@ -82,8 +82,8 @@ def test_action_is_clamped_to_valid_range(monkeypatch):
     env.step(action=5.0)  # way outside [-1, 1]
     assert env.position == 1.0
 
-def test_step_charges_fixed_cost_on_nonzero_trade(monkeypatch):
-    env = HedgingEnv(FakeLSMModel(), fixed_cost=0.05)
+def test_step_charges_fixed_tc_on_nonzero_trade(monkeypatch):
+    env = HedgingEnv(FakeLSMModel(), fixed_tc=0.05)
     monkeypatch.setattr(np.random, "randint", lambda n: 0)
     env.reset()
 
@@ -96,11 +96,11 @@ def test_step_charges_fixed_cost_on_nonzero_trade(monkeypatch):
     assert reward == pytest.approx((0.0 - expected_cost) / 100.0)
     assert not done
 
-def test_step_no_fixed_cost_when_trade_size_is_zero(monkeypatch):
+def test_step_no_fixed_tc_when_trade_size_is_zero(monkeypatch):
     """A trade of exactly 0 (action == current position) must not incur the
-    flat fixed_cost -- it's charged per trade, not per step with a nonzero
+    flat fixed_tc -- it's charged per trade, not per step with a nonzero
     position held."""
-    env = HedgingEnv(FakeLSMModel(), fixed_cost=0.05)
+    env = HedgingEnv(FakeLSMModel(), fixed_tc=0.05)
     monkeypatch.setattr(np.random, "randint", lambda n: 0)
     env.reset()
 
@@ -115,12 +115,12 @@ def test_step_no_fixed_cost_when_trade_size_is_zero(monkeypatch):
     assert reward == pytest.approx(expected_reward)
     assert done
 
-def test_fixed_cost_applies_at_final_exercise_step(monkeypatch):
-    """fixed_cost isn't special-cased away on the terminal step: it stacks
+def test_fixed_tc_applies_at_final_exercise_step(monkeypatch):
+    """fixed_tc isn't special-cased away on the terminal step: it stacks
     with the option-payoff subtraction in the `done` branch."""
     model = FakeLSMModel()
     model.exercise_time = np.array([1, 1])  # exercise after a single step
-    env = HedgingEnv(model, fixed_cost=0.05)
+    env = HedgingEnv(model, fixed_tc=0.05)
     monkeypatch.setattr(np.random, "randint", lambda n: 0)
     env.reset()
 
@@ -333,9 +333,9 @@ def test_build_states_clamps_greeks_to_last_row_at_maturity():
 
 
 @pytest.mark.parametrize("option_type", ["call", "put"])
-@pytest.mark.parametrize("tc,fixed_cost", [(0.001, 0.0), (0.0, 0.5), (0.002, 0.3)])
+@pytest.mark.parametrize("tc,fixed_tc", [(0.001, 0.0), (0.0, 0.5), (0.002, 0.3)])
 @pytest.mark.parametrize("reward_mode", ["terminal", "accounting"])
-def test_rollout_pnl_equals_summed_terminal_step_rewards(option_type, tc, fixed_cost, reward_mode):
+def test_rollout_pnl_equals_summed_terminal_step_rewards(option_type, tc, fixed_tc, reward_mode):
     """The vectorized P&L duplicates step()'s arithmetic, so it must match the
     per-path episode sums (terminal mode) on every path, even with early
     exercise at different steps, clipped hedges and exact holds."""
@@ -344,8 +344,8 @@ def test_rollout_pnl_equals_summed_terminal_step_rewards(option_type, tc, fixed_
     kwargs = {}
     if reward_mode == "accounting":
         kwargs = dict(reward_mode="accounting", value_fn=lambda t, S: np.full_like(S, 7.0 + t))
-    env = HedgingEnv(lsm, prop_tc=tc, fixed_cost=fixed_cost, **kwargs)
-    ref_env = HedgingEnv(lsm, prop_tc=tc, fixed_cost=fixed_cost)  # terminal
+    env = HedgingEnv(lsm, prop_tc=tc, fixed_tc=fixed_tc, **kwargs)
+    ref_env = HedgingEnv(lsm, prop_tc=tc, fixed_tc=fixed_tc)  # terminal
 
     idxs = np.arange(n_paths)
     got = env.rollout_pnl(_batch_hedge, idxs)
@@ -375,11 +375,11 @@ def test_rollout_pnl_does_not_touch_rng_or_episode_state(monkeypatch):
     np.testing.assert_array_equal(np.random.get_state()[1], rng_before)
 
 
-def test_rollout_pnl_fixed_cost_not_charged_when_position_held():
+def test_rollout_pnl_fixed_tc_not_charged_when_position_held():
     # Holding a constant position 0.5 after the first trade: fixed cost is paid once only.
     lsm = RandomLSMModel("call")
-    env = HedgingEnv(lsm, prop_tc=0.0, fixed_cost=1.0)
-    free = HedgingEnv(lsm, prop_tc=0.0, fixed_cost=0.0)
+    env = HedgingEnv(lsm, prop_tc=0.0, fixed_tc=1.0)
+    free = HedgingEnv(lsm, prop_tc=0.0, fixed_tc=0.0)
     hold = lambda s: np.full(len(s), 0.5)
     idxs = np.arange(12)
     diff = free.rollout_pnl(hold, idxs) - env.rollout_pnl(hold, idxs)
@@ -389,20 +389,20 @@ def test_rollout_pnl_fixed_cost_not_charged_when_position_held():
 # --- _trading_cost / _payoff helpers (shared by step() and rollout_pnl()) ---
 
 def test_trading_cost_scalar_combines_proportional_and_fixed():
-    env = HedgingEnv(FakeLSMModel(), prop_tc=0.01, fixed_cost=0.5)
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.01, fixed_tc=0.5)
     # 0.01 * |-2| * 100 + 0.5 = 2.5 ; sign of the trade must not matter
     assert env._trading_cost(-2.0, 100.0) == pytest.approx(2.5)
     assert env._trading_cost(2.0, 100.0) == pytest.approx(2.5)
 
 def test_trading_cost_array_is_elementwise():
-    env = HedgingEnv(FakeLSMModel(), prop_tc=0.01, fixed_cost=0.5)
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.01, fixed_tc=0.5)
     trades = np.array([1.0, -2.0, 0.0])
     spots  = np.array([100.0, 50.0, 80.0])
     # [1.0 + 0.5, 1.0 + 0.5, 0 + 0 (no trade -> no fixed cost)]
     np.testing.assert_allclose(env._trading_cost(trades, spots), [1.5, 1.5, 0.0])
 
-def test_trading_cost_fixed_cost_threshold_at_trade_eps():
-    env = HedgingEnv(FakeLSMModel(), prop_tc=0.0, fixed_cost=1.0)
+def test_trading_cost_fixed_tc_threshold_at_trade_eps():
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.0, fixed_tc=1.0)
     eps = HedgingEnv._TRADE_EPS
     # at or below eps is float noise (strict ">"): no fixed cost; above it: charged
     assert env._trading_cost(eps, 100.0) == 0.0
@@ -410,8 +410,8 @@ def test_trading_cost_fixed_cost_threshold_at_trade_eps():
     assert env._trading_cost(eps * 10, 100.0) == pytest.approx(1.0)
     np.testing.assert_allclose(env._trading_cost(np.array([eps, -eps * 10]), 100.0), [0.0, 1.0])
 
-def test_trading_cost_zero_fixed_cost_is_purely_proportional():
-    env = HedgingEnv(FakeLSMModel(), prop_tc=0.002, fixed_cost=0.0)
+def test_trading_cost_zero_fixed_tc_is_purely_proportional():
+    env = HedgingEnv(FakeLSMModel(), prop_tc=0.002, fixed_tc=0.0)
     assert env._trading_cost(0.5, 120.0) == pytest.approx(0.002 * 0.5 * 120.0)
 
 def test_payoff_call_scalar_and_array():

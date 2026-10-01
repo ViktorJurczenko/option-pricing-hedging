@@ -2,7 +2,7 @@
 Tests for scripts/train_hedge.py::add_arguments()/run() -- specifically the
 --lr/--alpha flags added to expose AmericanHedging.Hedge.train()'s existing
 `lr`/`alpha` keyword arguments (previously stuck at their hardcoded defaults
-with no CLI override, unlike --risk_lambda/--fixed_cost/--grad_steps_per_update
+with no CLI override, unlike --risk_lambda/--fixed_tc/--grad_steps_per_update
 in the same file), plus the later --reward_mode/--gamma/--reward_scale/
 --auto_alpha flags and run()'s accounting-mode value_fn wiring (see
 AmericanHedging/option_value.py and HedgeEnv's reward_mode).
@@ -99,7 +99,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
                     reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
                     option_type="call", alpha_lr=None, residual_scale=0.1, action_mode="residual",
                     val_paths=0, val_every=50, val_metric="std", val_seed=None,
-                    fixed_cost=0.0, prop_tc=0.001):
+                    fixed_tc=0.0, prop_tc=0.001):
     # val_paths defaults to 0 (validation off) so the pre-existing tests keep
     # observing exactly one LSM/env (the training ones); the validation tests
     # below opt in explicitly.
@@ -116,7 +116,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         reg_type="simple",
         max_degree=2,
         prop_tc=prop_tc,
-        fixed_cost=fixed_cost,
+        fixed_tc=fixed_tc,
         risk_lambda=risk_lambda,
         reward_mode=reward_mode,
         gamma=gamma,
@@ -410,12 +410,12 @@ def _capture_train(monkeypatch):
 def test_run_forwards_validation_settings_and_builds_terminal_validation_env(monkeypatch):
     captured = _capture_train(monkeypatch)
     train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="accounting", val_paths=20,
-                                          val_every=7, val_metric="cvar", fixed_cost=0.25))
+                                          val_every=7, val_metric="cvar", fixed_tc=0.25))
     assert (captured["val_paths"], captured["val_every"], captured["val_metric"]) == (20, 7, "cvar")
     val_env = captured["val_env"]
     assert isinstance(val_env, HedgingEnv)
     assert val_env.reward_mode == "terminal"  # so the metric is test-hedge's P&L
-    assert val_env.fixed_cost == 0.25
+    assert val_env.fixed_tc == 0.25
 
 
 def test_run_with_val_paths_zero_disables_validation(monkeypatch):

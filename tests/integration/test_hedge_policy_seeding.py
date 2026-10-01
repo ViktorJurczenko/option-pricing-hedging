@@ -33,7 +33,7 @@ def _make_args(policy, seed, prop_tc=0.001, band=0.05, band_target="delta"):
         seed=seed,
         n_episodes=5,
         prop_tc=prop_tc,
-        fixed_cost=0.0,
+        fixed_tc=0.0,
         checkpoint_path="unused.pth",
         policy=policy,
         band=band,

@@ -8,7 +8,7 @@ class HedgingEnv:
     # charged for floating-point noise around holding the same position.
     _TRADE_EPS = 1e-8
 
-    def __init__(self, lsm_model: LongstaffSchwartz, prop_tc: float = 0.001, fixed_cost: float = 0.0,
+    def __init__(self, lsm_model: LongstaffSchwartz, prop_tc: float = 0.001, fixed_tc: float = 0.0,
                  reward_mode: str = "terminal", value_fn: Callable[[int, np.ndarray], np.ndarray] | None = None):
         """
         reward_mode:
@@ -33,7 +33,7 @@ class HedgingEnv:
         self.lsm         = lsm_model
         self.option_type = lsm_model.option_type
         self.tc          = prop_tc
-        self.fixed_cost  = fixed_cost
+        self.fixed_tc    = fixed_tc
         self.reward_mode = reward_mode
         self.n_steps     = lsm_model.simulation.shape[0]
         self.n_paths     = lsm_model.simulation.shape[1]
@@ -71,7 +71,7 @@ class HedgingEnv:
     def _trading_cost(self, trade: float | np.ndarray, S_t: float | np.ndarray) -> float | np.ndarray:
         """Proportional cost plus the fixed cost on any real trade (scalar or array).
         Shared by step() and rollout_pnl() so the two can't drift apart."""
-        return self.tc * np.abs(trade) * S_t + self.fixed_cost * (np.abs(trade) > self._TRADE_EPS)
+        return self.tc * np.abs(trade) * S_t + self.fixed_tc * (np.abs(trade) > self._TRADE_EPS)
 
     def _payoff(self, S: float | np.ndarray) -> float | np.ndarray:
         """Option payoff at spot(s) S. Shared by step() and rollout_pnl()."""
