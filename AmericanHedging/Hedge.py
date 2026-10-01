@@ -22,7 +22,7 @@ def _squash(dist: torch.distributions.Distribution, eps: float = 1e-6) -> tuple[
     sample further out has a real, increasing entropy cost instead of a free
     one. This is the standard SAC fix for bounded continuous actions.
     """
-    raw     = dist.rsample()
+    raw      = dist.rsample()
     squashed = torch.tanh(raw)
     log_prob = (
         dist.log_prob(raw).sum(-1, keepdim=True)

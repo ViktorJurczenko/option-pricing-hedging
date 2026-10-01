@@ -18,7 +18,7 @@ from AmericanHedging.baselines import delta_hedge, no_hedge
 from AmericanHedging.RLPolicy import RLPolicy
 
 
-def _make_args(policy, seed):
+def _make_args(policy, seed, transaction_cost=0.001, band=0.05, band_target="delta"):
     return argparse.Namespace(
         sigma=0.2,
         start_price=100.0,
@@ -32,9 +32,12 @@ def _make_args(policy, seed):
         reg_type="simple",
         seed=seed,
         n_episodes=5,
+        transaction_cost=transaction_cost,
         fixed_cost=0.0,
         checkpoint_path="unused.pth",
         policy=policy,
+        band=band,
+        band_target=band_target,
     )
 
 
@@ -210,3 +213,45 @@ def test_action_fn_for_rl_policy_applies_residual_on_delta_from_checkpoint(monke
         state = np.array([1.0, 0.5, delta, 0.02, 0.0], dtype=np.float32)
         expected = float(np.clip(delta + c * t, -1.0, 1.0))
         assert seen["fn"](state) == pytest.approx(expected, abs=1e-6)
+
+
+def test_run_passes_transaction_cost_to_evaluation_env(monkeypatch):
+    seen = {}
+
+    def fake_evaluate(action_fn, env, n_episodes=1000):
+        seen["tc"] = env.tc
+        return (0.0, 0.0, 0.0)
+
+    monkeypatch.setattr(test_hedge_script, "evaluate", fake_evaluate)
+    test_hedge_script.run(_make_args("delta", seed=1, transaction_cost=0.0123))
+    assert seen["tc"] == pytest.approx(0.0123)  # distinct from the 0.001 default
+
+
+def test_add_arguments_transaction_cost_band_and_policy_choices():
+    parser = argparse.ArgumentParser()
+    test_hedge_script.add_arguments(parser)
+    args = parser.parse_args([])
+    assert args.transaction_cost == pytest.approx(0.001)
+    assert args.band == pytest.approx(0.05) and args.band_target == "delta"
+    args = parser.parse_args(["--policy", "delta_band", "--band", "0.2", "--band_target", "edge",
+                              "--transaction_cost", "0.01"])
+    assert (args.policy, args.band, args.band_target, args.transaction_cost) == ("delta_band", 0.2, "edge", 0.01)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--band_target", "middle"])
+
+
+@pytest.mark.parametrize("band_target", ["delta", "edge"])
+def test_delta_band_policy_builds_delta_band_from_band_flags(monkeypatch, band_target):
+    """The action_fn handed to evaluate() must behave as delta_band(band,
+    band_target): a gap of 0.3 is outside band 0.1 (rebalance, to delta or the
+    edge depending on target), but inside band 0.5 (hold)."""
+    seen = {}
+    monkeypatch.setattr(test_hedge_script, "evaluate",
+                        lambda action_fn, env, n_episodes=1000: seen.update(fn=action_fn) or (0.0, 0.0, 0.0))
+
+    state = np.array([1.0, 0.5, 0.5, 0.02, 0.8])  # delta 0.5, position 0.8
+    test_hedge_script.run(_make_args("delta_band", seed=1, band=0.1, band_target=band_target))
+    assert seen["fn"](state) == pytest.approx(0.5 if band_target == "delta" else 0.6)
+
+    test_hedge_script.run(_make_args("delta_band", seed=1, band=0.5, band_target=band_target))
+    assert seen["fn"](state) == 0.8

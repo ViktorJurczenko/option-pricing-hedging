@@ -6,7 +6,7 @@ from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
 from AmericanHedging.HedgeEnv import HedgingEnv
 from AmericanHedging.RLPolicy import RLPolicy
 from AmericanHedging.Hedge import deterministic_hedge, evaluate
-from AmericanHedging.baselines import delta_hedge, no_hedge
+from AmericanHedging.baselines import delta_band, delta_hedge, no_hedge
 
 def add_arguments(parser):
     parser.add_argument("--sigma", default=0.2, type=float, help="Volatility (standard deviation of returns).")
@@ -21,9 +21,12 @@ def add_arguments(parser):
     parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="polynomials used for regression.")
     parser.add_argument("--seed", default=42, type=int, help="Random seed for reproducibility.")
     parser.add_argument("--n_episodes", default=1000, type=int, help="Number of evaluation episodes.")
+    parser.add_argument("--transaction_cost", default=0.001, type=float, help="Proportional trading cost: tc * |trade| * S_t is charged on every rebalance. Should match the value used for --policy rl's training run for a fair comparison.")
     parser.add_argument("--fixed_cost", default=0.0, type=float, help="Flat cost charged whenever the hedge position is changed, regardless of trade size. Should match the value used for --policy rl's training run for a fair comparison.")
     parser.add_argument("--checkpoint_path", default="checkpoints/best_policy_model.pth", type=str, help="Path to the trained policy's weights (only used with --policy rl).")
-    parser.add_argument("--policy", default="rl", type=str, choices=["rl", "delta", "no_hedge"], help="Hedging policy to evaluate: the trained RL policy, an analytic delta-hedge baseline, or a no-hedge baseline.")
+    parser.add_argument("--policy", default="rl", type=str, choices=["rl", "delta", "delta_band", "no_hedge"], help="Hedging policy to evaluate: the trained RL policy, an analytic delta-hedge baseline, a delta hedge with a no-trade band (see --band), or a no-hedge baseline.")
+    parser.add_argument("--band", default=0.05, type=float, help="--policy delta_band only: hold the position while |delta - position| <= band, otherwise rebalance (see --band_target).")
+    parser.add_argument("--band_target", default="delta", type=str, choices=["delta", "edge"], help="--policy delta_band only: rebalance all the way to delta (suits fixed costs) or only to the nearest band edge (suits proportional costs).")
 
 def run(args):
     gbm = GBM(
@@ -42,7 +45,7 @@ def run(args):
         control_variate=args.option_type == "call",
     )
     lsm.predict_payoff()
-    env = HedgingEnv(lsm, fixed_cost=args.fixed_cost)
+    env = HedgingEnv(lsm, transaction_cost=args.transaction_cost, fixed_cost=args.fixed_cost)
 
     if args.policy == "rl":
         # residual_scale comes from the checkpoint, so it always matches training.
@@ -53,6 +56,8 @@ def run(args):
             return deterministic_hedge(policy_model, state).item()
     elif args.policy == "delta":
         action_fn = delta_hedge
+    elif args.policy == "delta_band":
+        action_fn = delta_band(args.band, args.band_target)
     else:
         action_fn = no_hedge
 

@@ -28,6 +28,7 @@ def add_arguments(parser):
     parser.add_argument("--lr", default=1e-4, type=float, help="Adam learning rate for both the actor and the twin critics.")
     parser.add_argument("--alpha", default=0.2, type=float, help="SAC entropy coefficient: weight of the entropy bonus (-alpha * log_prob) in the actor loss.")
     parser.add_argument("--replay_buffer_size", default=100_000, type=int, help="Max number of transitions kept in the replay buffer.")
+    parser.add_argument("--transaction_cost", default=0.001, type=float, help="Proportional trading cost: tc * |trade| * S_t is charged on every rebalance (training and validation envs).")
     parser.add_argument("--fixed_cost", default=0.0, type=float, help="Flat cost charged whenever the hedge position is changed, regardless of trade size.")
     parser.add_argument("--risk_lambda", default=1.0, type=float, help="Mean-variance penalty coefficient: the critic/actor train on x - risk_lambda * x**2 with x = reward_scale * reward, while logged/checkpointed reward stays raw P&L. Must be > 0 for the policy to have any incentive to hedge (every hedge has ~the same expected P&L; hedging only reduces its variance).")
     parser.add_argument("--reward_mode", default="accounting", type=str, choices=["terminal", "accounting"], help="'accounting' subtracts the option's value change every step, so each step's reward is the local hedging error (what makes --risk_lambda a real mean-variance penalty); 'terminal' only subtracts the payoff at exercise.")
@@ -69,7 +70,7 @@ def run(args):
         val_seed = args.seed + 1000 if args.val_seed is None else args.val_seed
         _, val_lsm = _simulate_and_fit_lsm(args, val_seed)
         # Terminal mode: the validation metric is then test-hedge's P&L.
-        val_env = HedgingEnv(val_lsm, fixed_cost=args.fixed_cost)
+        val_env = HedgingEnv(val_lsm, transaction_cost=args.transaction_cost, fixed_cost=args.fixed_cost)
         if args.val_paths > val_env.n_paths:
             print(f"Warning: --val_paths {args.val_paths} exceeds the {val_env.n_paths} simulated paths "
                   f"(--nb_predictions); validating on all {val_env.n_paths}.")
@@ -85,7 +86,7 @@ def run(args):
             args.option_type, args.start_price, args.strike, args.risk_free_rate,
             args.sigma, args.maturity, simulation.shape[0],
         )
-    env = HedgingEnv(lsm, fixed_cost=args.fixed_cost, reward_mode=args.reward_mode, value_fn=value_fn)
+    env = HedgingEnv(lsm, transaction_cost=args.transaction_cost, fixed_cost=args.fixed_cost, reward_mode=args.reward_mode, value_fn=value_fn)
 
     rb = ReplayBuffer(max_size=args.replay_buffer_size)
     critic1 = Critic(5, 1)
