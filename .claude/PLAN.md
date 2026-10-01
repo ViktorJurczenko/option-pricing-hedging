@@ -5,6 +5,12 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Bring the README up to date
+
+- [x] Rerun `price`, `test-ml` and pytest; refresh their numbers
+- [x] Document the control variate, horizon fix, simple-vs-Laguerre equivalence and stale ML dataset
+- [x] Update the usage table and `AmericanHedging/` architecture notes
+
 ## Learned no-trade band action mode (`--action_mode band`)
 
 `gap_fraction` can only hold still in the limit `w -> 0` (tanh never reaches

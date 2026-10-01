@@ -16,9 +16,9 @@ PyTorch, rather than pulled from an existing quant or RL library.
 | Layer | What it does |
 |---|---|
 | **European pricing** | Closed-form Black-Scholes and Monte-Carlo simulation, cross-checked against each other. |
-| **American pricing** | Cox-Ross-Rubinstein binomial tree and Longstaff-Schwartz least-squares Monte-Carlo (LSM), with simple-polynomial or Laguerre-polynomial regression bases and analytic delta/gamma. |
+| **American pricing** | Cox-Ross-Rubinstein binomial tree and Longstaff-Schwartz least-squares Monte-Carlo (LSM), with simple-polynomial or Laguerre-polynomial regression bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
 | **ML surrogate pricer** | A small MLP trained to reproduce LSM prices ~instantly. Standalone — not currently wired into the hedging environment below, which prices and computes Greeks via `LongstaffSchwartz` directly. |
-| **RL delta-hedging** | A Soft Actor-Critic (SAC) agent trained in a custom Gym-style environment to hedge an American option's exposure over its (path-dependent) exercise horizon, under transaction costs, using `LongstaffSchwartz`'s analytic delta/gamma as state features. |
+| **RL delta-hedging** | A Soft Actor-Critic (SAC) agent trained in a custom Gym-style environment to hedge an American option's exposure over its (path-dependent) exercise horizon, under proportional and fixed trading costs, using `LongstaffSchwartz`'s delta/gamma as state features. It is compared against delta-hedge, no-trade-band and no-hedge baselines. |
 
 ## Results
 
@@ -35,14 +35,31 @@ python main.py price --option_class both --option_type put   # put
 
 | | Monte-Carlo | Black-Scholes | Binomial tree | Longstaff-Schwartz |
 |---|---|---|---|---|
-| Call | 10.28 | 10.45 | 10.45 | 10.31 |
-| Put  | 5.63  | 5.57  | 6.09  | 6.12  |
+| Call | 10.30 | 10.45 | 10.45 | 10.28 |
+| Put  | 5.63  | 5.57  | 6.09  | 6.13  |
 
 European Monte-Carlo tracks Black-Scholes, and American Longstaff-Schwartz
 tracks the binomial tree, as expected (both are validated more rigorously as
 convergence tests in `tests/integration/test_pricing_convergence.py`). The put
 prices are higher for the American exercise style than the European style, as
-expected since early exercise has value for puts.
+expected since early exercise has value for puts. An American call on a
+non-dividend stock is worth exactly its European price, which the tree
+reproduces.
+
+`price` runs plain LSM, which is a Monte-Carlo estimate (about ±0.1 here).
+With the European option as a **control variate** (`LongstaffSchwartz(...,
+sigma=..., control_variate=True)`), the LSM call prices at 10.4506, the
+Black-Scholes value. The regression then targets the cashflow minus the
+realized European payoff, which is exactly 0 on every path that isn't
+exercised early, so the regression noise that made plain LSM exercise
+calls early (19-35% of paths, where the right answer is 0%) disappears.
+`train-hedge`/`test-hedge` enable it for calls only: for puts the plain
+exercise rule was worth more out of sample (6.078 vs 6.009, true price
+6.084). See `.claude/BUGS.md`, "LSM early-exercises American calls".
+
+Prices are for exactly `T=1`: the GBM simulator used to stop one step short
+of maturity (364 of 365 days), which every pricer built on it inherited.
+That was fixed, so the simulation now ends exactly at expiry.
 
 ### LSM delta/gamma accuracy near maturity
 
@@ -59,20 +76,18 @@ point for each path. Delta and gamma originally came for free as the
 fitted function's analytic derivatives, without a separate
 finite-difference pass.
 
-```
-python main.py test-hedge --policy delta
-```
-
 That last part turned out to be far less reliable near maturity than the
 price convergence above would suggest. A call's delta must be in `[0, 1]`;
-with the default degree-3 polynomial fit, delta lands outside that range
+with the default degree-3 polynomial fit, delta landed outside that range
 **up to 91.6% of the time** at the very last timestep before expiry
 (depending on random seed), with values reaching into the tens — or, at a
 higher regression degree, the thousands. This matters in practice:
 `HedgeEnv` feeds this delta straight into the hedging policy's state, and
 `AmericanHedging/baselines.py`'s `delta_hedge` baseline trades on it
 directly and unclamped — a negative "delta" near expiry could execute as an
-actual short position, the wrong trade direction.
+actual short position, the wrong trade direction. Switching to the Laguerre
+basis changes nothing at the same degree (see "Which regression basis?"
+below).
 
 **Why:** a call's value-vs-price curve develops an increasingly sharp
 corner at `S = K` as maturity approaches, converging on the kinked expiry
@@ -105,8 +120,35 @@ references (Black-Scholes for the call, a binomial tree for the put), on
 | Out of the money | 0.2-0.9 | 0.001-0.017 |
 | Largest \|delta\| | 13-48 | 1.8 |
 
+With the fixed delta, hedging at the LSM delta (`python main.py test-hedge
+--policy delta`) is as good as hedging at the exact delta: P&L std 0.014 vs
+0.015 for the call and 0.012 vs 0.013 for the put (×K), down from 0.060 and
+0.044 with the old delta.
+
 Full incident writeup (symptom, root cause, ruled-out fixes) is in
 `.claude/BUGS.md`.
+
+### Which regression basis?
+
+`--reg_type laguerre` uses the plain (unweighted) Laguerre polynomials
+`L_0..L_d` of `S/K`. Each `L_k` is a degree-`k` polynomial, so they span
+exactly the same functions as `1, x, ..., x^d`, and an unregularized
+least-squares fit gives the same fitted values in either basis. On 10,000
+paths and 2 seeds, at degree 3, the two bases give identical prices,
+identical exercise times on every path and deltas equal to 1e-9:
+
+| Degree | Put price, simple / Laguerre | Same exercise time | Max delta difference |
+|---|---|---|---|
+| 3 | 6.131 / 6.131, 6.068 / 6.068 | 100% | 1e-9 |
+| 6 | 6.147 / 6.150, 6.120 / 6.116 | 99.0-99.6% | 0.24-0.29 |
+| 10 | 6.180 / 6.169, 6.076 / 6.106 | 59-66% | 0.33-0.39 |
+
+At higher degrees they part ways only through floating-point conditioning
+(`x ≈ 1`, so high powers of `x` are nearly collinear), and neither is
+right: higher degrees are worse for both (see the Greeks section above).
+The basis is therefore a non-choice at the degree-3 default. `price`,
+`train-hedge` and `test-hedge` default to `simple`, and dataset generation
+and `test-ml` to `laguerre`; switching any of them changes nothing.
 
 ### MLP surrogate vs. Longstaff-Schwartz
 
@@ -145,11 +187,11 @@ the dynamic-range benefit. `beta_frac=0.06` (the width of the smoothed corner,
 as a fraction of `K`) was picked by sweeping several values against a fixed
 LSM benchmark — see the function's docstring for the sweep.
 
-**3. More paths per label (`--path_per_sim`, 5,000 → 10,000)** and **4. the
-Laguerre basis for the LSM "teacher" (`--reg_type`, default now `laguerre`
-instead of `simple`)** reduce label noise and use a basis better suited to the
-early-exercise boundary — both just make the ground truth the MLP is trained
-against a bit more trustworthy.
+**3. More paths per label (`--path_per_sim`, 5,000 → 10,000)** reduces
+label noise. The LSM "teacher" also switched to the Laguerre basis
+(`--reg_type`, default `laguerre`), but at degree 3 that produces the same
+labels as the simple basis (see "Which regression basis?" above), so it
+had no effect.
 
 Net effect, benchmarked live against a fresh LSM run (put) across a grid of
 `(S0, K, σ, r, T)`, with a fixed seed and 20,000 paths per benchmark point:
@@ -157,7 +199,18 @@ Net effect, benchmarked live against a fresh LSM run (put) across a grid of
 | | ITM (S < K) | ATM | OTM (S > K) |
 |---|---|---|---|
 | Before (hard-kink target, bucketed data) | 9.5% | ~3% | ~1.2% |
-| **Now** | **0.78%** | **3.29%** | **6.07%** ($0.31 avg abs) |
+| After (smooth target, continuous data) | 0.78% | 3.29% | 6.07% ($0.31 avg abs) |
+| **Now** (same model, benchmark on the fixed horizon) | **0.57%** | **3.82%** | **6.32%** ($0.34 avg abs) |
+
+**The dataset predates the horizon fix.** The MLP was trained on labels
+from the old simulator, which priced each option one time step short of
+its maturity (see the pricing section above). The labels are biased low by
+up to 0.0012·K (-3.4% ATM, more in relative terms deep OTM, shrinking with
+`T`), while the benchmark LSM now runs on the full horizon. The "Now" row
+is this checkpoint measured against the corrected benchmark, so part of
+its ATM/OTM error is that label bias. Regenerating the dataset is planned
+together with a mixed call/put dataset (`.claude/PLAN.md`). The moneyness
+breakdown below was measured against the old benchmark.
 
 ITM improved by an order of magnitude (mostly from fixing the data gap), ATM
 stayed about the same, and OTM got a bit worse — genuinely worse, not just a
@@ -318,11 +371,12 @@ trade on top:
 python -m pytest tests/
 ```
 
-351 tests pass: 282 unit tests (closed-form formulas, basis-function analytic
+398 tests pass: 320 unit tests (closed-form formulas, basis-function analytic
 derivatives checked against finite differences, dataset splitting, hedging
-environment reward arithmetic, the SAC training loop) and 69 integration
-tests (Monte-Carlo/LSM convergence to their closed-form/tree counterparts,
-CLI argument wiring, plus CLI smoke tests for every subcommand).
+environment reward arithmetic, the policy's action modes, the baselines, the
+SAC training loop) and 78 integration tests (Monte-Carlo/LSM convergence to
+their closed-form/tree counterparts, CLI argument wiring, seeded policy
+comparisons, plus CLI smoke tests for every subcommand).
 
 ## Setup
 
@@ -349,8 +403,8 @@ python main.py <command> --help        # list a command's flags
 | `price` | Compare pricing models (`--option_class {EU,US,both}`, `--option_type {call,put}`, plus strike/vol/rate/maturity/sampling flags). |
 | `train-ml` | Train the MLP surrogate pricer against a generated dataset. |
 | `test-ml` | Evaluate the trained MLP: regression metrics + ITM/ATM/OTM error vs. a fresh LSM benchmark. |
-| `train-hedge` | Train the SAC delta-hedging policy. |
-| `test-hedge` | Evaluate a trained policy: mean P&L, std P&L, 95% CVaR over simulated episodes. |
+| `train-hedge` | Train the SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
+| `test-hedge` | Evaluate a policy (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
 
 Dataset generation for the MLP is a separate entry point and must be run as a
 module (absolute imports require the project root on `sys.path`):
@@ -383,18 +437,32 @@ Module layout mirrors option class for pricing, and role for everything else:
   (path-average payoff).
 - **`AmericanOptionPricing/`** — `BinomialTree` (CRR tree with backward
   induction), `LongstaffSchwartz` (LSM with simple/Laguerre polynomial
-  regression bases; delta/gamma from a regression of pathwise deltas — see
-  Results above), `basis_functions.py` (the
+  regression bases, an optional European control variate, and delta/gamma
+  from a regression of pathwise deltas — see Results above),
+  `basis_functions.py` (the
   regression bases, unit-tested independently), `ML.py` (the `MLP` surrogate,
   4 inputs → 1 output: `(price - smooth_intrinsic_value) / K` — a smoothly
   decomposed residual, not raw price; see Results above for why), `evaluation.py`
   (regression/benchmark helpers used by `test-ml`).
-- **`AmericanHedging/`** — a SAC-style continuous-control setup: `HedgeEnv.py`
-  (wraps a fitted `LongstaffSchwartz` instance; state = spot/strike, time,
-  delta, gamma, position; episodes run to each path's optimal exercise time),
-  `RLPolicy.py` (Gaussian actor; by default its output is a correction to
-  the LSM delta rather than the hedge ratio itself), `Critic.py` (twin Q-networks), `Hedge.py`
-  (SAC training loop with target networks, warmup, and CVaR-based evaluation).
+- **`AmericanHedging/`** — a SAC-style continuous-control setup:
+  - `HedgeEnv.py`: wraps a fitted `LongstaffSchwartz` instance. State =
+    spot/strike, time, delta, gamma, position; episodes run to each path's
+    exercise time under LSM's exercise rule. Proportional and fixed trading
+    costs; a `terminal` reward (hedge P&L minus the payoff) or an
+    `accounting` one (minus the option's value change every step, used for
+    training); a batched `rollout_pnl` for fast validation.
+  - `option_value.py`: the option values the accounting reward needs
+    (Black-Scholes for calls, a binomial tree for puts).
+  - `RLPolicy.py`: the Gaussian actor. Its tanh-squashed output becomes a
+    hedge in one of three action modes: a correction to the LSM delta
+    (`residual`, the default), the fraction of the gap to delta closed
+    each step (`gap_fraction`), or a 2-D no-trade band (`band`).
+  - `Critic.py` (twin Q-networks) and `ReplayBuffer.py`.
+  - `Hedge.py`: the SAC training loop (target networks, warmup, learned
+    entropy coefficient, mean-variance reward shaping, checkpointing on
+    held-out validation paths) and `evaluate()` (mean, std, VaR and CVaR
+    of the P&L).
+  - `baselines.py`: delta hedge, no-trade band and no-hedge policies.
 - **`datasets/`** — `AmericanOptionDataset` (seeded, disjoint train/test split)
   and `generate_dataset.py` (parallel LSM dataset generation).
 - **`scripts/`** — one module per CLI subcommand, wired into `main.py`'s
