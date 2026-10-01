@@ -135,7 +135,7 @@ Full incident writeup (symptom, root cause, ruled-out fixes) is in
 exactly the same functions as `1, x, ..., x^d`, and an unregularized
 least-squares fit gives the same fitted values in either basis. On 10,000
 paths and 2 seeds, at degree 3, the two bases give identical prices,
-identical exercise times on every path and deltas equal to 1e-9:
+identical exercise times on every path and deltas equal up to 1e-9:
 
 | Degree | Put price, simple / Laguerre | Same exercise time | Max delta difference |
 |---|---|---|---|
