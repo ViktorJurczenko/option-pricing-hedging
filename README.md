@@ -272,24 +272,45 @@ give the range over 4 training seeds):
   training episodes. It learned to close part of the gap every day (a
   smoothed delta hedge) rather than the band's "sit still, then act", and
   it trades about twice as much.
-- **The likely reason is an objective mismatch:** SAC trains on a per-step
-  mean-variance reward but is judged on terminal CVaR. Tuning
-  `--risk_lambda`, or Deep Hedging (training directly on CVaR), are the
-  natural next steps. Details are in `.claude/BUGS.md`, "RL policy under
-  trading costs keeps trading every day".
+- **Giving the policy the band's form closes that gap** (next paragraph),
+  with the same SAC objective. So the action parametrization was the
+  limit, not the objective mismatch suspected at first (SAC trains on a
+  per-step mean-variance reward but is judged on terminal CVaR). Details
+  are in `.claude/BUGS.md`, "RL policy under trading costs keeps trading
+  every day".
 
-**Learned no-trade band** (`--action_mode band`, results pending). The
-policy outputs a 2-D action: a band half-width `b` up to `--band_max`
-(default 0.2), and how far into the band to rebalance once outside it, from
-the band's edge to delta. Inside the band it holds its position exactly, so
-holds pay neither cost. A constant action is the fixed band above, so RL
-starts from the baseline's form and can learn a band that varies with time
-to expiry, moneyness and gamma:
+**Learned no-trade band** (`--action_mode band`). The policy outputs a 2-D
+action: a band half-width `b` up to `--band_max` (default 0.2), and how far
+into the band to rebalance once outside it, from the band's edge to delta.
+Inside the band it holds its position exactly, so holds pay neither cost. A
+constant action is the fixed band above, so RL starts from the baseline's
+form and can learn a band that varies with time to expiry, moneyness and
+gamma:
 
 ```
-python main.py train-hedge --prop_tc 0.01 --fixed_tc 0.001 --action_mode band --val_metric cvar
-python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.001 --policy rl
+python main.py train-hedge --prop_tc 0.01 --fixed_tc 0.05 --action_mode band --val_metric cvar
+python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.05 --policy rl
 ```
+
+Same protocol (95% CVaR ×K, 2,000 test episodes, 4 training seeds of 1,000
+episodes), at a 1% proportional cost alone and with a $0.05 fixed cost per
+trade on top:
+
+| Policy | 1%: Call | 1%: Put | 1% + $0.05: Call | 1% + $0.05: Put |
+|---|---|---|---|---|
+| Daily delta | -0.198 | -0.208 | -0.380 | -0.390 |
+| RL, gap-fraction action | -0.143 to -0.147 | -0.135 to -0.144 | -0.324 to -0.329 | -0.325 to -0.332 |
+| Best fixed band | -0.136 (0.1, edge) | -0.130 (0.1, edge) | -0.148 (0.175, delta) | -0.146 (0.175, delta) |
+| **RL, learned band** | **-0.136 to -0.137** | **-0.123 to -0.128** | **-0.145 to -0.147** | **-0.132 to -0.138** |
+
+- **The learned band closes the gap to the hand-tuned band** in every
+  cell: it matches it for calls at 1% and beats it elsewhere, by up to
+  0.014 (puts with a fixed cost), on every seed. No band width or target
+  had to be tuned for it.
+- **A fixed cost breaks the gap-fraction action.** It can only hold still
+  in the limit, so its "holds" are tiny trades that each pay the fixed
+  cost; it ends up barely better than daily delta. The band action holds
+  exactly and is unaffected.
 
 ### Test suite
 

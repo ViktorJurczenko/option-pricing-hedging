@@ -6,7 +6,7 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
-## RL policy under trading costs keeps trading every day; a simple band beats it (open)
+## RL policy under trading costs keeps trading every day; a simple band beats it (fixed)
 
 **Symptom:** found in PLAN.md's "Hedge under trading costs". Training with
 a 1% proportional cost (`--prop_tc 0.01 --residual_scale 0.25
@@ -83,11 +83,39 @@ tracks delta ~4x more tightly than the band (0.016 vs 0.066) and trades
 trading cost, than CVaR does. `risk_lambda` sets that exchange rate, so a
 smaller value should move the policy toward the band's trade-off.
 
-**Status:** open, parked by the user's decision. RL with the gap-fraction
-action clearly beats daily delta under a 1% cost but stays 0.006-0.009
-CVaR behind the hand-tuned band. Untried levers: a `--risk_lambda` sweep
-(e.g. 0.1, 0.3) to test the mismatch hypothesis directly, and Deep
-Hedging, which trains on CVaR itself.
+**Fix: learned no-trade band** (`--action_mode band`, PLAN.md's "Learned
+no-trade band action mode"). A 2-D action sets a band half-width `b <=
+band_max` (0.2) and a rebalancing target between the band edge and delta;
+inside the band the position is held exactly. Same protocol (4 seeds, 1000
+episodes, `--val_metric cvar`, 2000 seed-999 test episodes), at the 1%
+proportional cost and with a $0.05 fixed cost per trade added (`--fixed_tc
+0.05`), where `gap_fraction`'s near-holds each pay the fixed cost. Best
+fixed band re-swept for that regime (0.05-0.3, both targets):
+
+| Policy | 1%: Call | 1%: Put | 1% + $0.05: Call | 1% + $0.05: Put |
+|---|---|---|---|---|
+| Daily delta | -0.198 | -0.208 | -0.380 | -0.390 |
+| RL gap fraction | -0.143 to -0.147 | -0.135 to -0.144 | -0.324 to -0.329 | -0.325 to -0.332 |
+| Best fixed band | -0.136 (0.1 edge) | -0.130 (0.1 edge) | -0.148 (0.175 delta) | -0.146 (0.175 delta) |
+| **RL learned band** | **-0.136 to -0.137** | **-0.123 to -0.128** | **-0.145 to -0.147** | **-0.132 to -0.138** |
+
+(The 1% gap-fraction row was re-evaluated from `checkpoints/tc01gap`; it
+matches the numbers above.) The learned band matches the hand-tuned band
+for calls at 1% and beats it in the other three cells on every seed,
+without a band width or target being tuned. With a fixed cost,
+`gap_fraction` is barely better than daily delta, confirming that a
+"hold" it can only approach in the limit is paid for every day.
+
+This also settles the hypotheses above: with the same SAC objective
+(`risk_lambda = 1`, accounting reward), only the action changed, so the
+gap to the band came from the parametrization (holding still was
+representable but not reachable by training), not from the
+mean-variance-vs-CVaR mismatch. Best checkpoints came at episodes 50-750
+for calls and 700-1000 for puts, so puts may still gain from longer
+training.
+
+**Status:** fixed by `--action_mode band`. Untried: a `--risk_lambda`
+sweep and longer runs for puts.
 
 ## "95% CVaR" in hedging evaluation is actually the 95% VaR (fixed)
 

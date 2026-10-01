@@ -17,10 +17,7 @@ baseline (the bar to beat under costs) as a constant action.
 - [x] Support vector actions in `train()` and `ReplayBuffer`
 - [x] Wire the CLI
 - [x] Tests and docs
-- [ ] Compare against `gap_fraction` and the best `delta_band`
-  Train band policies under high `--prop_tc` and non-zero `--fixed_tc`,
-  several seeds, `--val_metric cvar`, and evaluate all three on the same
-  test seed. Add the numbers to the README table.
+- [x] Compare against `gap_fraction` and the best `delta_band` (matches/beats the band at 1% and at 1% + $0.05 fixed - see BUGS.md)
 
 ## Hedge under trading costs (where delta hedging overtrades)
 
