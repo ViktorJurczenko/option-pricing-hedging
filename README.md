@@ -233,8 +233,8 @@ at the *LSM's* exercise time, so the liability being hedged is the put
 under LSM's slightly suboptimal exercise rule, which a learned hedge can
 adapt to and a model delta cannot. This is a hypothesis, not yet verified.
 Full numbers are in `.claude/BUGS.md`, "RL hedging policy trails the LSM
-delta hedge". Settings with fixed trading costs, where delta hedging
-overtrades, are next.
+delta hedge". With higher trading costs, where daily delta hedging
+overtrades, the picture changes: see the next section.
 
 ### Hedging under trading costs
 
@@ -284,9 +284,9 @@ give the range over 4 training seeds):
 python -m pytest tests/
 ```
 
-293 tests pass: 237 unit tests (closed-form formulas, basis-function analytic
+351 tests pass: 282 unit tests (closed-form formulas, basis-function analytic
 derivatives checked against finite differences, dataset splitting, hedging
-environment reward arithmetic, the SAC training loop) and 56 integration
+environment reward arithmetic, the SAC training loop) and 69 integration
 tests (Monte-Carlo/LSM convergence to their closed-form/tree counterparts,
 CLI argument wiring, plus CLI smoke tests for every subcommand).
 
