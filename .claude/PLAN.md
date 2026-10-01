@@ -5,6 +5,35 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Use the simple polynomial basis for the MLP's LSM
+
+Every LSM consumer should use the same basis. `price`, `train-hedge` and
+`test-hedge` default to `--reg_type simple`, but the MLP pipeline defaults
+to `laguerre`. At the degree-3 default the unweighted Laguerre basis spans
+the same polynomials, so prices, exercise times and deltas are identical (see
+README, "Which regression basis?"). The switch is for consistency only and
+changes no labels.
+
+- [ ] Switch the dataset generator to `simple`
+  Change `reg_type` from `laguerre` to `simple`, both in
+  `datasets/generate_dataset.py`'s function default and in its
+  `--reg_type` CLI default.
+- [ ] Switch `test-ml` to `simple`
+  Change `scripts/test_ml.py`'s `--reg_type` default to `simple`. It must
+  match the dataset's LSM settings (CLAUDE.md, "Working with this code").
+  The current dataset was labelled with Laguerre, but at degree 3 that's
+  equivalent, so the existing checkpoint stays valid.
+- [ ] Update docs and tests
+  Remove the "defaults to `laguerre`" mentions in CLAUDE.md and the
+  README's basis section and MLP section. Decide whether the two integration
+  tests that build LSM with `"laguerre"` (`test_lsm_exercise_vs_tree.py`,
+  `test_pricing_convergence.py`) should switch too. Keep `--reg_type
+  laguerre` available as an option.
+- [ ] Dispatch test-agent/review-agent
+- [ ] Fold into the dataset regeneration
+  Pending under the mixed call/put dataset plan below, so the regenerated
+  dataset is labelled with `simple` from the start.
+
 ## Bring the README up to date
 
 - [x] Rerun `price`, `test-ml` and pytest; refresh their numbers
