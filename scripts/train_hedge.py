@@ -34,10 +34,11 @@ def add_arguments(parser):
     parser.add_argument("--reward_mode", default="accounting", type=str, choices=["terminal", "accounting"], help="'accounting' subtracts the option's value change every step, so each step's reward is the local hedging error (what makes --risk_lambda a real mean-variance penalty); 'terminal' only subtracts the payoff at exercise.")
     parser.add_argument("--gamma", default=1.0, type=float, help="SAC discount factor. Episodes are finite and time is in the state, so no discounting is needed by default.")
     parser.add_argument("--reward_scale", default=100.0, type=float, help="Multiplier on the env reward before the risk penalty, so per-step rewards (~1e-2) aren't drowned out by the entropy term.")
-    parser.add_argument("--auto_alpha", default=True, action=argparse.BooleanOptionalAction, help="Learn the SAC entropy coefficient toward a target entropy of -1 (--alpha is then its initial value). --no-auto_alpha keeps alpha fixed.")
+    parser.add_argument("--auto_alpha", default=True, action=argparse.BooleanOptionalAction, help="Learn the SAC entropy coefficient toward a target entropy of -action_dim, i.e. -1, or -2 with --action_mode band (--alpha is then its initial value). --no-auto_alpha keeps alpha fixed.")
     parser.add_argument("--alpha_lr", default=None, type=float, help="Adam learning rate for the learned entropy coefficient (with --auto_alpha; ignored with --no-auto_alpha). Defaults to --lr.")
     parser.add_argument("--residual_scale", default=0.1, type=float, help="The policy learns a correction to the LSM delta: hedge = clip(delta + residual_scale * tanh(output), -1, 1). Saved in the checkpoint, so test-hedge picks it up. 0 makes the policy output the hedge ratio directly.")
-    parser.add_argument("--action_mode", default="residual", type=str, choices=["residual", "gap_fraction"], help="How the policy's output becomes a hedge. residual: delta + residual_scale * tanh(output). gap_fraction: position + w * (delta - position) with w in (0, 1), the fraction of the gap to delta closed each step - holding still is easy, which matters under trading costs. Saved in the checkpoint.")
+    parser.add_argument("--action_mode", default="residual", type=str, choices=["residual", "gap_fraction", "band"], help="How the policy's output becomes a hedge. residual: delta + residual_scale * tanh(output). gap_fraction: position + w * (delta - position) with w in (0, 1), the fraction of the gap to delta closed each step. band: a learned no-trade band - a 2-D action picks the band half-width (up to --band_max) and how far into the band to rebalance (edge to delta); inside the band the position is held exactly, so no fixed cost is paid. Saved in the checkpoint.")
+    parser.add_argument("--band_max", default=0.2, type=float, help="--action_mode band only (ignored in the other modes): the widest no-trade band half-width the policy can pick. Saved in the checkpoint.")
     parser.add_argument("--val_paths", default=1000, type=int, help="Number of held-out validation paths the checkpoint is selected on (P&L std or CVaR, see --val_metric; the untrained policy is a candidate too). 0 falls back to the best trailing 50-episode mean training reward.")
     parser.add_argument("--val_every", default=50, type=int, help="Episodes between validation scorings (the last episode is always scored).")
     parser.add_argument("--val_metric", default="std", type=str, choices=["std", "cvar"], help="Checkpoint criterion on the validation P&L: lowest std (hedging error) or highest 95%% CVaR.")
@@ -79,7 +80,10 @@ def run(args):
     simulation, lsm = _simulate_and_fit_lsm(args, args.seed)
 
     # State has shape [S_t/K, t/T, delta, gamma, current position]
-    policy_model = RLPolicy(5, 1, residual_scale=args.residual_scale, action_mode=args.action_mode)
+    # band mode's action is (band width, rebalancing target); the others are 1-D.
+    action_dim = 2 if args.action_mode == "band" else 1
+    policy_model = RLPolicy(5, action_dim, residual_scale=args.residual_scale, action_mode=args.action_mode,
+                            band_max=args.band_max)
 
     value_fn = None
     if args.reward_mode == "accounting":
@@ -90,8 +94,8 @@ def run(args):
     env = HedgingEnv(lsm, prop_tc=args.prop_tc, fixed_tc=args.fixed_tc, reward_mode=args.reward_mode, value_fn=value_fn)
 
     rb = ReplayBuffer(max_size=args.replay_buffer_size)
-    critic1 = Critic(5, 1)
-    critic2 = Critic(5, 1)
+    critic1 = Critic(5, action_dim)
+    critic2 = Critic(5, action_dim)
 
     train(
         policy_model, env, rb, critic1, critic2,

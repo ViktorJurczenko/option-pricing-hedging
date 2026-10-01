@@ -1018,7 +1018,7 @@ def test_replay_buffer_sample_keeps_action_dimension():
     assert vector.sample(3)[1].shape == (3, 2)
 
 
-@pytest.mark.parametrize("action_dim,mode,expected", [(1, "residual", -1.0)])
+@pytest.mark.parametrize("action_dim,mode,expected", [(1, "residual", -1.0), (2, "band", -2.0)])
 def test_train_target_entropy_defaults_to_minus_action_dim(monkeypatch, tmp_path, action_dim, mode, expected):
     """The alpha loss is -(log_alpha * (log_pi + target_entropy)).mean(); with
     log_pi forced to 0, its gradient wrt log_alpha is -target_entropy."""
@@ -1040,3 +1040,83 @@ def test_train_target_entropy_defaults_to_minus_action_dim(monkeypatch, tmp_path
           n_episodes=1, warmup_steps=0, update_every=1, batch_size=2, auto_alpha=True,
           checkpoint_path=str(tmp_path / "policy.pth"))
     assert grads and all(g == pytest.approx(-expected) for g in grads)
+
+
+# --- band mode: 2-D actions in train() ---------------------------------------
+
+@pytest.mark.parametrize("warmup_steps", [10 ** 6, 0], ids=["warmup_random", "policy_sampled"])
+def test_train_band_stores_2d_action_and_sends_band_hedge(tmp_path, warmup_steps):
+    torch.manual_seed(0)
+    np.random.seed(0)
+    env, buffer = PositionEnv(), ActionSpyBuffer(max_size=100)
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    train(policy, env, buffer, Critic(5, 2), Critic(5, 2),
+          n_episodes=1, warmup_steps=warmup_steps, batch_size=10 ** 6,
+          checkpoint_path=str(tmp_path / "policy.pth"))
+
+    assert len(env.step_actions) == len(buffer.pushed) == 3
+    for sent, (state, pushed_action) in zip(env.step_actions, buffer.pushed):
+        assert pushed_action.shape == (2,)
+        assert np.all((-1 < pushed_action) & (pushed_action < 1))
+        expected = policy.hedge_ratio(torch.tensor(state), torch.tensor(pushed_action, dtype=torch.float32)).item()
+        assert sent == pytest.approx(expected, abs=1e-6)
+
+
+def test_train_band_hold_resends_the_envs_position_exactly(tmp_path):
+    """In a closed loop the env's position is the hedge sent last step; a hold
+    must send it back unchanged, or HedgingEnv charges the fixed cost."""
+
+    class TrackingEnv:
+        DELTAS = [0.5, 0.52, 0.55, 0.9]  # rebalance, hold, hold
+
+        def __init__(self):
+            self.step_actions = []
+
+        def _state(self):
+            position = self.step_actions[-1] if self.step_actions else 0.0
+            return np.array([1.0, 0.0, self.DELTAS[len(self.step_actions)], 0.0, position])
+
+        def reset(self):
+            return self._state()
+
+        def step(self, action):
+            self.step_actions.append(action)
+            return self._state(), 0.0, len(self.step_actions) >= 3
+
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    with torch.no_grad():
+        policy.layer3.weight.zero_()
+        policy.layer3.bias[0] = 0.0     # b = 0.1
+        policy.layer3.bias[1] = 20.0    # rebalance to delta
+        policy.layer3.bias[2:] = -20.0  # tiny std: sampled ~ mean
+    env = TrackingEnv()
+    train(policy, env, ReplayBuffer(max_size=100), Critic(5, 2), Critic(5, 2),
+          n_episodes=1, warmup_steps=0, batch_size=10 ** 6,
+          checkpoint_path=str(tmp_path / "policy.pth"))
+    first, *holds = env.step_actions
+    assert first == pytest.approx(0.5, abs=1e-6)
+    assert holds == [first, first]  # exact, not approx
+
+
+def test_train_band_runs_gradient_updates_with_auto_alpha(tmp_path):
+    torch.manual_seed(0)
+    np.random.seed(0)
+    policy = RLPolicy(5, 2, action_mode="band")
+    before = policy.layer1.weight.detach().clone()
+    train(policy, PositionEnv(), ReplayBuffer(max_size=100), Critic(5, 2), Critic(5, 2),
+          n_episodes=3, warmup_steps=0, update_every=1, batch_size=2, auto_alpha=True,
+          checkpoint_path=str(tmp_path / "policy.pth"))
+    assert not torch.equal(before, policy.layer1.weight)
+    assert policy.action_mode == "band"
+
+
+def test_deterministic_hedge_band_hold_returns_position_exactly():
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    with torch.no_grad():
+        policy.layer3.weight.zero_()
+        policy.layer3.bias[0] = 10.0  # b ~ band_max
+    # Positions as the env holds them: earlier hedges sent by the policy.
+    positions = [float(np.float32(0.123456789)), float(np.float32(-0.087654321))]
+    states = np.array([[1.0, 0.1, p + 0.05, 0.2, p] for p in positions])
+    assert list(hedge_module.deterministic_hedge(policy, states)) == positions
+    assert list(hedge_module.deterministic_hedge(policy, states[0])) == positions[:1]

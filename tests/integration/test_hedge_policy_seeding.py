@@ -255,3 +255,57 @@ def test_delta_band_policy_builds_delta_band_from_band_flags(monkeypatch, band_t
 
     test_hedge_script.run(_make_args("delta_band", seed=1, band=0.5, band_target=band_target))
     assert seen["fn"](state) == 0.8
+
+
+def test_rl_policy_loads_band_checkpoint_and_holds_exactly(monkeypatch, tmp_path):
+    """test-hedge must size the network from the checkpoint (a band policy has
+    a 2-D action) and restore band mode from it."""
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    with torch.no_grad():
+        policy.layer3.weight.zero_()
+        policy.layer3.bias[0] = 0.0   # b = 0.1
+        policy.layer3.bias[1] = 20.0  # rebalance to delta
+    checkpoint_path = tmp_path / "policy.pth"
+    torch.save(policy.state_dict(), checkpoint_path)
+
+    seen = {}
+
+    def fake_evaluate(action_fn, env, n_episodes=1000):
+        seen["fn"] = action_fn
+        return (0.0, 0.0, 0.0)
+
+    monkeypatch.setattr(test_hedge_script, "evaluate", fake_evaluate)
+    args = _make_args("rl", seed=1)
+    args.checkpoint_path = str(checkpoint_path)
+    test_hedge_script.run(args)
+
+    position = float(np.float32(0.3456789))  # an earlier hedge, as the env holds it
+    held = np.array([1.0, 0.5, 0.3, 0.02, position])  # inside the band
+    assert seen["fn"](held) == position
+    assert seen["fn"](np.array([1.0, 0.5, 0.3, 0.02, 0.6])) == pytest.approx(0.3, abs=1e-6)
+
+
+def test_rl_policy_loads_legacy_1d_checkpoint_without_band_max(monkeypatch, tmp_path):
+    """A checkpoint saved before band mode existed has no band_max buffer:
+    test-hedge must still size it as 1-D and load it in its own mode."""
+    policy = RLPolicy(5, 1, action_mode="gap_fraction")
+    with torch.no_grad():
+        policy.layer3.weight.zero_()
+    legacy = {k: v for k, v in policy.state_dict().items() if k != "band_max"}
+    checkpoint_path = tmp_path / "policy.pth"
+    torch.save(legacy, checkpoint_path)
+
+    seen = {}
+
+    def fake_evaluate(action_fn, env, n_episodes=1000):
+        seen["fn"] = action_fn
+        return (0.0, 0.0, 0.0)
+
+    monkeypatch.setattr(test_hedge_script, "evaluate", fake_evaluate)
+    args = _make_args("rl", seed=1)
+    args.checkpoint_path = str(checkpoint_path)
+    test_hedge_script.run(args)
+
+    # gap_fraction init closes 90% of the gap to delta
+    state = np.array([1.0, 0.5, 0.8, 0.02, 0.0])
+    assert seen["fn"](state) == pytest.approx(0.9 * 0.8, abs=1e-6)

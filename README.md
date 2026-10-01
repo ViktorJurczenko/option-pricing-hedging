@@ -278,6 +278,19 @@ give the range over 4 training seeds):
   natural next steps. Details are in `.claude/BUGS.md`, "RL policy under
   trading costs keeps trading every day".
 
+**Learned no-trade band** (`--action_mode band`, results pending). The
+policy outputs a 2-D action: a band half-width `b` up to `--band_max`
+(default 0.2), and how far into the band to rebalance once outside it, from
+the band's edge to delta. Inside the band it holds its position exactly, so
+holds pay neither cost. A constant action is the fixed band above, so RL
+starts from the baseline's form and can learn a band that varies with time
+to expiry, moneyness and gamma:
+
+```
+python main.py train-hedge --prop_tc 0.01 --fixed_tc 0.001 --action_mode band --val_metric cvar
+python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.001 --policy rl
+```
+
 ### Test suite
 
 ```

@@ -5,6 +5,23 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Learned no-trade band action mode (`--action_mode band`)
+
+`gap_fraction` can only hold still in the limit `w -> 0` (tanh never reaches
+-1), so a sampled or even deterministic "hold" is a tiny trade that still
+pays `fixed_tc`. A learned, state-dependent no-trade band makes an exact hold
+the outcome for a whole region of states, and contains the `delta_band`
+baseline (the bar to beat under costs) as a constant action.
+
+- [x] Add `band` mode to `RLPolicy`
+- [x] Support vector actions in `train()` and `ReplayBuffer`
+- [x] Wire the CLI
+- [x] Tests and docs
+- [ ] Compare against `gap_fraction` and the best `delta_band`
+  Train band policies under high `--prop_tc` and non-zero `--fixed_tc`,
+  several seeds, `--val_metric cvar`, and evaluate all three on the same
+  test seed. Add the numbers to the README table.
+
 ## Hedge under trading costs (where delta hedging overtrades)
 
 With only a 0.1% proportional cost and an accurate LSM delta, daily delta

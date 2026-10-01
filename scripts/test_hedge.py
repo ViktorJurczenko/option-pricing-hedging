@@ -4,7 +4,7 @@ import torch
 from core.gbm import GBM
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
 from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.RLPolicy import RLPolicy
+from AmericanHedging.RLPolicy import RLPolicy, checkpoint_action_dim
 from AmericanHedging.Hedge import deterministic_hedge, evaluate
 from AmericanHedging.baselines import delta_band, delta_hedge, no_hedge
 
@@ -48,9 +48,12 @@ def run(args):
     env = HedgingEnv(lsm, prop_tc=args.prop_tc, fixed_tc=args.fixed_tc)
 
     if args.policy == "rl":
-        # residual_scale comes from the checkpoint, so it always matches training.
-        policy_model = RLPolicy(5, 1)
-        policy_model.load_state_dict(torch.load(args.checkpoint_path, map_location="cpu"))
+        # The action mode, residual_scale and band_max come from the checkpoint,
+        # so they always match training; only the network's action dimension
+        # has to be known before loading.
+        state_dict = torch.load(args.checkpoint_path, map_location="cpu")
+        policy_model = RLPolicy(5, checkpoint_action_dim(state_dict))
+        policy_model.load_state_dict(state_dict)
         def action_fn(state):
             # Same deterministic action train()'s validation checkpointing scores.
             return deterministic_hedge(policy_model, state).item()

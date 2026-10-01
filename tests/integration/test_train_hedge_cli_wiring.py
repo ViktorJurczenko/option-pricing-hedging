@@ -99,7 +99,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
                     reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
                     option_type="call", alpha_lr=None, residual_scale=0.1, action_mode="residual",
                     val_paths=0, val_every=50, val_metric="std", val_seed=None,
-                    fixed_tc=0.0, prop_tc=0.001):
+                    fixed_tc=0.0, prop_tc=0.001, band_max=0.2):
     # val_paths defaults to 0 (validation off) so the pre-existing tests keep
     # observing exactly one LSM/env (the training ones); the validation tests
     # below opt in explicitly.
@@ -117,6 +117,7 @@ def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
         max_degree=2,
         prop_tc=prop_tc,
         fixed_tc=fixed_tc,
+        band_max=band_max,
         risk_lambda=risk_lambda,
         reward_mode=reward_mode,
         gamma=gamma,
@@ -483,3 +484,37 @@ def test_run_passes_prop_tc_to_training_env(monkeypatch):
     assert len(envs) == 2  # validation env first, training env last
     assert [e.tc for e in envs] == [pytest.approx(0.0123)] * 2
     assert envs[-1].reward_mode == "accounting"  # the last one really is the training env
+
+
+# --- band action mode wiring -------------------------------------------------
+
+def test_add_arguments_accepts_band_action_mode_and_band_max_default_0_2():
+    args = _make_parser().parse_args([])
+    assert args.band_max == pytest.approx(0.2)
+    args = _make_parser().parse_args(["--action_mode", "band", "--band_max", "0.35"])
+    assert args.action_mode == "band" and args.band_max == pytest.approx(0.35)
+
+
+def test_run_band_mode_builds_2d_policy_and_critics_with_band_max(monkeypatch):
+    captured = {}
+
+    def fake_train(policy, env, rb, critic1, critic2, **k):
+        captured.update(policy=policy, critic1=critic1, critic2=critic2)
+
+    monkeypatch.setattr(train_hedge_script, "train", fake_train)
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, action_mode="band", band_max=0.35))
+
+    policy = captured["policy"]
+    assert policy.action_mode == "band" and policy.action_dim == 2
+    assert policy.band_max.item() == pytest.approx(0.35)
+    for critic in (captured["critic1"], captured["critic2"]):
+        assert critic.net[0].in_features == 5 + 2
+
+
+def test_run_non_band_mode_keeps_1d_critics_and_ignores_band_max(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(train_hedge_script, "train",
+                        lambda policy, env, rb, c1, c2, **k: captured.update(policy=policy, critic=c1))
+    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, action_mode="gap_fraction", band_max=0.35))
+    assert captured["policy"].action_dim == 1 and captured["policy"].band_max.item() == 0.0
+    assert captured["critic"].net[0].in_features == 5 + 1

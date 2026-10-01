@@ -5,7 +5,11 @@ import pytest
 import torch
 
 from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.RLPolicy import _DELTA_IDX, _INITIAL_GAP_FRACTION, _POSITION_IDX, RLPolicy
+from AmericanHedging.RLPolicy import (
+    _DELTA_IDX, _INITIAL_BAND_FRACTION, _INITIAL_BAND_TARGET, _INITIAL_GAP_FRACTION, _POSITION_IDX,
+    RLPolicy, checkpoint_action_dim,
+)
+from AmericanHedging.baselines import delta_band
 from AmericanOptionPricing import LongstaffSchwartz
 from core.gbm import GBM
 
@@ -289,3 +293,164 @@ def test_load_does_not_mutate_callers_dict_when_gap_fraction_key_missing():
     keys_before = set(legacy)
     RLPolicy(5, 1).load_state_dict(legacy)
     assert set(legacy) == keys_before
+
+
+# --- band action mode ---------------------------------------------------------
+
+def _band_state(delta, position):
+    return torch.tensor([1.1, 0.4, delta, 0.7, position])
+
+
+def _band_action(b_frac, lam):
+    """Squashed action giving band half-width b_frac * band_max and target lam."""
+    return torch.tensor([2 * b_frac - 1, 2 * lam - 1])
+
+
+@pytest.mark.parametrize("action_dim", [1, 3])
+def test_band_mode_requires_two_action_dims(action_dim):
+    with pytest.raises(ValueError, match="action_dim"):
+        RLPolicy(5, action_dim, action_mode="band")
+
+
+@pytest.mark.parametrize("bad", [0.0, -0.1, float("nan"), float("inf")])
+def test_band_mode_rejects_invalid_band_max(bad):
+    with pytest.raises(ValueError, match="band_max"):
+        RLPolicy(5, 2, action_mode="band", band_max=bad)
+
+
+def test_invalid_band_max_ignored_outside_band_mode():
+    assert RLPolicy(5, 1, band_max=0.0).band_max.item() == 0.0
+
+
+def test_band_max_is_buffer_zero_outside_band_mode():
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.3)
+    assert policy.state_dict()["band_max"].item() == pytest.approx(0.3)
+    assert "band_max" not in dict(policy.named_parameters())
+    assert RLPolicy(5, 1, band_max=0.3).band_max.item() == 0.0
+    assert RLPolicy(5, 1, action_mode="gap_fraction", band_max=0.3).band_max.item() == 0.0
+
+
+@pytest.mark.parametrize("mode,action_dim", [("residual", 1), ("gap_fraction", 1), ("band", 2)])
+def test_action_mode_property_reflects_constructor(mode, action_dim):
+    assert RLPolicy(5, action_dim, action_mode=mode).action_mode == mode
+
+
+@pytest.mark.parametrize("position", [0.29, 0.25, 0.15 + 1e-6, 0.123456789])
+def test_band_hold_returns_position_exactly_inside_band(position):
+    # delta 0.2, b = 0.5 * 0.2 = 0.1: any position within 0.1 of delta is held.
+    # Exactly, not approximately: HedgingEnv charges the fixed cost on any
+    # trade above _TRADE_EPS.
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    state = _band_state(0.2, position)
+    out = policy.hedge_ratio(state, _band_action(0.5, 0.3))
+    assert out.shape == (1,)
+    assert torch.equal(out, state[_POSITION_IDX:_POSITION_IDX + 1])
+
+
+@pytest.mark.parametrize("lam,expected", [
+    (0.0, 0.2 + 0.1),   # edge: back to delta + b on the side the position drifted to
+    (1.0, 0.2),         # all the way to delta
+    (0.5, 0.2 + 0.05),  # halfway into the band
+])
+def test_band_rebalances_between_edge_and_delta_above(lam, expected):
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    out = policy.hedge_ratio(_band_state(0.2, 0.6), _band_action(0.5, lam))
+    assert out.item() == pytest.approx(expected, abs=1e-6)
+
+
+def test_band_rebalances_to_lower_edge_when_position_below_delta():
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    out = policy.hedge_ratio(_band_state(0.2, -0.5), _band_action(0.5, 0.0))
+    assert out.item() == pytest.approx(0.1, abs=1e-6)
+
+
+def test_band_rebalanced_hedge_clamped_to_unit_interval():
+    # Out-of-range deltas cannot come from the LSM for a plain hedge, but the
+    # hedge must never leave [-1, 1].
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    assert policy.hedge_ratio(_band_state(1.05, 0.5), _band_action(0.1, 1.0)).item() == 1.0
+
+
+def test_band_batched_uses_each_rows_own_state_and_action():
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    states = torch.stack([_band_state(0.2, 0.25), _band_state(0.2, 0.6), _band_state(-0.3, -0.9)])
+    actions = torch.stack([_band_action(0.5, 0.0), _band_action(0.5, 1.0), _band_action(1.0, 0.0)])
+    out = policy.hedge_ratio(states, actions)
+    assert out.shape == (3, 1)
+    torch.testing.assert_close(out, torch.tensor([[0.25], [0.2], [-0.5]]))
+
+
+@pytest.mark.parametrize("target,lam", [("edge", 0.0), ("delta", 1.0)])
+def test_band_constant_action_matches_delta_band_baseline(target, lam):
+    """A constant action is the fixed-band baseline: same hedges, holds
+    included, on random states."""
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    action = _band_action(0.35, lam)
+    b = (policy.band_max * (action[0] + 1) / 2).item()  # the exact width hedge_ratio uses
+    baseline = delta_band(b, target)
+    rng = np.random.default_rng(0)
+    for _ in range(200):
+        state = torch.tensor([1.0, 0.5, rng.uniform(-1, 1), 0.1, rng.uniform(-1, 1)])
+        expected = float(np.clip(baseline(state.double().numpy()), -1, 1))
+        out = policy.hedge_ratio(state, action).item()
+        assert out == pytest.approx(expected, abs=1e-6)
+
+
+def test_band_init_bias_gives_initial_width_and_target_with_zero_weights():
+    policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
+    assert (_INITIAL_BAND_FRACTION, _INITIAL_BAND_TARGET) == (0.1, 0.9)
+    with torch.no_grad():
+        policy.layer3.weight.zero_()
+    squashed = torch.tanh(policy(torch.zeros(5)).mean)
+    torch.testing.assert_close(squashed, torch.tensor([-0.8, 0.8]))
+
+
+def test_band_init_only_touches_mean_half_of_bias():
+    torch.manual_seed(0)
+    default = RLPolicy(5, 2)
+    torch.manual_seed(0)
+    band = RLPolicy(5, 2, action_mode="band")
+    torch.testing.assert_close(band.layer3.bias[2:], default.layer3.bias[2:])  # log_std half
+    torch.testing.assert_close(band.layer3.weight, default.layer3.weight)
+
+
+def test_band_checkpoint_round_trip_restores_mode_and_band_max():
+    """What test-hedge does: size the network from the checkpoint, build it
+    with default settings, load."""
+    torch.manual_seed(0)
+    source = RLPolicy(5, 2, action_mode="band", band_max=0.3)
+    state_dict = source.state_dict()
+    assert checkpoint_action_dim(state_dict) == 2
+    target = RLPolicy(5, checkpoint_action_dim(state_dict))
+    target.load_state_dict(state_dict)
+    assert target.action_mode == "band"
+    assert target.band_max.item() == pytest.approx(0.3)
+    state = _band_state(0.2, 0.25)
+    torch.testing.assert_close(target(state.float()).mean, source(state.float()).mean)
+    action = _band_action(0.5, 0.0)
+    assert torch.equal(target.hedge_ratio(state, action), source.hedge_ratio(state, action))
+
+
+def test_checkpoint_action_dim_of_one_dimensional_policies():
+    assert checkpoint_action_dim(RLPolicy(5, 1).state_dict()) == 1
+    assert checkpoint_action_dim(RLPolicy(5, 1, action_mode="gap_fraction").state_dict()) == 1
+
+
+@pytest.mark.parametrize("mode", ["residual", "gap_fraction"])
+def test_load_pre_band_checkpoint_keeps_its_mode_strict(mode):
+    legacy = {k: v for k, v in RLPolicy(5, 1, residual_scale=0.2, action_mode=mode).state_dict().items()
+              if k != "band_max"}
+    target = RLPolicy(5, 1)
+    target.load_state_dict(legacy)  # strict; must not raise
+    assert target.band_max.item() == 0.0
+    assert target.action_mode == mode
+
+
+def test_action_mode_follows_a_loaded_checkpoint():
+    """The mode is cached for speed, so a load that changes it must refresh it."""
+    policy = RLPolicy(5, 2)
+    assert policy.action_mode == "residual"
+    policy.load_state_dict(RLPolicy(5, 2, action_mode="band").state_dict())
+    assert policy.action_mode == "band"
+    policy.load_state_dict(RLPolicy(5, 2, action_mode="gap_fraction").state_dict())
+    assert policy.action_mode == "gap_fraction"

@@ -58,6 +58,29 @@ def test_train_hedge_command_accepts_lr_and_alpha_flags():
     checkpoint = ROOT / "checkpoints" / "_smoke_test_policy_lr_alpha.pth"
     checkpoint.unlink(missing_ok=True)
 
+def test_train_and_test_hedge_band_action_mode_round_trip():
+    # A band policy has a 2-D action: train-hedge must build matching critics,
+    # and test-hedge must size the network from the checkpoint to load it.
+    checkpoint = ROOT / "checkpoints" / "_smoke_test_policy_band.pth"
+    try:
+        result = run_cli(
+            "train-hedge",
+            "--n_episodes", "2", "--nb_predictions", "200", "--sampling", "20",
+            "--warmup_steps", "0", "--update_every", "1", "--val_paths", "50",
+            "--action_mode", "band", "--band_max", "0.2", "--fixed_tc", "0.01",
+            "--checkpoint_path", str(checkpoint.relative_to(ROOT)),
+        )
+        assert result.returncode == 0, result.stderr
+        result = run_cli(
+            "test-hedge",
+            "--n_episodes", "5", "--nb_predictions", "200", "--sampling", "20", "--fixed_tc", "0.01",
+            "--checkpoint_path", str(checkpoint.relative_to(ROOT)),
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Mean P&L" in result.stdout
+    finally:
+        checkpoint.unlink(missing_ok=True)
+
 @pytest.mark.skipif(
     not (ROOT / "checkpoints" / "best_model.pth").exists(),
     reason="no trained MLP checkpoint to test against",
