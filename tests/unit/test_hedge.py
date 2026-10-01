@@ -700,7 +700,7 @@ class ActionSpyBuffer(ReplayBuffer):
         self.pushed = []  # (state, action)
 
     def push(self, state, action, reward, next_state, done):
-        self.pushed.append((state.copy(), action))
+        self.pushed.append((state.copy(), np.array(action, copy=True)))
         super().push(state, action, reward, next_state, done)
 
 
@@ -728,6 +728,8 @@ def test_train_sends_residual_hedge_to_env_but_stores_squashed_action(tmp_path, 
 
     assert len(env.step_actions) == len(buffer.pushed) == 3
     for sent, (state, pushed_action) in zip(env.step_actions, buffer.pushed):
+        assert pushed_action.shape == (1,)  # one action vector per step
+        pushed_action = pushed_action.item()
         assert -1.0 < pushed_action < 1.0
         expected = float(np.clip(state[2] + c * pushed_action, -1.0, 1.0))
         assert sent == pytest.approx(expected, abs=1e-6)
@@ -780,6 +782,8 @@ def test_train_gap_fraction_sends_interpolated_hedge_but_stores_squashed_action(
 
     assert len(env.step_actions) == len(buffer.pushed) == 3
     for sent, (state, pushed_action) in zip(env.step_actions, buffer.pushed):
+        assert pushed_action.shape == (1,)  # one action vector per step
+        pushed_action = pushed_action.item()
         assert -1.0 < pushed_action < 1.0
         w = (pushed_action + 1) / 2
         expected = float(np.clip(state[4] + w * (state[2] - state[4]), -1.0, 1.0))
@@ -1001,3 +1005,38 @@ def test_train_with_val_env_does_not_use_trailing_mean_criterion(tmp_path):
     pnls = [[1.0, -1.0], [9.0, -9.0]]
     val_env, path = _train_with_val(tmp_path, pnls, n_episodes=60, val_every=100, update=False)
     _assert_ckpt_equals(path, val_env.snapshots[0])
+
+
+# --- vector actions: ReplayBuffer and target_entropy ------------------------
+
+def test_replay_buffer_sample_keeps_action_dimension():
+    scalar, vector = ReplayBuffer(max_size=10), ReplayBuffer(max_size=10)
+    for i in range(4):
+        scalar.push(np.zeros(5), 0.1 * i, 0.0, np.zeros(5), False)
+        vector.push(np.zeros(5), np.array([0.1 * i, -0.1 * i]), 0.0, np.zeros(5), False)
+    assert scalar.sample(3)[1].shape == (3, 1)
+    assert vector.sample(3)[1].shape == (3, 2)
+
+
+@pytest.mark.parametrize("action_dim,mode,expected", [(1, "residual", -1.0)])
+def test_train_target_entropy_defaults_to_minus_action_dim(monkeypatch, tmp_path, action_dim, mode, expected):
+    """The alpha loss is -(log_alpha * (log_pi + target_entropy)).mean(); with
+    log_pi forced to 0, its gradient wrt log_alpha is -target_entropy."""
+    grads = []
+    real_step = torch.optim.Adam.step
+
+    def spy_step(self, *a, **k):
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.dim() == 0 and p.grad is not None:  # log_alpha is the only scalar parameter
+                    grads.append(p.grad.item())
+        return real_step(self, *a, **k)
+
+    monkeypatch.setattr(torch.optim.Adam, "step", spy_step)
+    monkeypatch.setattr(hedge_module, "_squash",
+                        lambda dist: (torch.tanh(dist.mean), torch.zeros(dist.mean.shape[:-1] + (1,))))
+    train(RLPolicy(5, action_dim, action_mode=mode), PositionEnv(), ReplayBuffer(max_size=100),
+          Critic(5, action_dim), Critic(5, action_dim),
+          n_episodes=1, warmup_steps=0, update_every=1, batch_size=2, auto_alpha=True,
+          checkpoint_path=str(tmp_path / "policy.pth"))
+    assert grads and all(g == pytest.approx(-expected) for g in grads)

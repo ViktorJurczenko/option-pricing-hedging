@@ -40,6 +40,7 @@ class RLPolicy(nn.Module):
             raise ValueError(f"residual_scale must be finite and >= 0, got {residual_scale}")
         if action_mode not in _ACTION_MODES:
             raise ValueError(f"action_mode must be one of {_ACTION_MODES}, got {action_mode!r}")
+        self.action_dim = action_dim
         self.layer1 = nn.Linear(state_dim, 64)
         self.layer2 = nn.Linear(64, 64)
         self.layer3 = nn.Linear(64, action_dim * 2) # Output mean and std for each action

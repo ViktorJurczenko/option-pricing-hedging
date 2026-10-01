@@ -59,7 +59,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
           gamma=0.99, tau=0.01, alpha=0.2, lr=1e-4,
           n_episodes=1000, update_every=10, warmup_steps=1000, batch_size=256,
           grad_steps_per_update=1, risk_lambda=0.0, reward_scale=1.0,
-          auto_alpha=False, target_entropy=-1.0, alpha_lr=None,
+          auto_alpha=False, target_entropy=None, alpha_lr=None,
           val_env=None, val_paths=1000, val_every=50, val_metric="std",
           checkpoint_path="checkpoints/best_policy_model.pth"):
     """
@@ -82,7 +82,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
     auto_alpha: learn the entropy coefficient (standard SAC automatic entropy
         tuning) instead of keeping it fixed; `alpha` is then only its initial
         value, and it's adjusted to keep the policy's entropy near
-        `target_entropy` (conventionally -action_dim).
+        `target_entropy`; None (default) uses the conventional -action_dim.
     alpha_lr: Adam learning rate for log_alpha when auto_alpha is set; None
         (default) reuses `lr`. Only log_alpha's own step size - independent
         of the actor/critic rate, since it controls how fast exploration
@@ -106,6 +106,10 @@ def train(policy, env, replay_buffer, critic1, critic2,
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")
+
+    action_dim = policy.action_dim
+    if target_entropy is None:
+        target_entropy = -float(action_dim)
 
     policy  = policy.to(device)
     critic1 = critic1.to(device)
@@ -167,16 +171,16 @@ def train(policy, env, replay_buffer, critic1, critic2,
             state_t = torch.tensor(state, dtype=torch.float32, device=device)
             # Random actions during warmup collect diverse experience before the policy starts driving exploration.
             if total_steps <= warmup_steps:
-                action = np.random.uniform(-1, 1)
+                action = np.random.uniform(-1, 1, size=action_dim)
             else:
                 with torch.no_grad():
                     # Not routed through _squash: no gradient is taken here (no_grad,
-                    # single scalar action for the env), so .sample() over .rsample()
+                    # single action for the env), so .sample() over .rsample()
                     # and skipping the unused log-prob term are both fine.
-                    action = torch.tanh(policy(state_t).sample()).item()
+                    action = torch.tanh(policy(state_t).sample()).cpu().numpy()
             with torch.no_grad():
                 hedge = policy.hedge_ratio(
-                    state_t, torch.tensor([action], dtype=torch.float32, device=device)
+                    state_t, torch.as_tensor(action, dtype=torch.float32, device=device)
                 ).item()
 
             next_state, reward, done = env.step(hedge)

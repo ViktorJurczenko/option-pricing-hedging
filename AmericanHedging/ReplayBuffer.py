@@ -18,9 +18,11 @@ class ReplayBuffer:
     def sample(self, batch_size: int):
         batch = random.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
+        # Actions are pushed as scalars or (action_dim,) vectors; either way
+        # each sampled row is one action vector.
         return (
             torch.tensor(np.array(states),      dtype=torch.float32),
-            torch.tensor(np.array(actions),     dtype=torch.float32).unsqueeze(-1),
+            torch.tensor(np.array(actions),     dtype=torch.float32).reshape(batch_size, -1),
             torch.tensor(np.array(rewards),     dtype=torch.float32).unsqueeze(-1),
             torch.tensor(np.array(next_states), dtype=torch.float32),
             torch.tensor(np.array(dones),       dtype=torch.float32).unsqueeze(-1),
