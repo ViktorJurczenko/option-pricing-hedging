@@ -50,6 +50,7 @@ class HedgingEnv:
         self.t          = 0
         self.position   = 0.0
         self.T_exercise = self.lsm.exercise_time[self.path_idx]
+        self.done       = False
         return self._get_state()
 
     def _get_state(self):
@@ -94,10 +95,13 @@ class HedgingEnv:
         np.random.
         """
         path_idxs  = np.asarray(path_idxs)
+        if path_idxs.size == 0:
+            return np.zeros(0)
         sim        = self.lsm.simulation
         T_exercise = self.lsm.exercise_time[path_idxs]
         position   = np.zeros(len(path_idxs))
-        pnl        = np.zeros(len(path_idxs))
+        # Exercised at row 0: the payoff at S0, no hedging step (see step()).
+        pnl        = -np.where(T_exercise == 0, self._payoff(sim[0, path_idxs]), 0.0)
 
         for t in range(int(T_exercise.max())):
             active = t < T_exercise
@@ -117,6 +121,12 @@ class HedgingEnv:
         return pnl / self.lsm.strike
 
     def step(self, action: float):
+        if self.done:
+            raise RuntimeError("step() called after the episode ended; call reset() first")
+        if self.T_exercise == 0:
+            self.done = True
+            return self._exercise_at_start()
+
         action = np.clip(action, -1, 1) # enforce valid hedge ratio
 
         i    = self.path_idx
@@ -131,6 +141,7 @@ class HedgingEnv:
         self.position = action
         self.t       += 1
         done          = self.t >= self.T_exercise
+        self.done     = done
 
         if done:
             option_payoff = self._payoff(S_t1)
@@ -148,3 +159,17 @@ class HedgingEnv:
             reward = (hedge_pnl - cost) / self.lsm.strike
 
         return self._get_state(), reward, done
+
+    def _exercise_at_start(self):
+        """Zero-length episode for a path exercised at row 0: the option pays
+        out at S0 before any hedge is held, so the action is ignored, nothing
+        is traded or charged, and the reward is minus the payoff (in
+        "accounting" mode, minus the payoff's excess over V_0, so the episode
+        sum still equals the terminal-mode sum plus V_0/K)."""
+        i             = self.path_idx
+        option_payoff = self._payoff(self.lsm.simulation[0, i])
+        if self.reward_mode == "accounting":
+            reward = -(option_payoff - self.option_values[0, i]) / self.lsm.strike
+        else:
+            reward = -option_payoff / self.lsm.strike
+        return self._get_state(), reward, True
