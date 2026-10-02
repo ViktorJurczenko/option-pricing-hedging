@@ -5,34 +5,53 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
-## Use the simple polynomial basis for the MLP's LSM
+## ML surrogate: simple basis, calls and puts, regenerated dataset
 
-Every LSM consumer should use the same basis. `price`, `train-hedge` and
-`test-hedge` default to `--reg_type simple`, but the MLP pipeline defaults
-to `laguerre`. At the degree-3 default the unweighted Laguerre basis spans
-the same polynomials, so prices, exercise times and deltas are identical (see
-README, "Which regression basis?"). The switch is for consistency only and
-changes no labels.
+All pending MLP work in one entry, ending with a single dataset
+regeneration. It collects the former "Use the simple polynomial basis for
+the MLP's LSM" and "Price calls and puts with one ML surrogate" entries, and
+the deferred dataset regeneration from "Fix LSM exercise decisions and
+Greeks". The current dataset predates the horizon fix: its labels are
+biased low by up to 0.0012·K. The code changes come first; the existing
+checkpoint stops loading once the MLP takes a 5th input, so `test-ml` stays
+broken until the retrain at the end.
 
-- [ ] Switch the dataset generator to `simple`
-  Change `reg_type` from `laguerre` to `simple`, both in
-  `datasets/generate_dataset.py`'s function default and in its
-  `--reg_type` CLI default.
-- [ ] Switch `test-ml` to `simple`
-  Change `scripts/test_ml.py`'s `--reg_type` default to `simple`. It must
-  match the dataset's LSM settings (CLAUDE.md, "Working with this code").
-  The current dataset was labelled with Laguerre, but at degree 3 that's
-  equivalent, so the existing checkpoint stays valid.
-- [ ] Update docs and tests
-  Remove the "defaults to `laguerre`" mentions in CLAUDE.md and the
-  README's basis section and MLP section. Decide whether the two integration
-  tests that build LSM with `"laguerre"` (`test_lsm_exercise_vs_tree.py`,
-  `test_pricing_convergence.py`) should switch too. Keep `--reg_type
-  laguerre` available as an option.
+- [ ] Switch the MLP's LSM to the simple basis
+  `price`, `train-hedge` and `test-hedge` default to `--reg_type simple`,
+  but `datasets/generate_dataset.py` (function and CLI defaults) and
+  `scripts/test_ml.py` default to `laguerre`. Switch them to `simple` so
+  every model uses the same basis. At degree 3 the unweighted Laguerre basis
+  spans the same polynomials, so this changes no labels (README, "Which
+  regression basis?"). Keep `--reg_type laguerre` available. Decide whether
+  the two integration tests that build LSM with `"laguerre"`
+  (`test_lsm_exercise_vs_tree.py`, `test_pricing_convergence.py`) switch too.
+- [ ] Add the option type as an input feature
+  The MLP has 4 inputs (`S0/K`, T, r, sigma) and is trained on puts only,
+  so a call query silently returns a put price. Add a 5th input `is_call`
+  in {0, 1} (two classes, so one binary input is equivalent to a one-hot).
+  Thread it through `MLP`, `AmericanOptionDataset`, the normalization
+  stats, `smooth_intrinsic_value` (now per-row type), `evaluation.py` and
+  `test-ml`, keeping training normalization and reconstruction consistent
+  (see CLAUDE.md).
+- [ ] Mixed call/put generation in `generate_dataset.py`
+  Price both types for each parameter combination on the same simulated
+  paths (one GBM run, two labels). Label calls with the control-variate LSM,
+  which is exact for an American call without dividends, and puts with
+  plain LSM, both with the simple basis.
+- [ ] Report errors per option type in `test-ml`
+  ITM/ATM/OTM errors split by call and put.
 - [ ] Dispatch test-agent/review-agent
-- [ ] Fold into the dataset regeneration
-  Pending under the mixed call/put dataset plan below, so the regenerated
-  dataset is labelled with `simple` from the start.
+- [ ] Generate the new dataset
+  Run `python -m datasets.generate_dataset` with the mixed generation and
+  the simple basis. It carries the horizon fix, replacing the stale
+  `data/american_option_dataset.npz` and `data/features_norm.npz`
+  (~40 min at the defaults for puts alone; roughly double with calls).
+- [ ] Retrain and compare
+  The mixed model must not regress on puts versus a put-only model trained
+  on the same regenerated puts, and must match BS on calls.
+- [ ] Update README/CLAUDE.md
+  New MLP numbers, the 5-input model, the basis defaults, and drop the
+  README's note that the dataset predates the horizon fix.
 
 ## Bring the README up to date
 
@@ -211,33 +230,6 @@ genuine American option. No order is set yet relative to the other entries.
 - [ ] Dispatch test-agent/review-agent
 - [ ] Update README/CLAUDE.md
 
-## Price calls and puts with one ML surrogate
-
-The MLP has 4 inputs (`S0/K`, T, r, sigma) and is trained on a
-single-option-type dataset (puts by default). A call query to a put model
-silently returns a put price. Scheduled after the remaining hedging-fix
-steps (retrain on the fixed LSM, residual-on-delta policy, validation-set
-checkpointing) and before Deep Hedging.
-
-- [ ] Add the option type as an input feature
-  A 5th input `is_call` in {0, 1} (two classes, so one binary input is
-  equivalent to a one-hot). Thread it through `MLP`,
-  `AmericanOptionDataset`, the normalization stats, `smooth_intrinsic_value`
-  (now per-row type), `evaluation.py` and `test-ml`, keeping training
-  normalization and reconstruction consistent (see CLAUDE.md).
-- [ ] Generate a mixed call/put dataset
-  Price both types for each parameter combination on the same simulated
-  paths (one GBM run, two labels). Label calls with the control-variate LSM,
-  which is exact for an American call without dividends, and puts with
-  plain LSM. This regeneration also carries the horizon fix, so the
-  put-only dataset doesn't need regenerating separately.
-- [ ] Retrain and compare
-  The mixed model must not regress on puts versus a put-only model trained
-  on the same regenerated puts, and must match BS on calls. Report ITM/ATM/OTM
-  errors per option type in `test-ml`.
-- [ ] Dispatch test-agent/review-agent
-- [ ] Update README/CLAUDE.md
-
 ## Fix LSM exercise decisions and Greeks
 
 Diagnosis in BUGS.md ("LSM early-exercises American calls and mis-estimates
@@ -254,9 +246,6 @@ back each step.
 - [x] Reference-based tests
 - [x] Dispatch test-agent/review-agent (APPROVE on each step, 196/196 passing)
 - [x] Retrain the hedging policies (LSM delta now matches exact delta; RL trails it - see BUGS.md)
-- [ ] Regenerate the ML dataset (deferred)
-  The old labels carry the horizon bias (up to -0.0012·K). Deferred by the
-  user, likely to be folded into the mixed call/put dataset entry above.
 
 ## Fix the hedging objective so SAC has a reason to hedge
 
