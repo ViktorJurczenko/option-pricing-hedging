@@ -6,6 +6,33 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## HedgingEnv mishandles options exercised at row 0 (open)
+
+**Symptom:** found by the whole-suite test review. For a deep in-the-money
+put (S0=50, K=100), LSM sets `exercise_time = 0` on every path, and
+`HedgingEnv`'s two P&L paths disagree on it:
+- `rollout_pnl` returns P&L 0.0 for those paths: its loop only touches
+  paths with `t < T_exercise`, which is never true for `T_exercise = 0`, so
+  the payoff is never charged.
+- `step()` still takes one step: `reset(0)` then `step(0.0)` gave reward
+  -0.437 with `done=True`, i.e. one hedging step plus the payoff at row 1.
+
+**Root cause:** both assume an episode has at least one step. `step()`
+checks `done` only after advancing `t`, and `rollout_pnl` charges the payoff
+inside the stepping loop. An option exercised at row 0 should cost its
+payoff at S0 with no hedging step, so both are wrong, differently.
+
+**Impact:** none on the published results. At the default S0=K=100 the
+intrinsic value at row 0 is 0, so LSM never exercises there. It would
+matter for deep-ITM puts, and validation scoring (`rollout_pnl`) and
+`test-hedge` (`step()`) would then report different P&Ls on the same paths.
+No test covers it: every env test uses `exercise_time >= 1`.
+
+**Status:** not fixed. Decide the semantics (payoff at S0, zero-length
+episode), make `reset`/`step` and `rollout_pnl` agree, and add
+`exercise_time = 0` to the test that checks `rollout_pnl` against summed
+`step()` rewards.
+
 ## RL policy under trading costs keeps trading every day; a simple band beats it (fixed)
 
 **Symptom:** found in PLAN.md's "Hedge under trading costs". Training with
