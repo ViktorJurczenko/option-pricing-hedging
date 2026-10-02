@@ -7,8 +7,6 @@ tests/integration/test_cli_smoke.py covers the CLI (subprocess) surface for
 this same script; this file targets an invariant that can't be observed from
 stdout alone: which pseudo-random state actually reaches evaluate().
 """
-import argparse
-
 import numpy as np
 import pytest
 import torch
@@ -16,29 +14,11 @@ import torch
 import scripts.test_hedge as test_hedge_script
 from AmericanHedging.baselines import delta_hedge, no_hedge
 from AmericanHedging.RLPolicy import RLPolicy
+from tests.helpers import make_parser, parse_script_args
 
 
-def _make_args(policy, seed, prop_tc=0.001, band=0.05, band_target="delta"):
-    return argparse.Namespace(
-        sigma=0.2,
-        start_price=100.0,
-        maturity=0.1,
-        sampling=20,
-        nb_predictions=50,
-        strike=100.0,
-        risk_free_rate=0.05,
-        option_type="call",
-        max_degree=2,
-        reg_type="simple",
-        seed=seed,
-        n_episodes=5,
-        prop_tc=prop_tc,
-        fixed_tc=0.0,
-        checkpoint_path="unused.pth",
-        policy=policy,
-        band=band,
-        band_target=band_target,
-    )
+def _make_args(policy, seed, **overrides):
+    return parse_script_args(test_hedge_script, policy=policy, seed=seed, n_episodes=5, **overrides)
 
 
 def test_same_seed_gives_identical_random_state_entering_evaluate_across_policies(monkeypatch):
@@ -228,8 +208,7 @@ def test_run_passes_prop_tc_to_evaluation_env(monkeypatch):
 
 
 def test_add_arguments_prop_tc_band_and_policy_choices():
-    parser = argparse.ArgumentParser()
-    test_hedge_script.add_arguments(parser)
+    parser = make_parser(test_hedge_script)
     args = parser.parse_args([])
     assert args.prop_tc == pytest.approx(0.001)
     assert args.band == pytest.approx(0.05) and args.band_target == "delta"
@@ -257,7 +236,7 @@ def test_delta_band_policy_builds_delta_band_from_band_flags(monkeypatch, band_t
     assert seen["fn"](state) == 0.8
 
 
-def test_rl_policy_loads_band_checkpoint_and_holds_exactly(monkeypatch, tmp_path):
+def test_rl_policy_loads_band_checkpoint_in_band_mode(monkeypatch, tmp_path):
     """test-hedge must size the network from the checkpoint (a band policy has
     a 2-D action) and restore band mode from it."""
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
@@ -279,9 +258,9 @@ def test_rl_policy_loads_band_checkpoint_and_holds_exactly(monkeypatch, tmp_path
     args.checkpoint_path = str(checkpoint_path)
     test_hedge_script.run(args)
 
-    position = float(np.float32(0.3456789))  # an earlier hedge, as the env holds it
-    held = np.array([1.0, 0.5, 0.3, 0.02, position])  # inside the band
-    assert seen["fn"](held) == position
+    # Band mode restored from the checkpoint: a 0.3 gap is outside b = 0.1, so
+    # it rebalances to delta. (Exact holds are covered in test_rl_policy.py and
+    # by the closed-loop train() test in test_hedge.py.)
     assert seen["fn"](np.array([1.0, 0.5, 0.3, 0.02, 0.6])) == pytest.approx(0.3, abs=1e-6)
 
 
