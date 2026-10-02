@@ -114,7 +114,7 @@ def process_sample(
     sampling: int,
     option_type: str = "put",
     max_degree: int = 3,
-    reg_type: str = "laguerre"
+    reg_type: str = "simple"
 ) -> tuple:
     """
     Process a single sample: simulate paths and compute LSM.
@@ -162,7 +162,7 @@ def main():
     parser.add_argument("--sampling", default=52, type=int, help="Number of time steps per year (e.g., 365 for daily).")
     parser.add_argument("--option_type", default="put", type=str, choices=["call", "put"], help="Type of option ('call' or 'put').")
     parser.add_argument("--max_degree", default=3, type=int, help="Maximum degree of the polynomial used in Longstaff-Schwartz regression.")
-    parser.add_argument("--reg_type", default="laguerre", type=str, choices=["simple", "laguerre"], help="polynomials used for regression.")
+    parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="polynomials used for regression.")
     parser.add_argument("--output_dir", default="data", type=str, help="Directory to write the generated dataset and normalization stats to.")
 
     args = parser.parse_args()

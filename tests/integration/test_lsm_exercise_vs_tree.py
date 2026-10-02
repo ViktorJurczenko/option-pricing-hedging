@@ -28,7 +28,7 @@ def _tree_exercise_rows(simulation):
 @pytest.mark.parametrize("seed", [1, 42])
 def test_lsm_put_exercise_decisions_agree_with_tree_optimal_rule(seed):
     sim = GBM(sigma=SIGMA, start_price=S0, risk_free_rate=R, seed=seed).simulate_paths(N_PATHS, T, SAMPLING)
-    lsm = LongstaffSchwartz(sim, K, R, T, "put", "laguerre", 3, sigma=SIGMA)
+    lsm = LongstaffSchwartz(sim, K, R, T, "put", "simple", 3, sigma=SIGMA)
     lsm.predict_payoff()
     last = sim.shape[0] - 1
 

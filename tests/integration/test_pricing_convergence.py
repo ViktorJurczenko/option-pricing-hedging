@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from core.gbm import GBM
@@ -24,7 +25,7 @@ def test_longstaff_schwartz_converges_to_binomial_tree_for_american_put():
 
     lsm = LongstaffSchwartz(
         simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0,
-        option_type="put", reg_type="laguerre", max_degree=3,
+        option_type="put", reg_type="simple", max_degree=3,
     )
     lsm.predict_payoff()
 
@@ -35,3 +36,18 @@ def test_longstaff_schwartz_converges_to_binomial_tree_for_american_put():
     bin_tree.predict_payoff()
 
     assert lsm.calculate_option_price() == pytest.approx(bin_tree.calculate_option_price(), rel=0.05)
+
+def test_simple_and_laguerre_bases_agree_at_degree_three():
+    # Both span the same cubic polynomials, so the least-squares fit (hence price
+    # and exercise rule) is identical up to conditioning; measured ~1e-9.
+    simulation = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=7).simulate_paths(
+        nb_predictions=3000, maturity=1, sampling=20)
+    models = []
+    for reg_type in ("simple", "laguerre"):
+        lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0,
+                                option_type="put", reg_type=reg_type, max_degree=3)
+        lsm.predict_payoff()
+        models.append(lsm)
+
+    assert models[0].calculate_option_price() == pytest.approx(models[1].calculate_option_price(), abs=1e-6)
+    assert np.array_equal(models[0].exercise_time, models[1].exercise_time)

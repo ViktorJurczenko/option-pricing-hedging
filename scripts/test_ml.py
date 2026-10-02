@@ -16,7 +16,7 @@ def add_arguments(parser):
     parser.add_argument("--seed", default=42, type=int, help="Random seed for reproducibility.")
     parser.add_argument("--checkpoint_path", default="checkpoints/best_model.pth", type=str, help="Path to the trained model's weights.")
     parser.add_argument("--max_degree", default=3, type=int, help="Must match the Longstaff-Schwartz config used to generate the training dataset's labels.")
-    parser.add_argument("--reg_type", default="laguerre", type=str, choices=["simple", "laguerre"], help="Must match the Longstaff-Schwartz config used to generate the training dataset's labels.")
+    parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="Must match the Longstaff-Schwartz config used to generate the training dataset's labels.")
 
 def run(args):
     dataset_test = AmericanOptionDataset(args.dataset_path, is_train=False, split_ratio=args.split_ratio, seed=args.seed)
