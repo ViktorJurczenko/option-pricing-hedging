@@ -65,11 +65,23 @@ python -m pytest tests/integration      # convergence checks + CLI smoke tests; 
 - `tests/helpers.py` holds what several test files share — use it rather than redefining: `make_fake_lsm` (a fitted-LSM stand-in for `HedgingEnv`), `make_state` (a state in the env's layout), `parse_script_args` (a `scripts/` module's real parser defaults plus overrides, so new flags need no test edits) and `run_cli`/`run_python` (subprocess runs from the project root). Fake envs/buffers shared by the `test_hedge_*.py` files live in `tests/unit/hedge_fakes.py`. There is no `conftest.py`, as no fixture is shared yet. `pytest.ini` puts the project root on `sys.path` (`pythonpath = .`), which is what makes `from tests.helpers import ...` resolve.
 - `AmericanOptionPricing/evaluation.py` holds `regression_tests`/`test_option_price_lsm`, which `scripts/test_ml.py` calls as part of the `test-ml` CLI workflow. These are evaluation helpers used by production code, not pytest tests — don't confuse them with `tests/`.
 
-### Workflow: delegate tests and review after every implementation
+### Workflow: when to delegate tests and review
 
-Whenever you (the coding/general-purpose agent) implement a non-trivial
-change in this repo, do not write its tests yourself and do not self-review
-it. Instead:
+By default, test and check your own changes inline: run the relevant
+existing tests (`python -m pytest tests/unit`, plus `tests/integration` when
+CLI wiring or simulation behavior changed), and add or adjust tests yourself
+using the `write-tests` skill when the change needs them. Small fixes,
+refactors, docs/config edits and follow-ups to an already-reviewed change
+don't need `test-agent` or `review-agent`.
+
+Delegate to the agents **only when the user explicitly asks** (e.g. "get
+this reviewed", "have the test agent cover this") — never on your own
+initiative, however large the change. After a substantial change (a new
+feature, module or CLI command, or a larger change to pricing/hedging/
+training behavior), end your report with a one-line reminder that the
+user can ask for a `test-agent`/`review-agent` pass, but don't dispatch it.
+
+When you do delegate:
 
 1. Dispatch `test-agent` (`.claude/agents/test-agent.md`) to write the tests.
    This repo **is** a git repository, so point it at `git diff`/`git status`
@@ -87,10 +99,6 @@ it. Instead:
    change done until that review has actually run. If `test-agent` reports it
    couldn't reach `review-agent`, dispatch `review-agent` yourself rather
    than skipping the review.
-
-This applies even when a change feels small enough to test inline — the
-point of the pattern is that it doesn't depend on your own judgment call
-about "small enough" in the moment.
 
 ## Architecture
 

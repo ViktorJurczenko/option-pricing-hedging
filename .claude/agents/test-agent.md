@@ -1,6 +1,6 @@
 ---
 name: test-agent
-description: Writes tests for a change just implemented in this repo, following the write-tests skill exactly. Dispatch this instead of writing tests inline after implementing anything non-trivial. When done, it spawns/pings review-agent to review the implementation and tests via the review-changes skill.
+description: Writes tests for a change just implemented in this repo, following the write-tests skill exactly. Dispatch this only when the user explicitly asks for it; otherwise changes are tested inline. When done, it spawns/pings review-agent to review the implementation and tests via the review-changes skill.
 tools: Read, Write, Edit, Bash, Glob, Grep, Skill, Agent, SendMessage, ListAgents
 model: sonnet
 ---
