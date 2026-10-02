@@ -5,6 +5,109 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Deep Hedging (Buehler et al. 2019) as an alternative to SAC
+
+Hedge P&L is linear in the positions, so a policy network can be trained by
+direct backprop through whole simulated episodes, minimizing a risk measure
+(CVaR, entropic, variance) of the *terminal* P&L over batches of paths:
+exactly what `test-hedge` reports, with no critics, entropy term, Bellman
+target or per-step reward shaping. SAC under trading costs is trained on a
+per-step mean-variance reward but judged on terminal CVaR (BUGS.md, "RL
+policy under trading costs keeps trading every day"); Deep Hedging
+optimizes the judged metric directly. Moved here from a "Later" step of
+"Fix the hedging objective so SAC has a reason to hedge". No order is set
+yet relative to the other open entries.
+
+- [ ] Explain the theory to the user before writing any code
+  Required first; no design decision or implementation until the user has
+  it. A deep, maths-first explanation, written up (as a document if the
+  user wants one) and walked through, covering:
+  - **The hedging problem in discrete time.** Prices `S_0..S_n`, a
+    liability `Z`, a strategy `δ_k` decided on the information `I_k`
+    available at `t_k`. Terminal P&L
+    `PL(Z, p_0, δ) = -Z + p_0 + Σ_k δ_k (S_{k+1} - S_k) - Σ_k c(δ_k - δ_{k-1}, S_k)`,
+    with `c` proportional (`ε|Δδ|S`) and/or fixed costs. Why perfect
+    replication exists only in complete, frictionless, continuous-time
+    markets (Black-Scholes), and why discrete rebalancing, costs,
+    stochastic volatility or jumps make the market incomplete, so hedging
+    becomes risk minimization rather than replication.
+  - **Risk measures.** Monetary, convex and coherent risk measures
+    (monotonicity, cash invariance, convexity, positive homogeneity) and
+    why they matter for prices. Optimized certainty equivalents
+    `ρ(X) = inf_w { w + E[ℓ(-X - w)] }`; CVaR as the special case
+    `ℓ(x) = max(x, 0)/(1-α)` (Rockafellar-Uryasev) and why the extra
+    variable `w` is learned jointly with the network; the entropic measure
+    `(1/λ) log E[exp(-λX)]` and its link to exponential utility; why
+    variance/mean-variance is not monotone and what goes wrong with it.
+  - **Indifference pricing.** `π(X) = inf_δ ρ(X + (δ·S)_T - C_T(δ))`, the
+    price `p(Z) = π(-Z) - π(0)`; how it reduces to the risk-neutral price
+    without costs in a complete market, and how costs and risk aversion
+    move it away. What this means for the "mean P&L excludes the premium"
+    caveat in the README.
+  - **The neural network approximation.** Strategies parametrized as
+    `δ_k = F_θ(I_k, δ_{k-1})`; why the previous position must be an input
+    under costs (the optimal strategy is path-dependent through it);
+    universal approximation and the paper's result that the optimal
+    risk over network strategies converges to the true optimum as the
+    networks grow; one network with time as an input vs one per step.
+  - **Training.** Monte-Carlo estimate of the risk over a batch of paths,
+    gradient through the whole episode (backprop through time): P&L is
+    linear in `δ` and the paths don't depend on `θ`, so the gradient is
+    exact pathwise, unlike policy gradients. Subgradients of `|Δδ|`, the
+    variance of CVaR gradients (only the tail `1-α` of each batch
+    contributes), batch size and learning-rate choices.
+  - **Comparison with this project's SAC and with stochastic control.**
+    Deep Hedging vs actor-critic RL (known differentiable P&L vs learned
+    critics, terminal objective vs per-step reward, no exploration noise);
+    vs the HJB / utility-indifference approach (Hodges-Neuberger, Davis-
+    Panas-Zariphopoulou) and the asymptotic no-trade band of
+    Whalley-Wilmott, which is what `delta_band` approximates.
+  - **American options.** The liability depends on the holder's exercise
+    time `τ`: hedging against a given exercise rule (here LSM's, with steps
+    after `τ` masked, as `HedgingEnv` does) vs robust hedging over all
+    stopping times (superhedging, `sup_τ`), and what the choice means for
+    the hedge and the price.
+  - **Challenges.** Non-convex training and local minima; exploding or
+    vanishing gradients over 365 steps; memory of BPTT over a batch of full
+    episodes; costs making the objective non-smooth and holding still hard
+    to represent with a continuous output (the same issue `gap_fraction`
+    hit, and the reason the `band` action exists); dependence on the
+    training measure (P vs Q, here GBM under Q), model risk and
+    out-of-distribution behaviour when the simulator is wrong; overfitting
+    to the simulated paths.
+  - **Pros and cons.** Model-agnostic in the dynamics, handles costs,
+    constraints and any risk measure, optimizes the reported metric,
+    fast at inference; vs needing a good market simulator, no optimality
+    guarantee in practice, opaque strategies, sensitivity to the risk
+    measure and hyperparameters.
+  - **Applications.** Hedging books of vanilla and exotic options under
+    costs, liquidity and position limits; stochastic and rough volatility
+    models; variance swaps and other path-dependent payoffs; risk-adjusted
+    pricing desks (J.P. Morgan's use of it); data-driven market generators
+    as the simulator; extensions in the literature (Deep Bellman Hedging,
+    robust and model-uncertainty versions).
+- [ ] Decide the design with the user
+  Risk measure (CVaR via the OCE `w`, entropic, std), network inputs
+  (same 5-feature state as `HedgingEnv`?) and action parametrization
+  (direct hedge, residual on delta, or the `band` form, which handles
+  fixed costs), one network vs per-step, and how to handle exercise.
+- [ ] Differentiable batched rollout in PyTorch
+  A torch version of `HedgingEnv.rollout_pnl`'s terminal-mode arithmetic
+  (trading costs, payoff at exercise, masking after it), so gradients flow
+  through the whole episode. It duplicates `step()`'s P&L, so a test must
+  check that the two agree exactly, fixed cost and early exercise included.
+- [ ] Training loop and CLI
+  New module (e.g. `AmericanHedging/DeepHedging.py`) and a
+  `train-deep-hedge` subcommand, reusing validation checkpointing on
+  held-out paths; `test-hedge --policy deep` (or reuse `rl` with a
+  checkpoint type) evaluated through the same `evaluate()`.
+- [ ] Dispatch test-agent/review-agent
+- [ ] Compare against SAC and the baselines
+  Same protocol as the README tables (2000 seed-999 episodes, 4 training
+  seeds, call and put): 0.1% cost against delta and SAC, 1% and 1% +
+  $0.05 fixed against the best fixed band and the learned band.
+- [ ] Update README/CLAUDE.md, record results in BUGS.md
+
 ## ML surrogate: simple basis, calls and puts, regenerated dataset
 
 All pending MLP work in one entry, ending with a single dataset
@@ -272,12 +375,4 @@ drowned by the entropy term (`α·log π` ~ 0.2 per step).
 - [x] Fix LSM spurious early exercise / delta bias (own entry above)
 - [x] Residual-on-delta policy (own entry above)
 - [x] Checkpoint on a fixed validation path set (own entry above)
-- [ ] Later: Deep Hedging (Buehler et al. 2019) as an alternative to SAC
-  Hedge P&L is linear in the positions, so a policy network can be trained
-  by direct backprop through whole simulated episodes, minimizing
-  CVaR/variance of *terminal* P&L over batches of paths - exactly the
-  metric `test-hedge` reports, no critics/entropy/credit assignment. New
-  module (e.g. `AmericanHedging/DeepHedging.py`) + `train-deep-hedge`
-  subcommand, evaluated via the same `evaluate()` so it's directly
-  comparable to `rl`/`delta`/`no_hedge`. For the American put, the episode
-  still ends at the LSM exercise time per path (masking steps after it).
+- [ ] Deep Hedging as an alternative to SAC (own entry above)
