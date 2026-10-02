@@ -135,36 +135,36 @@ def test_binomial_value_fn_at_t_zero_matches_binomial_tree_at_full_maturity():
     assert result == pytest.approx(expected, rel=1e-9)
 
 
-def test_binomial_value_fn_put_at_t_zero_is_at_least_the_european_value():
-    """American put value >= European value: the early-exercise premium is
-    never negative."""
+def test_binomial_value_fn_put_at_t_zero_exceeds_the_european_value_by_the_early_exercise_premium():
+    """American put value > European value at the full maturity: the
+    early-exercise premium of an ATM put at r=5% is strictly positive.
+    Measured: tree 6.079 vs Black-Scholes 5.5735 (premium ~0.51), so a 0.3
+    margin is a real premium, not float noise."""
     value_fn = binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="put")
     american_value = value_fn(0, np.array([STRIKE]))[0]
 
-    tau0 = (N_STEPS - 1) * MATURITY / N_STEPS
     european_value = BlackScholes(
         sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R, option_type="put"
-    ).calculate_option_price(T=tau0)
+    ).calculate_option_price(T=MATURITY)
 
-    assert american_value >= european_value - 1e-9
+    assert american_value > european_value + 0.3
 
 
 def test_binomial_value_fn_call_tracks_black_scholes_closely():
     """For a call on a non-dividend stock, early exercise is never optimal,
     so the American tree value should stay close to the closed-form European
-    (Black-Scholes) value at every simulation row -- tolerance is loose
-    (atol=0.5, on a ~100-strike underlying) because binomial_value_fn is a
-    discrete-tree approximation, not the closed form itself. Row 0 is
-    excluded here: the tree has only its single root node at that row (see
-    node_log_moneyness(0)), so value_fn(0, S) is constant in S by
-    construction and is covered separately by the t=0/start_price check in
-    test_binomial_value_fn_at_t_zero_matches_binomial_tree_with_scaled_maturity_and_steps."""
+    (Black-Scholes) value at every simulation row. Measured worst absolute
+    error over this grid is 0.057 (discretisation of a 76-step tree), so
+    atol=0.15 is ~2.6x that; no rtol, since far-OTM relative error is large
+    while the absolute one is not. Row 0 is excluded: the tree has only its
+    single root node there, so value_fn(0, S) is constant in S by
+    construction (covered by the t=0 check against BinomialTree above)."""
     bs_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call")
     tree_fn = binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call", substeps=4)
     S = np.array([80.0, 90.0, 100.0, 110.0, 120.0])
 
     for t in [5, 10, 15]:
-        np.testing.assert_allclose(tree_fn(t, S), bs_fn(t, S), atol=0.5, rtol=0.05)
+        np.testing.assert_allclose(tree_fn(t, S), bs_fn(t, S), atol=0.15, rtol=0)
 
 
 def test_binomial_value_fn_floors_interpolated_value_at_intrinsic_outside_node_range():
@@ -198,20 +198,33 @@ def test_make_option_value_fn_raises_on_invalid_option_type():
         make_option_value_fn("straddle", STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS)
 
 
-def test_make_option_value_fn_call_delegates_to_black_scholes_value_fn():
+def test_make_option_value_fn_call_is_black_scholes():
     combined = make_option_value_fn("call", STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS)
     direct = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call")
     S = np.array([90.0, 100.0, 110.0])
+    tau = (N_STEPS - 1 - 2) * MATURITY / (N_STEPS - 1)
+    bs = BlackScholes(sigma=SIGMA, start_price=S, strike=STRIKE, risk_free_rate=R,
+                      option_type="call").calculate_option_price(T=tau)
 
     np.testing.assert_allclose(combined(2, S), direct(2, S))
+    np.testing.assert_allclose(combined(2, S), bs)
 
 
-def test_make_option_value_fn_put_delegates_to_binomial_value_fn():
+def test_make_option_value_fn_put_is_the_american_binomial_tree():
     combined = make_option_value_fn("put", STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS)
     direct = binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="put")
     S = np.array([90.0, 100.0, 110.0])
-
     np.testing.assert_allclose(combined(2, S), direct(2, S))
+
+    # Same tree as BinomialTree at t=0 (the default substeps=4 grid), and
+    # strictly above the European put, which BS would give for a put.
+    tree = BinomialTree(sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R,
+                        maturity=MATURITY, nb_steps=(N_STEPS - 1) * 4, option_type="put")
+    tree.predict_payoff()
+    assert combined(0, np.array([STRIKE]))[0] == pytest.approx(tree.calculate_option_price(), rel=1e-9)
+    european = BlackScholes(sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R,
+                            option_type="put").calculate_option_price(T=MATURITY)
+    assert combined(0, np.array([STRIKE]))[0] > european + 0.3
 
 
 # --- n_steps (simulation row count) must leave at least one interval ---------

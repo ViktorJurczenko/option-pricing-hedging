@@ -12,13 +12,12 @@ from AmericanHedging.RLPolicy import (
 from AmericanHedging.baselines import delta_band
 from AmericanOptionPricing import LongstaffSchwartz
 from core.gbm import GBM
+from tests.helpers import make_state
 
 
-def _state(delta, batch=None):
-    """State in HedgingEnv layout [S/K, t/T, delta, gamma, position]; other
-    entries are deliberately non-zero so a wrong index would change results."""
-    row = torch.tensor([1.1, 0.4, delta, 0.7, -0.3])
-    return row if batch is None else row.repeat(batch, 1)
+def _state(delta, position=-0.3, batch=None):
+    """tests.helpers.make_state as the float32 tensor the policy takes."""
+    return torch.tensor(make_state(delta, position, batch=batch), dtype=torch.float32)
 
 
 @pytest.mark.parametrize("bad", [-0.1, float("nan"), float("inf"), float("-inf")])
@@ -157,11 +156,6 @@ def test_delta_idx_matches_hedging_env_state_layout():
 
 # --- gap_fraction action mode -------------------------------------------------
 
-def _gap_state(delta, position, batch=None):
-    row = torch.tensor([1.1, 0.4, delta, 0.7, position])
-    return row if batch is None else row.repeat(batch, 1)
-
-
 @pytest.mark.parametrize("bad", ["gap", "Residual", "", None])
 def test_invalid_action_mode_raises(bad):
     with pytest.raises(ValueError, match="action_mode"):
@@ -188,14 +182,14 @@ def test_gap_fraction_is_buffer_saved_in_state_dict():
 ])
 def test_gap_fraction_hedge_ratio_interpolates_position_to_delta(squashed, expected):
     policy = RLPolicy(5, 1, action_mode="gap_fraction")
-    out = policy.hedge_ratio(_gap_state(delta=-0.2, position=0.3), torch.tensor([squashed]))
+    out = policy.hedge_ratio(_state(delta=-0.2, position=0.3), torch.tensor([squashed]))
     assert out.shape == (1,)
     assert out.item() == pytest.approx(expected, abs=1e-6)
 
 
 def test_gap_fraction_batched_uses_each_rows_own_delta_and_position():
     policy = RLPolicy(5, 1, action_mode="gap_fraction")
-    states = torch.stack([_gap_state(0.5, 0.1), _gap_state(-0.4, 0.6), _gap_state(0.9, -0.9)])
+    states = torch.stack([_state(0.5, 0.1), _state(-0.4, 0.6), _state(0.9, -0.9)])
     squashed = torch.tensor([[1.0], [0.0], [-1.0]])
     out = policy.hedge_ratio(states, squashed)
     assert out.shape == (3, 1)
@@ -203,7 +197,7 @@ def test_gap_fraction_batched_uses_each_rows_own_delta_and_position():
 
 
 def test_gap_fraction_ignores_residual_scale():
-    state, squashed = _gap_state(0.5, -0.1), torch.tensor([0.3])
+    state, squashed = _state(0.5, -0.1), torch.tensor([0.3])
     a = RLPolicy(5, 1, residual_scale=0.0, action_mode="gap_fraction").hedge_ratio(state, squashed)
     b = RLPolicy(5, 1, residual_scale=0.9, action_mode="gap_fraction").hedge_ratio(state, squashed)
     assert torch.equal(a, b)
@@ -213,8 +207,8 @@ def test_gap_fraction_output_clamped_to_unit_interval():
     # Out-of-range positions cannot come from the env, but the clamp is part of
     # the contract: the hedge must never leave [-1, 1].
     policy = RLPolicy(5, 1, action_mode="gap_fraction")
-    assert policy.hedge_ratio(_gap_state(1.0, 1.5), torch.tensor([-1.0])).item() == 1.0
-    assert policy.hedge_ratio(_gap_state(-1.0, -1.5), torch.tensor([-1.0])).item() == -1.0
+    assert policy.hedge_ratio(_state(1.0, 1.5), torch.tensor([-1.0])).item() == 1.0
+    assert policy.hedge_ratio(_state(-1.0, -1.5), torch.tensor([-1.0])).item() == -1.0
 
 
 def test_position_idx_matches_hedging_env_state_layout():
@@ -237,7 +231,7 @@ def test_gap_fraction_init_bias_gives_initial_gap_fraction_with_zero_weights():
     assert _INITIAL_GAP_FRACTION == 0.9
     with torch.no_grad():
         policy.layer3.weight.zero_()
-    mean = policy(_gap_state(0.5, 0.0)).mean
+    mean = policy(_state(0.5, 0.0)).mean
     assert torch.tanh(mean).item() == pytest.approx(0.8, abs=1e-6)
     assert ((torch.tanh(mean) + 1) / 2).item() == pytest.approx(0.9, abs=1e-6)
 
@@ -273,7 +267,7 @@ def test_load_pre_gap_fraction_state_dict_loads_as_residual_strict():
     target.load_state_dict(legacy)  # strict; must not raise
     assert target.gap_fraction.item() == 0.0
     assert target.residual_scale.item() == pytest.approx(0.2)
-    out = target.hedge_ratio(_gap_state(0.5, -0.1), torch.tensor([0.5]))
+    out = target.hedge_ratio(_state(0.5, -0.1), torch.tensor([0.5]))
     assert out.item() == pytest.approx(0.5 + 0.2 * 0.5)
 
 
@@ -283,7 +277,7 @@ def test_load_gap_fraction_checkpoint_into_default_policy_restores_gap_mode():
     target = RLPolicy(5, 1)  # what test-hedge builds
     target.load_state_dict(source.state_dict())
     assert target.gap_fraction.item() == 1.0
-    state = _gap_state(0.5, 0.1)
+    state = _state(0.5, 0.1)
     assert target.hedge_ratio(state, torch.tensor([-1.0])).item() == pytest.approx(0.1)
     torch.testing.assert_close(target(state).mean, source(state).mean)
 
@@ -296,10 +290,6 @@ def test_load_does_not_mutate_callers_dict_when_gap_fraction_key_missing():
 
 
 # --- band action mode ---------------------------------------------------------
-
-def _band_state(delta, position):
-    return torch.tensor([1.1, 0.4, delta, 0.7, position])
-
 
 def _band_action(b_frac, lam):
     """Squashed action giving band half-width b_frac * band_max and target lam."""
@@ -341,7 +331,7 @@ def test_band_hold_returns_position_exactly_inside_band(position):
     # Exactly, not approximately: HedgingEnv charges the fixed cost on any
     # trade above _TRADE_EPS.
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
-    state = _band_state(0.2, position)
+    state = _state(0.2, position)
     out = policy.hedge_ratio(state, _band_action(0.5, 0.3))
     assert out.shape == (1,)
     assert torch.equal(out, state[_POSITION_IDX:_POSITION_IDX + 1])
@@ -354,13 +344,13 @@ def test_band_hold_returns_position_exactly_inside_band(position):
 ])
 def test_band_rebalances_between_edge_and_delta_above(lam, expected):
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
-    out = policy.hedge_ratio(_band_state(0.2, 0.6), _band_action(0.5, lam))
+    out = policy.hedge_ratio(_state(0.2, 0.6), _band_action(0.5, lam))
     assert out.item() == pytest.approx(expected, abs=1e-6)
 
 
 def test_band_rebalances_to_lower_edge_when_position_below_delta():
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
-    out = policy.hedge_ratio(_band_state(0.2, -0.5), _band_action(0.5, 0.0))
+    out = policy.hedge_ratio(_state(0.2, -0.5), _band_action(0.5, 0.0))
     assert out.item() == pytest.approx(0.1, abs=1e-6)
 
 
@@ -368,12 +358,12 @@ def test_band_rebalanced_hedge_clamped_to_unit_interval():
     # Out-of-range deltas cannot come from the LSM for a plain hedge, but the
     # hedge must never leave [-1, 1].
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
-    assert policy.hedge_ratio(_band_state(1.05, 0.5), _band_action(0.1, 1.0)).item() == 1.0
+    assert policy.hedge_ratio(_state(1.05, 0.5), _band_action(0.1, 1.0)).item() == 1.0
 
 
 def test_band_batched_uses_each_rows_own_state_and_action():
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
-    states = torch.stack([_band_state(0.2, 0.25), _band_state(0.2, 0.6), _band_state(-0.3, -0.9)])
+    states = torch.stack([_state(0.2, 0.25), _state(0.2, 0.6), _state(-0.3, -0.9)])
     actions = torch.stack([_band_action(0.5, 0.0), _band_action(0.5, 1.0), _band_action(1.0, 0.0)])
     out = policy.hedge_ratio(states, actions)
     assert out.shape == (3, 1)
@@ -425,7 +415,7 @@ def test_band_checkpoint_round_trip_restores_mode_and_band_max():
     target.load_state_dict(state_dict)
     assert target.action_mode == "band"
     assert target.band_max.item() == pytest.approx(0.3)
-    state = _band_state(0.2, 0.25)
+    state = _state(0.2, 0.25)
     torch.testing.assert_close(target(state.float()).mean, source(state.float()).mean)
     action = _band_action(0.5, 0.0)
     assert torch.equal(target.hedge_ratio(state, action), source.hedge_ratio(state, action))
