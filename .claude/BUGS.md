@@ -6,7 +6,68 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
-## HedgingEnv mishandles options exercised at row 0 (open)
+## LongstaffSchwartz.calculate_option_price returns 0 before predict_payoff (fixed)
+
+**Symptom:** found by the test-suite cleanup. Calling
+`calculate_option_price()` before `predict_payoff()` returns 0.0. In the
+same situation `BinomialTree` raises `AttributeError`, and CLAUDE.md says
+there should be no silent default.
+
+**Root cause:** `__init__` preallocates `self.payoff` as zeros, so the
+price is the mean of an all-zero row.
+
+**Impact:** none today. Every caller fits first.
+
+**Fix:** `payoff` is `None` until `predict_payoff()` allocates it, and
+`calculate_option_price()` raises `AttributeError` while it is `None`, the
+same error `BinomialTree` gives.
+
+## r2_fn returns nan/-inf for constant targets (fixed)
+
+**Symptom:** found by the test-suite cleanup. With constant targets,
+`utils/metrics.py::r2_fn` returns nan for a perfect prediction and -inf
+otherwise. Only a numpy RuntimeWarning is shown, so `test-ml` would print
+"R²: nan".
+
+**Root cause:** the total sum of squares is 0, and R² divides by it.
+
+**Impact:** none on real test splits, whose labels vary.
+
+**Fix:** `r2_fn` raises `ValueError` when the total sum of squares is 0.
+R² is undefined there, and returning a number would be a silent
+fallback.
+
+## HedgingEnv.rollout_pnl crashes on an empty path list (fixed)
+
+**Symptom:** found by the test-suite cleanup. `rollout_pnl(hedge_fn, [])`
+raises `ValueError` instead of returning an empty array.
+
+**Root cause:** the stepping loop runs to `int(T_exercise.max())`, and
+`.max()` of an empty array raises.
+
+**Impact:** none today. Every caller passes at least one path.
+
+**Fix:** an empty `path_idxs` returns `np.zeros(0)`. The former `xfail`
+test is now a plain test.
+
+## HedgingEnv.step() keeps stepping after done (fixed)
+
+**Symptom:** found by the test-suite cleanup. After `step()` returns
+`done=True` on a path exercised before the last row, calling `step()` again
+silently advances past the exercise row. It charges hedge P&L and, because
+`t >= T_exercise` stays true, the payoff again on every extra call. On a
+path exercised at the last row it raises `IndexError` instead.
+
+**Root cause:** `step()` has no guard on the episode being over.
+
+**Impact:** none today. Every loop (`train()`, `evaluate()`) stops at
+`done`.
+
+**Fix:** `reset()` clears a `done` flag and `step()` sets it. A `step()`
+after done raises `RuntimeError` telling the caller to `reset()`. This also
+covers zero-length row-0 episodes.
+
+## HedgingEnv mishandles options exercised at row 0 (fixed)
 
 **Symptom:** found by the whole-suite test review. For a deep in-the-money
 put (S0=50, K=100), LSM sets `exercise_time = 0` on every path, and
@@ -28,10 +89,17 @@ matter for deep-ITM puts, and validation scoring (`rollout_pnl`) and
 `test-hedge` (`step()`) would then report different P&Ls on the same paths.
 No test covers it: every env test uses `exercise_time >= 1`.
 
-**Status:** not fixed. Decide the semantics (payoff at S0, zero-length
-episode), make `reset`/`step` and `rollout_pnl` agree, and add
-`exercise_time = 0` to the test that checks `rollout_pnl` against summed
-`step()` rewards.
+**Fix:** a path exercised at row 0 is a zero-length episode that pays the
+payoff at S0, with no hedge ever held.
+- `step()` on such a path ignores the action, trades nothing, charges no
+  cost and returns `done=True` with reward `-payoff(S0)/K`. In accounting
+  mode the reward is `-(payoff(S0) - V_0)/K`, so the episode sum is still
+  the terminal sum plus `V_0/K`.
+- `rollout_pnl` starts those paths' P&L at `-payoff(S0)`. Its stepping loop
+  already skips them.
+- Checked by forcing `exercise_time = 0` on two paths of a deep-ITM put
+  (S0=50, K=100): both now give -0.5. The regression test sets
+  `exercise_time = 0` in the `rollout_pnl` vs summed `step()` test.
 
 ## RL policy under trading costs keeps trading every day; a simple band beats it (fixed)
 

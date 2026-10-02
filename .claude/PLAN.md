@@ -5,6 +5,18 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Modularize the test helpers
+
+The test-suite cleanup left duplicated helpers across files. Pull them into
+shared modules so a layout or CLI change is edited in one place.
+
+- [x] Shared fake LSM factory
+- [x] Shared state builder
+- [x] Build CLI args from the real parsers
+- [x] One subprocess helper
+- [x] helpers.py (no conftest.py: no fixture is shared yet)
+- [x] Split test_hedge.py by concern
+
 ## Test suite cleanup
 
 A review of the whole suite (419 passed, 2 skipped) found it healthy
@@ -14,77 +26,11 @@ about 15 duplicate tests, and some tests would pass with broken code. Steps
 in the reviewer's priority order. No order is set yet relative to the ML
 dataset regeneration.
 
-- [ ] Fix HedgingEnv for options exercised at row 0
-  See BUGS.md, "HedgingEnv mishandles options exercised at row 0": decide
-  the semantics (payoff at S0, zero-length episode), make `reset`/`step`
-  and `rollout_pnl` agree, and add `exercise_time = 0` to the test that
-  checks `rollout_pnl` against summed `step()` rewards.
-- [ ] Test the SAC update math in `train()`
-  Nothing checks the Bellman target `r + gamma*(1-d)*(...)`, the done mask
-  or the Polyak update with `tau`; tests only assert that weights changed.
-  Use a 1-step env with a constant reward: with `done=True` the critic Q
-  should move toward the reward, and with `tau=1` the target nets should
-  equal the critics after one update. Replace the "weights changed" and
-  "alpha moved" assertions (`test_train_gap_fraction_runs_...`,
-  `test_train_band_runs_...`, `test_auto_alpha_moves_...`) with directional
-  ones.
-- [ ] Fix weak and loose tests
-  - `test_binomial_value_fn_put_at_t_zero_is_at_least_the_european_value`
-    compares against the 0.95-year European (the pre-horizon-fix
-    maturity) with `>=`; use the full maturity and a strict bound.
-  - `test_real_mlp_runs_through_the_benchmark` can't fail: check the error
-    against a hand computation, or drop it.
-  - CLI smoke tests that only check `returncode == 0`: assert the
-    checkpoint is written, parse printed prices and P&L metrics. Drop
-    `test_test_hedge_same_seed_and_policy_is_reproducible_across_runs`,
-    which can't observe the reseed it is for.
-  - Tighten tolerances that are 3-10x the measured noise (LSM vs tree 5%,
-    MC vs BS 3%, CRR call vs BS 1%, `binomial_value_fn` call atol 0.5, LSM
-    put with control variate ±0.4, call delta bound `< 2`) and make the
-    put early-exercise premium check strict.
-  - `test_run_builds_policy_with_action_mode_from_args` should assert
-    `policy.action_mode`; the `make_option_value_fn` dispatch tests should
-    also check the values against BS / the tree.
-- [ ] Add missing coverage
-  - Black-Scholes known values (S=K=100, r=5%, sigma=20%, T=1: call
-    10.4506, put 5.5735).
-  - `ReplayBuffer` (eviction at `max_size`, `__len__`, sample shapes and
-    dtypes for scalar and vector actions, oversampling) and `Critic` input
-    width.
-  - `features_norm.npz` agreeing with what `test-ml` applies (CLAUDE.md
-    requires the normalizations to match), and `gen_rdm_params` (ranges,
-    moneyness inside `moneyness_range`, `samples_per_param` repeats).
-  - `smooth_intrinsic_value` (converges to the payoff as `beta_frac -> 0`,
-    no overflow at large |z|), `MLP.train_model` (early stopping, saves
-    only on improvement), `regression_tests` values, the `error = abs_error`
-    fallback below a 0.1 price, `r2_fn` with constant targets.
-  - Input validation, with `ValueError`s added where missing (CLAUDE.md:
-    no silent fallbacks): BlackScholes / BinomialTree / MonteCarlo with
-    T <= 0, sigma <= 0, `nb_steps < 1`; `--risk_lambda <= 0`; missing
-    dataset/checkpoint files in `train-ml` / `test-ml`.
-  - Smaller gaps: LSM Laguerre Greeks, `calculate_option_price` before
-    `predict_payoff`, `step()` after `done`, `rollout_pnl` with no paths,
-    `AmericanOptionDataset` empty splits and transforms, `price` with
-    `--option_type put` through the CLI.
-- [ ] Remove duplicate tests
-  - `test_deep_itm_put_exercises_immediately` (same as
-    `test_constant_itm_put_exercises_immediately_on_five_row_grid`).
-  - `test_train_hedge_command_accepts_lr_and_alpha_flags` (wiring already
-    covered in-process); `test_test_ml_command_runs_successfully` and
-    `test_test_hedge_command_runs_successfully` (covered by the pipeline
-    and band round-trip tests).
-  - The 8 `test_add_arguments_registers_*_default_*` tests and the
-    default/non-default wiring twins in `test_train_hedge_cli_wiring.py`:
-    one parametrized test each.
-  - Band-hold exactness asserted at four layers: keep the `RLPolicy` unit
-    test and the closed-loop `train()` test.
-  - `test_reset_returns_five_dim_state`,
-    `test_trading_cost_zero_fixed_tc_is_purely_proportional`,
-    `test_price_matches_known_value_independent_of_delta_change`, and
-    merge the single-case `test_invalid_option_type_raises` with
-    `test_invalid_reg_type_raises`.
-- [ ] Dispatch test-agent/review-agent
-- [ ] Update CLAUDE.md (test counts, any new validation)
+- [x] Fix HedgingEnv for options exercised at row 0
+- [x] Test the SAC update math in `train()`
+- [x] Fix weak and loose tests
+- [x] Add missing coverage
+- [x] Remove duplicate tests
 
 ## Deep Hedging (Buehler et al. 2019) as an alternative to SAC
 
