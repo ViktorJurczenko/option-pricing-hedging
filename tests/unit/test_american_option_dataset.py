@@ -3,7 +3,7 @@ import torch
 
 from datasets.american_option_dataset import AmericanOptionDataset
 
-def _write_toy_dataset(path, n=100, n_features=4):
+def _write_toy_dataset(path, n=100, n_features=5):
     features = np.random.default_rng(0).random((n, n_features)).astype(np.float32)
     labels = np.random.default_rng(1).random(n).astype(np.float32)
     np.savez(path, features=features, label=labels)
@@ -41,4 +41,4 @@ def test_getitem_returns_float32_tensors(tmp_path):
 
     assert isinstance(features, torch.Tensor) and features.dtype == torch.float32
     assert isinstance(label, torch.Tensor) and label.dtype == torch.float32
-    assert features.shape == (4,)
+    assert features.shape == (5,)

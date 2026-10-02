@@ -119,36 +119,39 @@ biased low by up to 0.0012·K. The code changes come first; the existing
 checkpoint stops loading once the MLP takes a 5th input, so `test-ml` stays
 broken until the retrain at the end.
 
-- [ ] Switch the MLP's LSM to the simple basis
-  `price`, `train-hedge` and `test-hedge` default to `--reg_type simple`,
-  but `datasets/generate_dataset.py` (function and CLI defaults) and
-  `scripts/test_ml.py` default to `laguerre`. Switch them to `simple` so
-  every model uses the same basis. At degree 3 the unweighted Laguerre basis
-  spans the same polynomials, so this changes no labels (README, "Which
-  regression basis?"). Keep `--reg_type laguerre` available. Decide whether
-  the two integration tests that build LSM with `"laguerre"`
-  (`test_lsm_exercise_vs_tree.py`, `test_pricing_convergence.py`) switch too.
-- [ ] Add the option type as an input feature
-  The MLP has 4 inputs (`S0/K`, T, r, sigma) and is trained on puts only,
-  so a call query silently returns a put price. Add a 5th input `is_call`
-  in {0, 1} (two classes, so one binary input is equivalent to a one-hot).
-  Thread it through `MLP`, `AmericanOptionDataset`, the normalization
-  stats, `smooth_intrinsic_value` (now per-row type), `evaluation.py` and
-  `test-ml`, keeping training normalization and reconstruction consistent
-  (see CLAUDE.md).
-- [ ] Mixed call/put generation in `generate_dataset.py`
-  Price both types for each parameter combination on the same simulated
-  paths (one GBM run, two labels). Label calls with the control-variate LSM,
-  which is exact for an American call without dividends, and puts with
-  plain LSM, both with the simple basis.
-- [ ] Report errors per option type in `test-ml`
-  ITM/ATM/OTM errors split by call and put.
-- [ ] Dispatch test-agent/review-agent
+Design choices:
+- **No legacy 4-input support.** The MLP always takes 5 inputs. The old
+  4-feature dataset and MLP checkpoint were deleted (their results stay in
+  the README for comparison), so `test-ml` has nothing to run on until the
+  retrain.
+- **Feature layout:** `[S0/K, T_norm, r_norm, sigma_norm, is_call]`, the
+  new column appended so the first four keep their meaning; `is_call` is a
+  raw 0/1, not normalized, and `features_norm.npz` is unchanged.
+- **Generator:** `--option_type {call,put,both}`, default `both`. Each
+  parameter combination gets one GBM simulation and one row per type. Call
+  labels use the control-variate LSM (`sigma` passed, exact BS for a call
+  without dividends), put labels plain LSM. The 5th column is written for
+  single-type datasets too.
+- **`test-ml` benchmark:** the same 50-point grid per type, the call one
+  against the control-variate LSM, with ITM/ATM/OTM by moneyness flipped
+  for calls (ITM = `S > K`).
+
+- [x] Switch the MLP's LSM to the simple basis
+- [x] Add the option type as an input feature
+- [x] Mixed call/put generation in `generate_dataset.py`
+- [x] Report errors per option type in `test-ml`
+- [x] Dispatch test-agent/review-agent (APPROVE, 430/430 passing)
 - [ ] Generate the new dataset
   Run `python -m datasets.generate_dataset` with the mixed generation and
   the simple basis. It carries the horizon fix, replacing the stale
   `data/american_option_dataset.npz` and `data/features_norm.npz`
   (~40 min at the defaults for puts alone; roughly double with calls).
+  Before running it, store the LSM settings used for the labels
+  (`reg_type`, `max_degree`, `path_per_sim`, `sampling`) in the dataset
+  `.npz` and have `test-ml` read them instead of its own `--reg_type` /
+  `--max_degree` flags, so the benchmark can't drift from the labels'
+  teacher (review-agent suggestion; the drift risk is described in
+  CLAUDE.md, "Working with this code").
 - [ ] Retrain and compare
   The mixed model must not regress on puts versus a put-only model trained
   on the same regenerated puts, and must match BS on calls.

@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from utils.metrics import mse_fn, mae_fn, r2_fn
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from AmericanOptionPricing.ML import smooth_intrinsic_value
+from AmericanOptionPricing.ML import smooth_intrinsic_value, option_type_feature
 
 def regression_tests(model: torch.nn.Module, dataloader_test):
     model.eval() # Set the model on evaluation mode
@@ -28,8 +28,15 @@ def regression_tests(model: torch.nn.Module, dataloader_test):
         print(f"R²:   {r2:.4f}")
 
 def test_option_price_lsm(model: nn.Module, simulation, moneyness, K, r, r_norm, T, T_norm, sigma_norm,
-                           option_type="put", reg_type="simple", max_degree=3) -> tuple:
+                           option_type="put", reg_type="simple", max_degree=3,
+                           sigma=None, control_variate=False) -> tuple:
     """
+    Args:
+        sigma, control_variate: passed to the LSM benchmark. Calls should use
+            control_variate=True (which needs sigma), matching how
+            datasets/generate_dataset.py labels them.
+
+
     Returns:
         Tuple of:
         - error: relative error in % (falls back to absolute error in price units
@@ -44,7 +51,8 @@ def test_option_price_lsm(model: nn.Module, simulation, moneyness, K, r, r_norm,
     MLP error with simple-vs-Laguerre basis differences.
     """
     # LSM benchmark
-    lsm = LongstaffSchwartz(simulation, K, r, T, option_type, reg_type, max_degree)
+    lsm = LongstaffSchwartz(simulation, K, r, T, option_type, reg_type, max_degree,
+                            sigma=sigma, control_variate=control_variate)
     lsm.predict_payoff()
     option_price_lsm = lsm.calculate_option_price()
 
@@ -54,7 +62,8 @@ def test_option_price_lsm(model: nn.Module, simulation, moneyness, K, r, r_norm,
     # added back analytically to recover the actual price.
     model.eval()
     with torch.no_grad():
-        feat = torch.tensor([moneyness, T_norm, r_norm, sigma_norm], dtype=torch.float32).unsqueeze(0)
+        features = [moneyness, T_norm, r_norm, sigma_norm, option_type_feature(option_type)]
+        feat = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
         raw_output = model(feat).cpu().numpy()[0, 0]
 
     S0 = moneyness * K

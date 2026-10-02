@@ -11,5 +11,5 @@ def test_bundled_dataset_loads_and_has_expected_feature_width():
 
     assert len(dataset) > 0
     features, label = dataset[0]
-    assert features.shape == (4,)  # [S0/K, T_norm, r_norm, sigma_norm]
+    assert features.shape == (5,)  # [S0/K, T_norm, r_norm, sigma_norm, is_call]
     assert label.shape == ()

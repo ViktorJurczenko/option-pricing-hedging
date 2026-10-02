@@ -8,7 +8,7 @@ import time
 import argparse
 
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from AmericanOptionPricing.ML import smooth_intrinsic_value
+from AmericanOptionPricing.ML import smooth_intrinsic_value, option_type_feature
 from core.gbm import GBM
 
 @contextmanager
@@ -83,7 +83,7 @@ def gen_rdm_params(
 
     return  S0_repeated, K_val, sigma_repeated, r_repeated, T_repeated
 
-def gen_data(simulation, S0, K, r, T, option_type, max_degree, reg_type) -> float:
+def gen_data(simulation, S0, K, r, T, sigma, option_type, max_degree, reg_type) -> float:
     """
     Runs LSM and returns the time value (price minus a *smooth* approximation of
     intrinsic value - see AmericanOptionPricing.ML.smooth_intrinsic_value),
@@ -92,8 +92,16 @@ def gen_data(simulation, S0, K, r, T, option_type, max_degree, reg_type) -> floa
     kink there, which empirically showed up as the MLP's error spiking right at
     the money; the smooth version keeps the target smooth everywhere while still
     shrinking its dynamic range (deep ITM prices are much larger than OTM ones).
+
+    Calls use the European option as a control variate, which makes the
+    label the exact Black-Scholes price (an American call without dividends
+    is never exercised early); plain LSM exercises calls spuriously near
+    expiry (see BUGS.md). Puts use plain LSM, which was worth more out of
+    sample than the control-variate rule.
     """
-    lsm = LongstaffSchwartz(simulation, K, r, T, option_type, reg_type, max_degree)
+    is_call = option_type == "call"
+    lsm = LongstaffSchwartz(simulation, K, r, T, option_type, reg_type, max_degree,
+                            sigma=sigma if is_call else None, control_variate=is_call)
     lsm.predict_payoff()
     price = lsm.calculate_option_price()
     return (price - smooth_intrinsic_value(S0, K, option_type)) / K
@@ -112,12 +120,13 @@ def process_sample(
     log_T_std: float,
     n_paths: int,
     sampling: int,
-    option_type: str = "put",
+    option_types: tuple = ("call", "put"),
     max_degree: int = 3,
     reg_type: str = "simple"
-) -> tuple:
+) -> list:
     """
-    Process a single sample: simulate paths and compute LSM.
+    Process a single sample: simulate paths once and label them with LSM for
+    each option type.
 
     Args:
         S0: Initial stock price.
@@ -126,14 +135,13 @@ def process_sample(
         r: Risk-free rate.
         T: Time to maturity (in years).
         n_paths: Number of paths to simulate.
-        option_type: Type of option ("call" or "put").
+        option_types: Option types to label, each giving one row ("call", "put").
         max_degree: Maximum polynomial degree for LSM regression.
         reg_type: Basis used for the LSM regression ("simple" or "laguerre").
 
     Returns:
-        Tuple of:
-        - features
-        - label
+        List of (features, label) rows, one per option type, with features
+        [S0/K, T_norm, r_norm, sigma_norm, is_call]. Empty if the sample failed.
     """
     try:
         gbm        = GBM(sigma, S0, r)
@@ -143,14 +151,17 @@ def process_sample(
         r_norm     = (r - r_mean) / r_std
         T_norm     = (np.log(T) - log_T_mean) / log_T_std
 
-        features = [S0 / K, T_norm, r_norm, sigma_norm]
-        label    = gen_data(simulation, S0, K, r, T, option_type, max_degree, reg_type)
+        rows = []
+        for option_type in option_types:
+            features = [S0 / K, T_norm, r_norm, sigma_norm, option_type_feature(option_type)]
+            label    = gen_data(simulation, S0, K, r, T, sigma, option_type, max_degree, reg_type)
+            rows.append((features, label))
 
-        return features, label
+        return rows
 
     except Exception as e:
         print(f"Skipping sample (S0={S0}, K={K}, sigma={sigma}, r={r}, T={T}): {e}")
-        return None, None
+        return []
 
 def main():
     parser = argparse.ArgumentParser(description="American Option pricing data set generation")
@@ -160,7 +171,7 @@ def main():
     parser.add_argument("--samples_per_param", default=5, type=int, help="Number of distinct strikes (moneyness draws) generated per parameter combination.")
     parser.add_argument("--nb_jobs", default=6, type=int, help="The number of CPU cores used to generate the data set.")
     parser.add_argument("--sampling", default=52, type=int, help="Number of time steps per year (e.g., 365 for daily).")
-    parser.add_argument("--option_type", default="put", type=str, choices=["call", "put"], help="Type of option ('call' or 'put').")
+    parser.add_argument("--option_type", default="both", type=str, choices=["call", "put", "both"], help="Option type(s) to label: 'both' prices a call and a put on each simulation, one row each.")
     parser.add_argument("--max_degree", default=3, type=int, help="Maximum degree of the polynomial used in Longstaff-Schwartz regression.")
     parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="polynomials used for regression.")
     parser.add_argument("--output_dir", default="data", type=str, help="Directory to write the generated dataset and normalization stats to.")
@@ -199,11 +210,12 @@ def main():
     )
 
     n_total = args.nb_param_comb * args.samples_per_param
+    option_types = ("call", "put") if args.option_type == "both" else (args.option_type,)
 
     # Prepare arguments for parallel processing
     args_list = [
         (S0_val[i], K_val[i], sigma_val[i], log_sigma_mean, log_sigma_std, r_val[i], r_mean, r_std,
-         T_val[i], log_T_mean, log_T_std, args.path_per_sim, args.sampling, args.option_type, args.max_degree, args.reg_type)
+         T_val[i], log_T_mean, log_T_std, args.path_per_sim, args.sampling, option_types, args.max_degree, args.reg_type)
         for i in range(n_total)
     ]
 
@@ -213,21 +225,10 @@ def main():
         results = Parallel(n_jobs=args.nb_jobs, backend='loky', batch_size=10)(
             delayed(process_sample)(*a) for a in args_list)
 
-    # Combine results
-    features = np.zeros((n_total, 4))
-    labels   = np.zeros(n_total)
-
-    # Track which rows were actually filled
-    filled = np.zeros(n_total, dtype=bool)
-    for i, (feat, lab) in enumerate(results): # type: ignore
-        if feat is None or lab is None:
-            continue
-        features[i] = feat
-        labels[i]   = lab
-        filled[i]   = True
-
-    features = features[filled]
-    labels   = labels[filled]
+    # Combine results (failed samples returned no rows)
+    rows     = [row for sample_rows in results for row in sample_rows] # type: ignore
+    features = np.array([feat for feat, _ in rows], dtype=float).reshape(-1, 5)
+    labels   = np.array([lab for _, lab in rows], dtype=float)
 
     print("Dataset generated successfully!")
     print(f"Features shape: {features.shape}")

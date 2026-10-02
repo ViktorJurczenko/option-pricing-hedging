@@ -52,29 +52,33 @@ def run(args):
     moneyness = np.linspace(0.5, 1.5, 50)
     K_val     = np.linspace(90, 110, 50)
 
-    errors     = np.zeros(50)
-    abs_errors = np.zeros(50)
+    for option_type in ("put", "call"):
+        # Calls are benchmarked with the control variate, as the dataset labels them.
+        is_call    = option_type == "call"
+        errors     = np.zeros(50)
+        abs_errors = np.zeros(50)
 
-    for i in tqdm(range(50), desc="LSM benchmark", unit="sample"):
-        # A large, fixed-seed path count keeps the LSM "ground truth" itself from
-        # being a significant source of the reported error, especially near the
-        # ITM exercise boundary where the regression is most sensitive to noise.
-        gbm = GBM(sigma_val[i], moneyness[i] * K_val[i], r_val[i], seed=args.seed + i)
-        simulation = gbm.simulate_paths(20000, T_val[i], 52)
+        for i in tqdm(range(50), desc=f"LSM benchmark ({option_type})", unit="sample"):
+            # A large, fixed-seed path count keeps the LSM "ground truth" itself from
+            # being a significant source of the reported error, especially near the
+            # ITM exercise boundary where the regression is most sensitive to noise.
+            # Both types are priced on the same paths.
+            gbm = GBM(sigma_val[i], moneyness[i] * K_val[i], r_val[i], seed=args.seed + i)
+            simulation = gbm.simulate_paths(20000, T_val[i], 52)
 
-        errors[i], abs_errors[i] = test_option_price_lsm(
-            mlp, simulation, moneyness[i], K_val[i], r_val[i], r_val_norm[i], T_val[i], T_val_norm[i], sigma_val_norm[i],
-            reg_type=args.reg_type, max_degree=args.max_degree,
-        )
+            errors[i], abs_errors[i] = test_option_price_lsm(
+                mlp, simulation, moneyness[i], K_val[i], r_val[i], r_val_norm[i], T_val[i], T_val_norm[i], sigma_val_norm[i],
+                option_type=option_type, reg_type=args.reg_type, max_degree=args.max_degree,
+                sigma=sigma_val[i] if is_call else None, control_variate=is_call,
+            )
 
-    # test_option_price_lsm benchmarks against a put by default (option_type="put"),
-    # so ITM means S < K (moneyness < 1), not S > K.
-    itm_errors = errors[moneyness < 0.95]
-    atm_errors = errors[(moneyness >= 0.95) & (moneyness <= 1.05)]
-    otm_errors = errors[moneyness > 1.05]
-    otm_abs_errors = abs_errors[moneyness > 1.05]
+        # moneyness = S/K: a put is in the money below 1, a call above it.
+        itm = moneyness > 1.05 if is_call else moneyness < 0.95
+        otm = moneyness < 0.95 if is_call else moneyness > 1.05
+        atm = (moneyness >= 0.95) & (moneyness <= 1.05)
 
-    print(f"ITM avg error: {np.mean(itm_errors):.2f}%")
-    print(f"ATM avg error: {np.mean(atm_errors):.2f}%")
-    print(f"OTM avg error: {np.mean(otm_errors):.2f}%")
-    print(f"OTM avg abs error: {np.mean(otm_abs_errors):.4f}")
+        print(f"\n{option_type.capitalize()}:")
+        print(f"ITM avg error: {np.mean(errors[itm]):.2f}%")
+        print(f"ATM avg error: {np.mean(errors[atm]):.2f}%")
+        print(f"OTM avg error: {np.mean(errors[otm]):.2f}%")
+        print(f"OTM avg abs error: {np.mean(abs_errors[otm]):.4f}")

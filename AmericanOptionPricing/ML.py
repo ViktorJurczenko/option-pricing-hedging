@@ -62,12 +62,19 @@ def smooth_intrinsic_value(S, K, option_type: str = "put", beta_frac: float = 0.
     softplus_z = np.maximum(z, 0.0) + np.log1p(np.exp(-np.abs(z)))  # numerically stable softplus(z)
     return beta * softplus_z
 
+def option_type_feature(option_type: str) -> float:
+    """The MLP's 5th input, `is_call`: 1.0 for a call, 0.0 for a put."""
+    if option_type not in ("call", "put"):
+        raise ValueError("option_type must be 'call' or 'put'")
+    return 1.0 if option_type == "call" else 0.0
+
 class MLP(nn.Module):
 
     def __init__(self):
+        """Inputs: [S0/K, T_norm, r_norm, sigma_norm, is_call]."""
         super(MLP, self).__init__()
 
-        self.layer1 = nn.Linear(4, 64)
+        self.layer1 = nn.Linear(5, 64)
         self.bn1    = nn.BatchNorm1d(64)
         self.drop1  = nn.Dropout(0.1)
 
