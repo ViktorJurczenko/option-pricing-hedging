@@ -29,3 +29,9 @@ def test_discounting_is_applied(predictions):
 def test_invalid_option_type_raises(predictions):
     with pytest.raises(ValueError):
         MonteCarlo(predictions, option_type="invalid")
+
+@pytest.mark.parametrize("T", [0, 0.0, -1])
+def test_non_positive_maturity_raises(predictions, T):
+    mc = MonteCarlo(predictions, strike=100.0, risk_free_rate=0.05, option_type="call")
+    with pytest.raises(ValueError, match="T"):
+        mc.calculate_option_price(T=T)

@@ -57,7 +57,12 @@ class MonteCarlo(OptionPricing):
 
         Returns:
             option_price: Estimated option price.
+
+        Raises:
+            ValueError: if T <= 0.
         """
+        if T <= 0:
+            raise ValueError("T (time to maturity) must be > 0")
 
         payoffs = self.calculate_payoffs()
         # Discount the average payoff to present value

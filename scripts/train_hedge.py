@@ -1,4 +1,5 @@
 import argparse
+import math
 
 from core.gbm import GBM
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
@@ -8,6 +9,14 @@ from AmericanHedging.ReplayBuffer import ReplayBuffer
 from AmericanHedging.RLPolicy import RLPolicy
 from AmericanHedging.Hedge import train
 from AmericanHedging.option_value import make_option_value_fn
+
+def _positive_float(value: str) -> float:
+    """argparse type for a finite float that must be > 0 (argparse turns
+    the ValueError into a usage error naming the flag)."""
+    number = float(value)
+    if not (math.isfinite(number) and number > 0):
+        raise ValueError(f"{value} is not a finite number > 0")
+    return number
 
 def add_arguments(parser):
     parser.add_argument("--sigma", default=0.2, type=float, help="Volatility (standard deviation of returns).")
@@ -30,7 +39,7 @@ def add_arguments(parser):
     parser.add_argument("--replay_buffer_size", default=100_000, type=int, help="Max number of transitions kept in the replay buffer.")
     parser.add_argument("--prop_tc", default=0.001, type=float, help="Proportional trading cost: tc * |trade| * S_t is charged on every rebalance (training and validation envs).")
     parser.add_argument("--fixed_tc", default=0.0, type=float, help="Flat cost charged whenever the hedge position is changed, regardless of trade size.")
-    parser.add_argument("--risk_lambda", default=1.0, type=float, help="Mean-variance penalty coefficient: the critic/actor train on x - risk_lambda * x**2 with x = reward_scale * reward, while logged/checkpointed reward stays raw P&L. Must be > 0 for the policy to have any incentive to hedge (every hedge has ~the same expected P&L; hedging only reduces its variance).")
+    parser.add_argument("--risk_lambda", default=1.0, type=_positive_float, help="Mean-variance penalty coefficient: the critic/actor train on x - risk_lambda * x**2 with x = reward_scale * reward, while logged/checkpointed reward stays raw P&L. Must be > 0 for the policy to have any incentive to hedge (every hedge has ~the same expected P&L; hedging only reduces its variance).")
     parser.add_argument("--reward_mode", default="accounting", type=str, choices=["terminal", "accounting"], help="'accounting' subtracts the option's value change every step, so each step's reward is the local hedging error (what makes --risk_lambda a real mean-variance penalty); 'terminal' only subtracts the payoff at exercise.")
     parser.add_argument("--gamma", default=1.0, type=float, help="SAC discount factor. Episodes are finite and time is in the state, so no discounting is needed by default.")
     parser.add_argument("--reward_scale", default=100.0, type=float, help="Multiplier on the env reward before the risk penalty, so per-step rewards (~1e-2) aren't drowned out by the entropy term.")

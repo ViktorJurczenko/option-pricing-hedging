@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -19,6 +21,15 @@ def add_arguments(parser):
     parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="Must match the Longstaff-Schwartz config used to generate the training dataset's labels.")
 
 def run(args):
+    # Checked before AmericanOptionDataset is built: otherwise a missing dataset
+    # surfaces as a bare np.load error, and a missing norm file only after the
+    # regression tests have already run.
+    for flag, path in [("--dataset_path", args.dataset_path),
+                       ("--features_norm_path", args.features_norm_path),
+                       ("--checkpoint_path", args.checkpoint_path)]:
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"{flag}: no file at {path} (generate the dataset with "
+                                    "`python -m datasets.generate_dataset`, train with `train-ml`).")
     dataset_test = AmericanOptionDataset(args.dataset_path, is_train=False, split_ratio=args.split_ratio, seed=args.seed)
 
     mlp = MLP()

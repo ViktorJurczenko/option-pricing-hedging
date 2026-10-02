@@ -25,9 +25,15 @@ class BlackScholes(OptionPricing):
             strike: Strike price of the option.
             risk_free_rate: Risk-free interest rate.
             option_type: Type of option ("call" or "put").
+
+        Raises:
+            ValueError: if option_type is not "call"/"put" or sigma <= 0. The
+                pricing methods raise it too for a time to maturity T <= 0.
         """
         if option_type not in ("call", "put"):
             raise ValueError("option_type must be 'call' or 'put'")
+        if sigma <= 0:
+            raise ValueError("sigma must be > 0")
 
         self.sigma = sigma
         self.start_price = start_price
@@ -36,6 +42,8 @@ class BlackScholes(OptionPricing):
         self.option_type = option_type
 
     def _d1(self, T: float):
+        if np.any(np.asarray(T) <= 0):
+            raise ValueError("T (time to maturity) must be > 0")
         return (np.log(self.start_price / self.strike) + (self.risk_free_rate + (self.sigma ** 2) / 2) * T) / (self.sigma * np.sqrt(T))
 
     def calculate_option_price(self, T: float = 1) -> float:

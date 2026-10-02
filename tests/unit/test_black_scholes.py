@@ -72,3 +72,28 @@ def test_delta_and_gamma_are_vectorized_over_start_price():
     bs = BlackScholes(start_price=S_GRID, **COMMON)
     assert bs.calculate_delta(1.0).shape == S_GRID.shape
     assert bs.calculate_gamma(1.0).shape == S_GRID.shape
+
+
+def test_known_textbook_values_at_the_money():
+    # S=K=100, r=5%, sigma=20%, T=1: the standard reference call 10.4506 / put 5.5735.
+    common = dict(sigma=0.2, start_price=100.0, strike=100.0, risk_free_rate=0.05)
+    assert BlackScholes(option_type="call", **common).calculate_option_price(1.0) == pytest.approx(10.4506, abs=5e-5)
+    assert BlackScholes(option_type="put", **common).calculate_option_price(1.0) == pytest.approx(5.5735, abs=5e-5)
+
+
+def test_non_positive_sigma_raises():
+    with pytest.raises(ValueError, match="sigma"):
+        BlackScholes(sigma=0.0)
+
+
+@pytest.mark.parametrize("T", [0.0, -1.0])
+def test_non_positive_maturity_raises(T):
+    # One guard in _d1 covers price, delta and gamma alike.
+    with pytest.raises(ValueError, match="T"):
+        BlackScholes(**COMMON).calculate_option_price(T)
+
+
+def test_any_non_positive_element_of_an_array_maturity_raises():
+    bs = BlackScholes(start_price=S_GRID, **COMMON)
+    with pytest.raises(ValueError, match="T"):
+        bs.calculate_option_price(np.array([1.0, 1.0, 0.0, 1.0, 1.0]))

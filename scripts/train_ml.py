@@ -1,4 +1,6 @@
 import time
+from pathlib import Path
+
 import torch
 
 from torch.utils.data import DataLoader, random_split
@@ -16,6 +18,9 @@ def add_arguments(parser):
     parser.add_argument("--checkpoint_path", default="checkpoints/best_model.pth", type=str, help="Where to save the best model.")
 
 def run(args):
+    if not Path(args.dataset_path).is_file():
+        raise FileNotFoundError(f"Dataset not found at {args.dataset_path}; generate it with "
+                                "`python -m datasets.generate_dataset` or pass --dataset_path.")
     dataset_train = AmericanOptionDataset(args.dataset_path, is_train=True, split_ratio=args.split_ratio, seed=args.seed)
 
     mlp = MLP()

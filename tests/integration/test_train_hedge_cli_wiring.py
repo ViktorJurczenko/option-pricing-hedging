@@ -14,8 +14,6 @@ kept small/fast via tiny nb_predictions/sampling/maturity), while the actual
 training loop (AmericanHedging.Hedge.train) is stubbed out so the test stays
 fast and can assert on exactly what run() passed it.
 """
-import argparse
-
 import numpy as np
 import pytest
 
@@ -23,50 +21,36 @@ from core.gbm import GBM
 from AmericanHedging.HedgeEnv import HedgingEnv
 
 import scripts.train_hedge as train_hedge_script
+from tests.helpers import make_parser, parse_script_args
 
 
 def _make_parser():
-    parser = argparse.ArgumentParser()
-    train_hedge_script.add_arguments(parser)
-    return parser
+    return make_parser(train_hedge_script)
 
 
-def test_add_arguments_registers_lr_with_default_1e_minus_4():
-    args = _make_parser().parse_args([])
-    assert args.lr == pytest.approx(1e-4)
+@pytest.mark.parametrize("flag,default", [
+    ("lr", 1e-4),
+    ("alpha", 0.2),
+    ("reward_mode", "accounting"),
+    ("gamma", 1.0),
+    ("reward_scale", 100.0),
+    ("auto_alpha", True),
+    ("alpha_lr", None),
+    # risk_lambda=0 gives the policy no incentive to hedge at all (every hedge
+    # ratio has about the same expected P&L; only the variance penalty rewards
+    # reducing it): the plateau-on-no-hedge bug that made 1.0 the default.
+    ("risk_lambda", 1.0),
+])
+def test_add_arguments_defaults(flag, default):
+    value = getattr(_make_parser().parse_args([]), flag)
+    assert value == (pytest.approx(default) if isinstance(default, float) else default)
 
 
-def test_add_arguments_registers_alpha_with_default_0_2():
-    args = _make_parser().parse_args([])
-    assert args.alpha == pytest.approx(0.2)
-
-
-def test_add_arguments_lr_and_alpha_are_overridable_and_parsed_as_float():
-    args = _make_parser().parse_args(["--lr", "3e-4", "--alpha", "0.05"])
-    assert args.lr == pytest.approx(3e-4)
-    assert args.alpha == pytest.approx(0.05)
-    assert isinstance(args.lr, float)
-    assert isinstance(args.alpha, float)
-
-
-def test_add_arguments_registers_reward_mode_default_accounting():
-    args = _make_parser().parse_args([])
-    assert args.reward_mode == "accounting"
-
-
-def test_add_arguments_registers_gamma_default_1_0():
-    args = _make_parser().parse_args([])
-    assert args.gamma == pytest.approx(1.0)
-
-
-def test_add_arguments_registers_reward_scale_default_100_0():
-    args = _make_parser().parse_args([])
-    assert args.reward_scale == pytest.approx(100.0)
-
-
-def test_add_arguments_registers_auto_alpha_default_true():
-    args = _make_parser().parse_args([])
-    assert args.auto_alpha is True
+@pytest.mark.parametrize("flag", ["lr", "alpha", "alpha_lr", "risk_lambda"])
+def test_add_arguments_float_flags_are_overridable_and_parsed_as_float(flag):
+    args = _make_parser().parse_args([f"--{flag}", "0.05"])
+    assert getattr(args, flag) == pytest.approx(0.05)
+    assert isinstance(getattr(args, flag), float)
 
 
 def test_add_arguments_no_auto_alpha_flag_sets_false():
@@ -74,187 +58,43 @@ def test_add_arguments_no_auto_alpha_flag_sets_false():
     assert args.auto_alpha is False
 
 
-def test_add_arguments_registers_alpha_lr_default_none():
-    args = _make_parser().parse_args([])
-    assert args.alpha_lr is None
+@pytest.mark.parametrize("value", ["0", "-1", "nan"])
+def test_add_arguments_rejects_non_positive_or_non_finite_risk_lambda(value, capsys):
+    # risk_lambda <= 0 would silently train a policy with no reason to hedge
+    # (see BUGS.md); the parser must reject it, naming the flag.
+    with pytest.raises(SystemExit) as excinfo:
+        _make_parser().parse_args(["--risk_lambda", value])
+    assert excinfo.value.code == 2
+    assert "--risk_lambda" in capsys.readouterr().err
 
 
-def test_add_arguments_alpha_lr_overridable_and_parsed_as_float():
-    args = _make_parser().parse_args(["--alpha_lr", "0.05"])
-    assert args.alpha_lr == pytest.approx(0.05)
-    assert isinstance(args.alpha_lr, float)
+def _make_run_args(**overrides):
+    # Validation is off (val_paths=0) so most tests observe exactly one
+    # LSM/env (the training ones); the validation tests opt in explicitly.
+    return parse_script_args(train_hedge_script, **{
+        "n_episodes": 1, "warmup_steps": 0, "replay_buffer_size": 1000, "val_paths": 0, **overrides})
 
 
-def test_add_arguments_risk_lambda_default_changed_to_1_0():
-    """Regression guard for the default change: a hedge trained with
-    risk_lambda=0 has no incentive to hedge at all (every hedge ratio has
-    about the same expected P&L; only the variance penalty rewards actually
-    reducing it), which is exactly the plateau-on-no-hedge-baseline bug this
-    whole change fixes."""
-    args = _make_parser().parse_args([])
-    assert args.risk_lambda == pytest.approx(1.0)
+@pytest.mark.parametrize("overrides,expected", [
+    # run() must forward whatever args carries, defaults included, rather than
+    # leaving Hedge.train()'s own defaults (lr 1e-4, alpha 0.2, gamma 0.99,
+    # reward_scale 1.0, auto_alpha False, alpha_lr None) in effect.
+    (dict(), dict(lr=1e-4, alpha=0.2, gamma=1.0, reward_scale=100.0, auto_alpha=True, alpha_lr=None)),
+    (dict(lr=9.5e-3, alpha=0.77), dict(lr=9.5e-3, alpha=0.77)),
+    (dict(lr=0.5, alpha=0.5), dict(lr=0.5, alpha=0.5)),
+    (dict(gamma=0.5, reward_scale=25.0, auto_alpha=False), dict(gamma=0.5, reward_scale=25.0, auto_alpha=False)),
+    (dict(alpha_lr=0.03), dict(alpha_lr=0.03)),
+], ids=["defaults", "lr_alpha", "lr_alpha_far_from_defaults", "gamma_scale_auto_alpha", "alpha_lr"])
+def test_run_forwards_hyperparameters_to_train(monkeypatch, overrides, expected):
+    """Regression for flags existing on the parser but never reaching train()."""
+    captured_kwargs = _capture_train(monkeypatch)
+    train_hedge_script.run(_make_run_args(**overrides))
 
-
-def _make_run_args(lr, alpha, reward_mode="accounting", gamma=1.0,
-                    reward_scale=100.0, auto_alpha=True, risk_lambda=0.0,
-                    option_type="call", alpha_lr=None, residual_scale=0.1, action_mode="residual",
-                    val_paths=0, val_every=50, val_metric="std", val_seed=None,
-                    fixed_tc=0.0, prop_tc=0.001, band_max=0.2):
-    # val_paths defaults to 0 (validation off) so the pre-existing tests keep
-    # observing exactly one LSM/env (the training ones); the validation tests
-    # below opt in explicitly.
-    return argparse.Namespace(
-        sigma=0.2,
-        start_price=100.0,
-        risk_free_rate=0.05,
-        seed=42,
-        nb_predictions=50,
-        maturity=0.1,
-        sampling=20,
-        strike=100.0,
-        option_type=option_type,
-        reg_type="simple",
-        max_degree=2,
-        prop_tc=prop_tc,
-        fixed_tc=fixed_tc,
-        band_max=band_max,
-        risk_lambda=risk_lambda,
-        reward_mode=reward_mode,
-        gamma=gamma,
-        reward_scale=reward_scale,
-        auto_alpha=auto_alpha,
-        n_episodes=1,
-        warmup_steps=0,
-        update_every=10,
-        grad_steps_per_update=1,
-        lr=lr,
-        alpha=alpha,
-        alpha_lr=alpha_lr,
-        residual_scale=residual_scale,
-        action_mode=action_mode,
-        replay_buffer_size=1000,
-        val_paths=val_paths,
-        val_every=val_every,
-        val_metric=val_metric,
-        val_seed=val_seed,
-        checkpoint_path="unused.pth",
-    )
-
-
-def test_run_forwards_lr_and_alpha_to_train(monkeypatch):
-    """Regression test for the exact bug this change fixes: --lr/--alpha
-    existing as CLI flags but never reaching the train() call. Stubs out
-    train() and asserts run() actually passed args.lr/args.alpha through as
-    keyword arguments, rather than silently dropping them and leaving
-    Hedge.train()'s hardcoded defaults (1e-4/0.2) in effect."""
-    captured_kwargs = {}
-
-    def fake_train(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-
-    monkeypatch.setattr(train_hedge_script, "train", fake_train)
-
-    args = _make_run_args(lr=9.5e-3, alpha=0.77)
-    train_hedge_script.run(args)
-
-    assert captured_kwargs["lr"] == pytest.approx(9.5e-3)
-    assert captured_kwargs["alpha"] == pytest.approx(0.77)
-
-
-def test_run_forwards_non_default_lr_and_alpha_distinctly_from_defaults(monkeypatch):
-    """Sanity check on the test above: confirms the assertion isn't
-    vacuously true because run() happens to always pass Hedge.train()'s own
-    hardcoded defaults (1e-4/0.2) regardless of what args carries."""
-    captured_kwargs = {}
-
-    def fake_train(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-
-    monkeypatch.setattr(train_hedge_script, "train", fake_train)
-
-    args = _make_run_args(lr=1e-4, alpha=0.2)  # matches Hedge.train()'s defaults
-    train_hedge_script.run(args)
-    assert captured_kwargs["lr"] == pytest.approx(1e-4)
-    assert captured_kwargs["alpha"] == pytest.approx(0.2)
-
-    captured_kwargs.clear()
-    args = _make_run_args(lr=0.5, alpha=0.5)  # deliberately far from either default
-    train_hedge_script.run(args)
-    assert captured_kwargs["lr"] == pytest.approx(0.5)
-    assert captured_kwargs["alpha"] == pytest.approx(0.5)
-
-
-def test_run_forwards_gamma_reward_scale_and_auto_alpha_to_train(monkeypatch):
-    """Regression test for the same class of bug as --lr/--alpha above: the
-    later --gamma/--reward_scale/--auto_alpha flags must actually reach
-    Hedge.train(), not just exist on the parser."""
-    captured_kwargs = {}
-
-    def fake_train(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-
-    monkeypatch.setattr(train_hedge_script, "train", fake_train)
-
-    args = _make_run_args(lr=1e-4, alpha=0.2, gamma=0.5, reward_scale=25.0, auto_alpha=False)
-    train_hedge_script.run(args)
-
-    assert captured_kwargs["gamma"] == pytest.approx(0.5)
-    assert captured_kwargs["reward_scale"] == pytest.approx(25.0)
-    assert captured_kwargs["auto_alpha"] is False
-
-
-def test_run_forwards_default_gamma_reward_scale_and_auto_alpha_distinctly(monkeypatch):
-    """Sanity check on the test above: confirms the assertion isn't
-    vacuously true because run() happens to always pass Hedge.train()'s
-    hardcoded/CLI defaults regardless of what args carries."""
-    captured_kwargs = {}
-
-    def fake_train(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-
-    monkeypatch.setattr(train_hedge_script, "train", fake_train)
-
-    args = _make_run_args(lr=1e-4, alpha=0.2)  # gamma=1.0, reward_scale=100.0, auto_alpha=True
-    train_hedge_script.run(args)
-    assert captured_kwargs["gamma"] == pytest.approx(1.0)
-    assert captured_kwargs["reward_scale"] == pytest.approx(100.0)
-    assert captured_kwargs["auto_alpha"] is True
-
-
-def test_run_forwards_alpha_lr_to_train(monkeypatch):
-    """Regression test for the same class of bug as --lr/--alpha above:
-    --alpha_lr must actually reach Hedge.train(), not just exist on the
-    parser. args.alpha_lr defaults to None (see _make_run_args), so run()
-    would raise AttributeError before this if the field were missing --
-    checked here for a non-default explicit value."""
-    captured_kwargs = {}
-
-    def fake_train(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-
-    monkeypatch.setattr(train_hedge_script, "train", fake_train)
-
-    args = _make_run_args(lr=1e-4, alpha=0.2, alpha_lr=0.03)
-    train_hedge_script.run(args)
-
-    assert captured_kwargs["alpha_lr"] == pytest.approx(0.03)
-
-
-def test_run_forwards_default_alpha_lr_of_none(monkeypatch):
-    """Sanity check on the test above: confirms run() forwards whatever
-    args.alpha_lr carries, including the None default, rather than always
-    passing a hardcoded value regardless of args."""
-    captured_kwargs = {}
-
-    def fake_train(*args, **kwargs):
-        captured_kwargs.update(kwargs)
-
-    monkeypatch.setattr(train_hedge_script, "train", fake_train)
-
-    args = _make_run_args(lr=1e-4, alpha=0.2)  # alpha_lr=None by default
-    train_hedge_script.run(args)
-
-    assert captured_kwargs["alpha_lr"] is None
+    for key, value in expected.items():
+        if isinstance(value, float):
+            assert captured_kwargs[key] == pytest.approx(value), key
+        else:
+            assert captured_kwargs[key] is value, key
 
 
 def test_run_terminal_mode_does_not_build_a_value_fn(monkeypatch):
@@ -272,7 +112,7 @@ def test_run_terminal_mode_does_not_build_a_value_fn(monkeypatch):
     monkeypatch.setattr(train_hedge_script, "make_option_value_fn", fake_make_option_value_fn)
     monkeypatch.setattr(train_hedge_script, "train", lambda *args, **kwargs: None)
 
-    args = _make_run_args(lr=1e-4, alpha=0.2, reward_mode="terminal")
+    args = _make_run_args(reward_mode="terminal")
     train_hedge_script.run(args)  # must not raise
 
     assert calls == []
@@ -289,7 +129,7 @@ def test_run_accounting_mode_builds_a_value_fn_via_make_option_value_fn(monkeypa
     monkeypatch.setattr(train_hedge_script, "make_option_value_fn", spy)
     monkeypatch.setattr(train_hedge_script, "train", lambda *args, **kwargs: None)
 
-    args = _make_run_args(lr=1e-4, alpha=0.2, reward_mode="accounting")
+    args = _make_run_args(reward_mode="accounting")
     train_hedge_script.run(args)
 
     assert len(calls) == 1
@@ -312,13 +152,13 @@ def test_run_passes_reward_mode_and_value_fn_presence_to_hedging_env(monkeypatch
     monkeypatch.setattr(train_hedge_script, "HedgingEnv", SpyHedgingEnv)
     monkeypatch.setattr(train_hedge_script, "train", lambda *args, **kwargs: None)
 
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="accounting", val_paths=val_paths))
+    train_hedge_script.run(_make_run_args(reward_mode="accounting", val_paths=val_paths))
     assert len(captured) == (2 if val_paths else 1)
     assert captured[-1]["reward_mode"] == "accounting"
     assert captured[-1]["value_fn"] is not None
 
     captured.clear()
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="terminal", val_paths=val_paths))
+    train_hedge_script.run(_make_run_args(reward_mode="terminal", val_paths=val_paths))
     assert captured[-1]["reward_mode"] == "terminal"
     assert captured[-1]["value_fn"] is None
 
@@ -340,7 +180,7 @@ def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type
     monkeypatch.setattr(train_hedge_script, "LongstaffSchwartz", spy)
     monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: None)
 
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, option_type=option_type, val_paths=val_paths))
+    train_hedge_script.run(_make_run_args(option_type=option_type, val_paths=val_paths))
 
     assert seen == [expected] * (2 if val_paths else 1)
 
@@ -361,7 +201,7 @@ def test_run_builds_policy_with_residual_scale_from_args(monkeypatch):
         captured["scale"] = policy.residual_scale.item()
 
     monkeypatch.setattr(train_hedge_script, "train", fake_train)
-    args = _make_run_args(lr=1e-4, alpha=0.2, residual_scale=0.37)
+    args = _make_run_args(residual_scale=0.37)
     train_hedge_script.run(args)
 
     assert captured["scale"] == pytest.approx(0.37)
@@ -381,10 +221,12 @@ def test_run_builds_policy_with_action_mode_from_args(monkeypatch, mode, flag):
 
     def fake_train(policy, *a, **k):
         captured["flag"] = policy.gap_fraction.item()
+        captured["mode"] = policy.action_mode
 
     monkeypatch.setattr(train_hedge_script, "train", fake_train)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, action_mode=mode))
+    train_hedge_script.run(_make_run_args(action_mode=mode))
 
+    assert captured["mode"] == mode
     assert captured["flag"] == flag
 
 
@@ -410,7 +252,7 @@ def _capture_train(monkeypatch):
 
 def test_run_forwards_validation_settings_and_builds_terminal_validation_env(monkeypatch):
     captured = _capture_train(monkeypatch)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, reward_mode="accounting", val_paths=20,
+    train_hedge_script.run(_make_run_args(reward_mode="accounting", val_paths=20,
                                           val_every=7, val_metric="cvar", fixed_tc=0.25))
     assert (captured["val_paths"], captured["val_every"], captured["val_metric"]) == (20, 7, "cvar")
     val_env = captured["val_env"]
@@ -421,14 +263,14 @@ def test_run_forwards_validation_settings_and_builds_terminal_validation_env(mon
 
 def test_run_with_val_paths_zero_disables_validation(monkeypatch):
     captured = _capture_train(monkeypatch)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=0))
+    train_hedge_script.run(_make_run_args(val_paths=0))
     assert captured["val_env"] is None
 
 
 @pytest.mark.parametrize("val_seed,expected_seed", [(None, 42 + 1000), (7, 7)])
 def test_run_simulates_validation_paths_with_val_seed(monkeypatch, val_seed, expected_seed):
     captured = _capture_train(monkeypatch)
-    args = _make_run_args(lr=1e-4, alpha=0.2, val_paths=20, val_seed=val_seed)
+    args = _make_run_args(val_paths=20, val_seed=val_seed)
     train_hedge_script.run(args)
 
     expected = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=expected_seed).simulate_paths(50, 0.1, 20)
@@ -442,7 +284,7 @@ def test_run_leaves_global_rng_at_the_training_seed_state(monkeypatch, val_paths
     warmup actions) is the --seed one, identical with or without validation."""
     draws = []
     monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: draws.append(np.random.random(3)))
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=val_paths))
+    train_hedge_script.run(_make_run_args(val_paths=val_paths))
 
     # Reference: the global RNG right after the --seed simulation (GBM seeds
     # np.random and then draws its normals), with nothing reseeding afterwards.
@@ -464,7 +306,7 @@ def test_run_passes_prop_tc_to_validation_env(monkeypatch):
     as training. 0.0123 is distinct from HedgingEnv's 0.001 default so a
     dropped kwarg is caught."""
     captured = _capture_train(monkeypatch)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=20, prop_tc=0.0123))
+    train_hedge_script.run(_make_run_args(val_paths=20, prop_tc=0.0123))
     assert captured["val_env"].tc == pytest.approx(0.0123)
 
 
@@ -479,7 +321,7 @@ def test_run_passes_prop_tc_to_training_env(monkeypatch):
 
     monkeypatch.setattr(train_hedge_script, "HedgingEnv", SpyHedgingEnv)
     monkeypatch.setattr(train_hedge_script, "train", lambda *a, **k: None)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, val_paths=20, prop_tc=0.0123))
+    train_hedge_script.run(_make_run_args(val_paths=20, prop_tc=0.0123))
 
     assert len(envs) == 2  # validation env first, training env last
     assert [e.tc for e in envs] == [pytest.approx(0.0123)] * 2
@@ -502,7 +344,7 @@ def test_run_band_mode_builds_2d_policy_and_critics_with_band_max(monkeypatch):
         captured.update(policy=policy, critic1=critic1, critic2=critic2)
 
     monkeypatch.setattr(train_hedge_script, "train", fake_train)
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, action_mode="band", band_max=0.35))
+    train_hedge_script.run(_make_run_args(action_mode="band", band_max=0.35))
 
     policy = captured["policy"]
     assert policy.action_mode == "band" and policy.action_dim == 2
@@ -515,6 +357,6 @@ def test_run_non_band_mode_keeps_1d_critics_and_ignores_band_max(monkeypatch):
     captured = {}
     monkeypatch.setattr(train_hedge_script, "train",
                         lambda policy, env, rb, c1, c2, **k: captured.update(policy=policy, critic=c1))
-    train_hedge_script.run(_make_run_args(lr=1e-4, alpha=0.2, action_mode="gap_fraction", band_max=0.35))
+    train_hedge_script.run(_make_run_args(action_mode="gap_fraction", band_max=0.35))
     assert captured["policy"].action_dim == 1 and captured["policy"].band_max.item() == 0.0
     assert captured["critic"].net[0].in_features == 5 + 1

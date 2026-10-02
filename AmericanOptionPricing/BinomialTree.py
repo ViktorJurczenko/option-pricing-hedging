@@ -27,10 +27,21 @@ class BinomialTree(OptionPricing):
             strike: Strike price of the option.
             risk_free_rate: Risk-free interest rate.
             maturity: Time to maturity in years (defaults to 1).
+            nb_steps: Number of tree steps.
             option_type: Type of option ("call" or "put").
+
+        Raises:
+            ValueError: if option_type is not "call"/"put", sigma <= 0,
+                maturity <= 0 or nb_steps < 1.
         """
         if option_type not in ["call", "put"]:
             raise ValueError("option_type must be 'call' or 'put'")
+        if sigma <= 0:
+            raise ValueError("sigma must be > 0")
+        if maturity <= 0:
+            raise ValueError("maturity must be > 0")
+        if nb_steps < 1:
+            raise ValueError("nb_steps must be >= 1")
 
         self.sigma = sigma
         self.start_price = start_price
