@@ -73,7 +73,7 @@ class LongstaffSchwartz(OptionPricing):
         self.exercise_time = np.full(simulation.shape[1], simulation.shape[0] - 1) # Default = maturity (i.e. not early exercised)
         self.delta = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) # No delta at the end
         self.gamma = np.zeros((simulation.shape[0] - 1, simulation.shape[1]))
-        self.payoff = np.zeros(simulation.shape)
+        self.payoff = None # Allocated by predict_payoff(); None marks an unfitted model
         self.strike = strike
         self.risk_free_rate = risk_free_rate
         self.maturity = maturity
@@ -178,6 +178,7 @@ class LongstaffSchwartz(OptionPricing):
         """
         dt = self.dt
 
+        self.payoff = np.zeros(self.simulation.shape)
         self.payoff[-1] = self._intrinsic(self.simulation[-1])
 
         for i in range(self.simulation.shape[0] - 2, -1, -1): # Traverses prediction backward starting from the second last element
@@ -197,6 +198,9 @@ class LongstaffSchwartz(OptionPricing):
     def calculate_option_price(self, T: float = 1) -> float:
         # It's important to note that we don't use T here because we are evaluating the price of an american option which can be exercised
         # at any time so the time to maturity is pointless in american option pricing.
+        if self.payoff is None:
+            # Same error as BinomialTree, which has no payoff until predict_payoff().
+            raise AttributeError("call predict_payoff() before calculate_option_price()")
         if self.control_variate:
             # Same control variate as the regressions: exact European price plus
             # the simulated early-exercise premium (cashflow minus European payoff).

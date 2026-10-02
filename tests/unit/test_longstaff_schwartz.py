@@ -9,6 +9,7 @@ from EuropeanOptionPricing.BlackScholes import BlackScholes
 def test_calculate_option_price_is_mean_of_time_zero_payoff():
     simulation = np.ones((3, 5)) * 100.0
     lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put")
+    lsm.predict_payoff()  # required before pricing; the row-0 payoffs are then overwritten by hand
     lsm.payoff[0] = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 
     assert lsm.calculate_option_price() == pytest.approx(3.0)
@@ -30,15 +31,6 @@ def test_path_that_is_always_out_of_the_money_never_exercises_early():
 
     assert np.all(lsm.exercise_time == simulation.shape[0] - 1)
     assert np.all(lsm.payoff[0] == 0)
-
-def test_deep_itm_put_exercises_immediately():
-    # Put, strike 100, price constant at 1 the whole time -> always deep ITM,
-    # exercising now is always at least as good as any regression-estimated continuation.
-    simulation = np.full((4, 3), 1.0)
-    lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2)
-    lsm.predict_payoff()
-
-    assert lsm.calculate_option_price() == pytest.approx(99.0)
 
 @pytest.mark.parametrize("option_type,reg_type,max_degree", [
     ("invalid", "simple", 2),
@@ -123,7 +115,8 @@ def test_otm_call_delta_near_expiry_is_near_zero_not_extrapolated(call_lsm):
 
 
 def test_call_delta_stays_bounded_everywhere(call_lsm):
-    # Old approach produced |delta| of 13-48; measured max here <= 1.3.
+    # Old approach produced |delta| of 13-48; measured max |delta| is 1.1-1.5 over seeds 1-4 and 42
+    # (regression noise slightly above the true bound of 1), so 2.0 is the tightest round bound with margin.
     assert np.abs(call_lsm.delta).max() < 2.0
 
 
@@ -240,15 +233,16 @@ def test_control_variate_false_matches_omitting_the_argument():
 
 
 def test_put_with_control_variate_runs_and_prices_near_tree_price():
-    # Put still gets a sane value: between the European price and a band
-    # around the binomial reference (CRR tree at T=1 is 6.09). The band (+-0.4)
-    # covers the measured 6.12-6.13 (10000 paths, seeds 1 and 42) plus the
-    # smaller sample here.
-    lsm = _lsm("put", sigma=SIGMA, control_variate=True)
+    # Put still gets a sane value: between the European price and a band around the
+    # binomial reference (CRR(500) put = 6.0888). Uses 20000 paths (seed 42): measured
+    # error vs the tree is -0.04 here and at most 0.14 over seeds 1-4, so +-0.3 is ~2x worst.
+    sim = GBM(sigma=SIGMA, start_price=100.0, risk_free_rate=R, seed=42).simulate_paths(20000, T, N_STEPS)
+    lsm = LongstaffSchwartz(sim, K, R, T, "put", "simple", 3, sigma=SIGMA, control_variate=True)
+    lsm.predict_payoff()
     european = float(BlackScholes(SIGMA, 100.0, K, R, "put").calculate_option_price(T))
     price = lsm.calculate_option_price()
     assert price > european - 0.2
-    assert abs(price - 6.09) < 0.4
+    assert abs(price - 6.0888) < 0.3
     assert lsm.exercise_time.min() >= 0 and lsm.exercise_time.max() == N_STEPS
     assert (lsm.exercise_time < N_STEPS).mean() > 0.2  # puts do exercise early
 
@@ -284,3 +278,37 @@ def test_constant_itm_put_exercises_immediately_on_five_row_grid():
     lsm = LongstaffSchwartz(sim, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2)
     lsm.predict_payoff()
     assert lsm.calculate_option_price() == pytest.approx(99.0)
+
+
+# --- Laguerre basis Greeks, and pricing before the simulation is walked ---
+
+@pytest.fixture(scope="module")
+def laguerre_call_lsm():
+    sim = GBM(sigma=SIGMA, start_price=100.0, risk_free_rate=R, seed=42).simulate_paths(N_PATHS, T, N_STEPS)
+    lsm = LongstaffSchwartz(sim, K, R, T, "call", "laguerre", 3, sigma=SIGMA)
+    lsm.predict_payoff()
+    return lsm
+
+
+@pytest.mark.parametrize("t", [10, 25, 40, 47])
+def test_laguerre_call_greeks_close_to_black_scholes(laguerre_call_lsm, t):
+    # Same bounds as the simple basis; measured laguerre errors are identical to it
+    # (mean abs delta error 0.003-0.014, gamma 0.0003-0.0018), since both span cubics.
+    bs, tau = _bs(laguerre_call_lsm, t, "call")
+    assert np.abs(laguerre_call_lsm.delta[t] - bs.calculate_delta(tau)).mean() < 0.03
+    assert np.abs(laguerre_call_lsm.gamma[t] - bs.calculate_gamma(tau)).mean() < 0.005
+
+
+def test_laguerre_greeks_match_simple_basis_greeks(call_lsm, laguerre_call_lsm):
+    # Same polynomial span => same fit. Measured: delta differs by 1e-11, gamma by 9e-5 on
+    # average (a few ill-conditioned entries reach 4e-3, so gamma is compared on the mean).
+    np.testing.assert_allclose(laguerre_call_lsm.delta, call_lsm.delta, atol=1e-8)
+    assert np.abs(laguerre_call_lsm.gamma - call_lsm.gamma).mean() < 1e-3
+
+
+def test_calculate_option_price_before_predict_payoff_raises():
+    # Like BinomialTree: the unfitted payoff array is all zeros, which used to
+    # price the option at a silent 0.0.
+    lsm = LongstaffSchwartz(np.full((3, 4), 100.0), strike=100.0, option_type="put")
+    with pytest.raises(AttributeError, match="predict_payoff"):
+        lsm.calculate_option_price()
