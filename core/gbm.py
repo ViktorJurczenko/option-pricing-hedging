@@ -55,7 +55,7 @@ class GBM():
 
         for i in range(1, size + 1):
             Z = np.random.standard_normal(nb_predictions)
-            self.simulations[i] = self.simulations[i - 1] * np.exp((self.risk_free_rate - 0.5 * self.sigma**2) * dt +(self.sigma * np.sqrt(dt) * Z))
+            self.simulations[i] = self.simulations[i - 1] * np.exp((self.risk_free_rate - 0.5 * self.sigma**2) * dt + (self.sigma * np.sqrt(dt) * Z))
 
         return self.simulations
 
