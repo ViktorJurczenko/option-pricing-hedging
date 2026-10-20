@@ -5,6 +5,15 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Resumable dataset generation
+
+Two generation runs were lost to a kill (see BUGS.md, "Dataset generation
+loses all work when interrupted"), so an interrupted run must resume.
+
+- [x] Seed the parameter draw and each sample's paths (`--seed`)
+- [x] Save finished chunks and skip them on a re-run (`--chunk_size`)
+- [x] Tests, docs
+
 ## Modularize the test helpers
 
 The test-suite cleanup left duplicated helpers across files. Pull them into

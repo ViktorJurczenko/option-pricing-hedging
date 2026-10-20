@@ -37,8 +37,10 @@ Commands:
 Dataset generation for the MLP surrogate is a separate entry point and **must be run as a module, not a script path** (it uses absolute imports like `from core.gbm import GBM`, which only resolve when the project root is on `sys.path` — `python -m` does this, `python datasets/generate_dataset.py` does not):
 
 ```
-python -m datasets.generate_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] [--nb_jobs N] [--sampling N] [--option_type call|put|both] [--reg_type simple|laguerre] [--max_degree N] [--output_dir data]
+python -m datasets.generate_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] [--nb_jobs N] [--sampling N] [--option_type call|put|both] [--reg_type simple|laguerre] [--max_degree N] [--output_dir data] [--seed N] [--chunk_size N]
 ```
+
+The run is resumable: the parameter draw is seeded (`--seed`, default `42`; sample `i`'s paths use seed `--seed + i`, so labels reproduce too) and finished chunks of `--chunk_size` (default `1000`) samples are saved to `<output_dir>/chunks/`. After an interruption (Ctrl-C, a kill), re-run the same command and it skips them; at most one chunk of work is lost. A stored `config.json` makes a resume with different settings raise a `ValueError`, and the chunks are deleted once `american_option_dataset.npz` is assembled. A redone chunk is identical to the original.
 
 It parallelizes LSM pricing (via `joblib`) across randomly sampled `(S0, K, sigma, r, T)` combinations, simulating each once and writing one row per option type (`--option_type both`, the default, gives a call and a put row; calls are labelled with the control-variate LSM, i.e. exactly Black-Scholes, puts with plain LSM; `--reg_type` defaults to `simple`, like every other LSM consumer), to build `<output_dir>/american_option_dataset.npz` (besides `features` and `label` it stores the LSM settings of the labels: `reg_type`, `max_degree`, `path_per_sim`, `sampling`), along with the feature-normalization stats in `<output_dir>/features_norm.npz` that both the dataset class and `test-ml` rely on.
 

@@ -6,6 +6,39 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## Dataset generation loses all work when interrupted (fixed)
+
+**Symptom:** the 100,000-sample run was killed at 33% after 31 minutes (the
+system ran low on memory with 12 jobs), and again stopped on purpose at 42%.
+Each time only `features_norm.npz` was left and everything computed was lost.
+
+**Root cause:** `generate_dataset.py` kept every result in memory and wrote
+`american_option_dataset.npz` once, at the very end. The parameter draw was
+also unseeded, and so was every sample's `GBM`, so even a re-run could not
+have continued the same dataset.
+
+**Fix:** the parameters are drawn from `--seed` (default 42), the samples are
+processed in chunks (`--chunk_size`, default 1000) and each finished chunk is
+saved atomically to `<output_dir>/chunks/`. Re-running the same command skips
+finished chunks, a stored `config.json` makes a resume with different settings
+fail instead of mixing datasets, and the chunks are deleted once the dataset
+is assembled. Each sample's path simulation is seeded with `--seed` plus its
+index, so a redone chunk (and a whole re-run) reproduces its labels too.
+
+## Pipeline tests flake on tqdm's partial-block characters (fixed)
+
+**Symptom:** `test_test_ml_reports_put_and_call_blocks` failed with
+`AttributeError: 'NoneType' object has no attribute 'group'` on some runs
+only, with a `UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f`
+from the subprocess reader thread.
+
+**Root cause:** the child writes UTF-8, and `tests/helpers.py::run_python`
+decoded its output as cp1252. tqdm prints a partial block (`▏`, byte 0x8f)
+only at some progress values, so whether the run failed depended on timing.
+A failed decode leaves `stdout` as `None`.
+
+**Fix:** `run_python` decodes as UTF-8 with `errors="replace"`.
+
 ## LongstaffSchwartz.calculate_option_price returns 0 before predict_payoff (fixed)
 
 **Symptom:** found by the test-suite cleanup. Calling

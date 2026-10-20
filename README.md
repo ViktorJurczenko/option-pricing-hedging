@@ -412,12 +412,18 @@ module (absolute imports require the project root on `sys.path`):
 ```
 python -m datasets.generate_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] \
     [--nb_jobs N] [--sampling N] [--option_type call|put] [--reg_type simple|laguerre] [--max_degree N] \
-    [--output_dir data]
+    [--output_dir data] [--seed N] [--chunk_size N]
 ```
 
 This parallelizes LSM pricing across randomly sampled `(S0, K, σ, r, T)`
 combinations to build `data/american_option_dataset.npz` and the
 feature-normalization stats in `data/features_norm.npz`.
+
+The run is resumable and reproducible. The parameter draw and every sample's
+paths are seeded (`--seed`, default 42), and every finished chunk
+of `--chunk_size` samples is saved to `data/chunks/`, so after a Ctrl-C or a
+kill you re-run the same command and it continues where it stopped (at most
+one chunk is lost). Resuming with different settings is refused.
 
 ## Testing
 

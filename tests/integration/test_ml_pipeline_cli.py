@@ -49,6 +49,14 @@ def test_generate_dataset_stores_the_lsm_settings_it_labelled_with(pipeline, tmp
     custom = _generate(tmp_path, "--reg_type", "laguerre", "--max_degree", "2", "--option_type", "put")
     assert (str(custom["reg_type"]), int(custom["max_degree"])) == ("laguerre", 2)
 
+def test_generate_dataset_is_seeded_chunked_and_cleans_up_its_chunks(pipeline, tmp_path):
+    out, data, _, _ = pipeline
+    assert not (out / "chunks").exists()  # removed once the dataset is assembled
+    # Same seed, other chunking: the same dataset, features and labels (each sample has its own seed).
+    again = _generate(tmp_path, "--chunk_size", "30")
+    np.testing.assert_array_equal(again["features"], data["features"])
+    np.testing.assert_array_equal(again["label"], data["label"])
+
 def test_generate_dataset_single_type_still_writes_five_columns(tmp_path):
     features = _generate(tmp_path, "--option_type", "put")["features"]
     assert features.shape == (80, 5)

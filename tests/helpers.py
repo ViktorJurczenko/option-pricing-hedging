@@ -66,7 +66,9 @@ def parse_script_args(script, **overrides):
 def run_python(*args, timeout=120):
     """Run `python <args>` from the project root, capturing output. The
     timeout catches a hang; slower callers (the ML pipeline) pass a larger one."""
-    return subprocess.run([sys.executable, *args], capture_output=True, text=True, timeout=timeout, cwd=ROOT)
+    return subprocess.run([sys.executable, *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace",  # tqdm's partial-block characters are not decodable as cp1252
+                          timeout=timeout, cwd=ROOT)
 
 
 def run_cli(*args, timeout=120):

@@ -3,7 +3,8 @@ import pytest
 
 from AmericanOptionPricing.ML import smooth_intrinsic_value
 from core.gbm import GBM
-from datasets.generate_dataset import gen_data, gen_rdm_params, process_sample
+from datasets.generate_dataset import (chunk_file, gen_data, gen_rdm_params, generate_chunks, load_chunks,
+                                       prepare_chunk_dir, process_sample)
 from EuropeanOptionPricing.BlackScholes import BlackScholes
 
 NORM = dict(log_sigma_mean=np.log(0.2), log_sigma_std=0.5, r_mean=0.03, r_std=0.02,
@@ -99,3 +100,40 @@ def test_gen_rdm_params_is_reproducible_under_numpy_seed():
     np.random.seed(5); b = gen_rdm_params(10)
     for x, y in zip(a, b):
         np.testing.assert_array_equal(x, y)
+
+
+# --- chunked, resumable generation ---
+
+def _args_list(n):
+    return [(100.0 + i, 100.0, 0.2, NORM["log_sigma_mean"], NORM["log_sigma_std"], 0.05, NORM["r_mean"],
+             NORM["r_std"], 1.0, NORM["log_T_mean"], NORM["log_T_std"], 200, 10, ("put",), 2, "simple", 1000 + i)
+            for i in range(n)]
+
+def test_generate_chunks_resumes_by_redoing_only_the_missing_chunk(tmp_path):
+    args_list = _args_list(5)
+    generate_chunks(args_list, tmp_path, chunk_size=2, n_jobs=1)
+    assert [chunk_file(tmp_path, i).exists() for i in range(3)] == [True] * 3
+    full = load_chunks(tmp_path, 3)
+    assert full[0].shape == (5, 5) and full[1].shape == (5,)  # the last chunk holds the single leftover sample
+
+    kept = chunk_file(tmp_path, 0).stat().st_mtime_ns
+    chunk_file(tmp_path, 1).unlink()
+    generate_chunks(args_list, tmp_path, chunk_size=2, n_jobs=1)
+
+    assert chunk_file(tmp_path, 0).stat().st_mtime_ns == kept  # finished chunks are not recomputed
+    resumed = load_chunks(tmp_path, 3)
+    # the redone chunk is identical to the uninterrupted run, labels included (each sample is seeded)
+    np.testing.assert_array_equal(resumed[0], full[0])
+    np.testing.assert_array_equal(resumed[1], full[1])
+
+def test_process_sample_is_reproducible_for_a_seed_and_differs_across_seeds():
+    a, b, other = _sample(seed=3), _sample(seed=3), _sample(seed=4)
+    assert a == b
+    assert [label for _, label in a] != [label for _, label in other]
+
+def test_prepare_chunk_dir_accepts_the_same_config_and_rejects_a_different_one(tmp_path):
+    chunk_dir = tmp_path / "chunks"
+    prepare_chunk_dir(chunk_dir, {"seed": 1, "max_degree": 3})
+    prepare_chunk_dir(chunk_dir, {"seed": 1, "max_degree": 3})  # same settings: resumes
+    with pytest.raises(ValueError, match="max_degree"):
+        prepare_chunk_dir(chunk_dir, {"seed": 1, "max_degree": 4})

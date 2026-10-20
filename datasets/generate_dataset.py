@@ -1,4 +1,8 @@
+import json
+import os
+import shutil
 import numpy as np
+from typing import Optional
 from pathlib import Path
 from contextlib import contextmanager
 import joblib
@@ -122,7 +126,8 @@ def process_sample(
     sampling: int,
     option_types: tuple = ("call", "put"),
     max_degree: int = 3,
-    reg_type: str = "simple"
+    reg_type: str = "simple",
+    seed: Optional[int] = None
 ) -> list:
     """
     Process a single sample: simulate paths once and label them with LSM for
@@ -138,13 +143,15 @@ def process_sample(
         option_types: Option types to label, each giving one row ("call", "put").
         max_degree: Maximum polynomial degree for LSM regression.
         reg_type: Basis used for the LSM regression ("simple" or "laguerre").
+        seed: Seed of this sample's path simulation. `main` gives each sample its
+            own, so a sample (hence a chunk redone on resume) is reproducible.
 
     Returns:
         List of (features, label) rows, one per option type, with features
         [S0/K, T_norm, r_norm, sigma_norm, is_call]. Empty if the sample failed.
     """
     try:
-        gbm        = GBM(sigma, S0, r)
+        gbm        = GBM(sigma, S0, r, seed=seed)
         simulation = gbm.simulate_paths(n_paths, T, sampling)
 
         sigma_norm = (np.log(sigma) - log_sigma_mean) / log_sigma_std
@@ -163,6 +170,63 @@ def process_sample(
         print(f"Skipping sample (S0={S0}, K={K}, sigma={sigma}, r={r}, T={T}): {e}")
         return []
 
+def chunk_file(chunk_dir: Path, idx: int) -> Path:
+    return chunk_dir / f"chunk_{idx:05d}.npz"
+
+def n_chunks_for(n_total: int, chunk_size: int) -> int:
+    return -(-n_total // chunk_size)
+
+def prepare_chunk_dir(chunk_dir: Path, config: dict) -> None:
+    """
+    Creates the chunk directory, or checks that the chunks already in it were
+    produced with the same generation settings. Resuming with different
+    settings would silently mix labels from two different datasets.
+    """
+    config_path = chunk_dir / "config.json"
+    if config_path.exists():
+        stored = json.loads(config_path.read_text())
+        if stored != config:
+            diff = {k: (stored.get(k), config.get(k)) for k in config if stored.get(k) != config[k]}
+            raise ValueError(f"{chunk_dir} holds chunks generated with other settings ((stored, requested): {diff}). "
+                             "Use the same flags to resume, or delete the directory to start over.")
+    else:
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(config, indent=2))
+
+def save_chunk(path: Path, features: np.ndarray, labels: np.ndarray) -> None:
+    """Atomic: a run killed mid-write leaves no half-written chunk that a resume would trust."""
+    tmp = path.with_name(path.stem + ".tmp.npz")
+    np.savez(tmp, features=features, label=labels)
+    os.replace(tmp, path)
+
+def generate_chunks(args_list: list, chunk_dir: Path, chunk_size: int, n_jobs: int) -> None:
+    """
+    Runs `process_sample` over `args_list` in chunks of `chunk_size`, saving each
+    finished chunk to `chunk_dir` and skipping the chunks already there, so an
+    interrupted run resumes instead of restarting. The progress bar starts at the
+    samples already done and is driven by completed jobs (see tqdm_joblib).
+    """
+    n_total = len(args_list)
+    todo    = [i for i in range(n_chunks_for(n_total, chunk_size)) if not chunk_file(chunk_dir, i).exists()]
+    done    = n_total - sum(len(args_list[i * chunk_size:(i + 1) * chunk_size]) for i in todo)
+    if done:
+        print(f"Resuming: {done}/{n_total} samples already done.")
+
+    with tqdm_joblib(tqdm(total=n_total, initial=done, desc="Generating dataset", unit="sample")):
+        with Parallel(n_jobs=n_jobs, backend='loky', batch_size=10) as parallel:
+            for i in todo:
+                results = parallel(delayed(process_sample)(*a) for a in args_list[i * chunk_size:(i + 1) * chunk_size])
+                # failed samples returned no rows
+                rows     = [row for sample_rows in results for row in sample_rows] # type: ignore
+                features = np.array([feat for feat, _ in rows], dtype=float).reshape(-1, 5)
+                labels   = np.array([lab for _, lab in rows], dtype=float)
+                save_chunk(chunk_file(chunk_dir, i), features, labels)
+
+def load_chunks(chunk_dir: Path, n_chunks: int) -> tuple:
+    """Concatenates the chunks in order into (features, labels)."""
+    parts = [np.load(chunk_file(chunk_dir, i)) for i in range(n_chunks)]
+    return np.concatenate([p["features"] for p in parts]), np.concatenate([p["label"] for p in parts])
+
 def main():
     parser = argparse.ArgumentParser(description="American Option pricing data set generation")
 
@@ -175,6 +239,8 @@ def main():
     parser.add_argument("--max_degree", default=3, type=int, help="Maximum degree of the polynomial used in Longstaff-Schwartz regression.")
     parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="polynomials used for regression.")
     parser.add_argument("--output_dir", default="data", type=str, help="Directory to write the generated dataset and normalization stats to.")
+    parser.add_argument("--seed", default=42, type=int, help="Seed of the parameter draw and, offset by the sample index, of each sample's path simulation; a resumed run must use the same one.")
+    parser.add_argument("--chunk_size", default=1000, type=int, help="Samples per saved chunk. Finished chunks are kept in <output_dir>/chunks, so an interrupted run (Ctrl-C) resumes by re-running the same command; at most one chunk of work is lost.")
 
     args = parser.parse_args()
 
@@ -182,6 +248,10 @@ def main():
     start_time = time.time()
 
     moneyness_range = (0.4, 1.6)
+
+    # Seeded so a resumed run draws the same parameters (and normalization
+    # stats) as the interrupted one.
+    np.random.seed(args.seed)
 
     # Generate random parameters
     S0_val, K_val, sigma_val, r_val, T_val = gen_rdm_params(
@@ -215,20 +285,21 @@ def main():
     # Prepare arguments for parallel processing
     args_list = [
         (S0_val[i], K_val[i], sigma_val[i], log_sigma_mean, log_sigma_std, r_val[i], r_mean, r_std,
-         T_val[i], log_T_mean, log_T_std, args.path_per_sim, args.sampling, option_types, args.max_degree, args.reg_type)
+         T_val[i], log_T_mean, log_T_std, args.path_per_sim, args.sampling, option_types, args.max_degree, args.reg_type,
+         args.seed + i)  # one seed per sample, so a redone chunk reproduces its labels
         for i in range(n_total)
     ]
 
-    # Parallel processing, with a progress bar driven by completed jobs (not
-    # submitted args) so the ETA reflects actual remaining work.
-    with tqdm_joblib(tqdm(total=n_total, desc="Generating dataset", unit="sample")):
-        results = Parallel(n_jobs=args.nb_jobs, backend='loky', batch_size=10)(
-            delayed(process_sample)(*a) for a in args_list)
-
-    # Combine results (failed samples returned no rows)
-    rows     = [row for sample_rows in results for row in sample_rows] # type: ignore
-    features = np.array([feat for feat, _ in rows], dtype=float).reshape(-1, 5)
-    labels   = np.array([lab for _, lab in rows], dtype=float)
+    # Chunked, resumable parallel processing: finished chunks are kept on disk
+    # and skipped when the same command is re-run after an interruption.
+    chunk_dir = output_dir / "chunks"
+    prepare_chunk_dir(chunk_dir, {
+        "seed": args.seed, "nb_param_comb": args.nb_param_comb, "samples_per_param": args.samples_per_param,
+        "path_per_sim": args.path_per_sim, "sampling": args.sampling, "option_type": args.option_type,
+        "reg_type": args.reg_type, "max_degree": args.max_degree, "chunk_size": args.chunk_size,
+    })
+    generate_chunks(args_list, chunk_dir, args.chunk_size, args.nb_jobs)
+    features, labels = load_chunks(chunk_dir, n_chunks_for(n_total, args.chunk_size))
 
     print("Dataset generated successfully!")
     print(f"Features shape: {features.shape}")
@@ -246,6 +317,7 @@ def main():
         sampling=args.sampling,
     )
     print(f"Dataset saved to '{output_dir / 'american_option_dataset.npz'}'.")
+    shutil.rmtree(chunk_dir)
 
     end_time = time.time()
     print(f"Total runtime: {end_time - start_time:.3f} seconds")
