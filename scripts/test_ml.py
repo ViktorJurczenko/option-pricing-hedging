@@ -17,8 +17,15 @@ def add_arguments(parser):
     parser.add_argument("--split_ratio", default=0.8, type=float, help="Split size between test and train data.")
     parser.add_argument("--seed", default=42, type=int, help="Random seed for reproducibility.")
     parser.add_argument("--checkpoint_path", default="checkpoints/best_model.pth", type=str, help="Path to the trained model's weights.")
-    parser.add_argument("--max_degree", default=3, type=int, help="Must match the Longstaff-Schwartz config used to generate the training dataset's labels.")
-    parser.add_argument("--reg_type", default="simple", type=str, choices=["simple", "laguerre"], help="Must match the Longstaff-Schwartz config used to generate the training dataset's labels.")
+
+def load_lsm_settings(dataset_path):
+    """The Longstaff-Schwartz settings the dataset's labels were generated with, as stored by `datasets.generate_dataset`."""
+    data = np.load(dataset_path)
+    missing = [key for key in ("reg_type", "max_degree", "sampling") if key not in data.files]
+    if missing:
+        raise ValueError(f"{dataset_path} has no stored LSM settings ({', '.join(missing)}): it predates them, "
+                         "regenerate it with `python -m datasets.generate_dataset`.")
+    return {"reg_type": str(data["reg_type"]), "max_degree": int(data["max_degree"]), "sampling": int(data["sampling"])}
 
 def run(args):
     # Checked before AmericanOptionDataset is built: otherwise a missing dataset
@@ -30,6 +37,8 @@ def run(args):
         if not Path(path).is_file():
             raise FileNotFoundError(f"{flag}: no file at {path} (generate the dataset with "
                                     "`python -m datasets.generate_dataset`, train with `train-ml`).")
+    lsm_settings = load_lsm_settings(args.dataset_path)
+    print(f"LSM benchmark settings (from the dataset): {lsm_settings}")
     dataset_test = AmericanOptionDataset(args.dataset_path, is_train=False, split_ratio=args.split_ratio, seed=args.seed)
 
     mlp = MLP()
@@ -75,11 +84,11 @@ def run(args):
             # ITM exercise boundary where the regression is most sensitive to noise.
             # Both types are priced on the same paths.
             gbm = GBM(sigma_val[i], moneyness[i] * K_val[i], r_val[i], seed=args.seed + i)
-            simulation = gbm.simulate_paths(20000, T_val[i], 52)
+            simulation = gbm.simulate_paths(20000, T_val[i], lsm_settings["sampling"])
 
             errors[i], abs_errors[i] = test_option_price_lsm(
                 mlp, simulation, moneyness[i], K_val[i], r_val[i], r_val_norm[i], T_val[i], T_val_norm[i], sigma_val_norm[i],
-                option_type=option_type, reg_type=args.reg_type, max_degree=args.max_degree,
+                option_type=option_type, reg_type=lsm_settings["reg_type"], max_degree=lsm_settings["max_degree"],
                 sigma=sigma_val[i] if is_call else None, control_variate=is_call,
             )
 
