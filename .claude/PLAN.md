@@ -168,17 +168,12 @@ Design choices:
 - [x] Mixed call/put generation in `generate_dataset.py`
 - [x] Report errors per option type in `test-ml`
 - [x] Dispatch test-agent/review-agent (APPROVE, 430/430 passing)
+- [x] Store the LSM settings in the dataset, read them in `test-ml`
 - [ ] Generate the new dataset
   Run `python -m datasets.generate_dataset` with the mixed generation and
   the simple basis. It carries the horizon fix, replacing the stale
   `data/american_option_dataset.npz` and `data/features_norm.npz`
   (~40 min at the defaults for puts alone; roughly double with calls).
-  Before running it, store the LSM settings used for the labels
-  (`reg_type`, `max_degree`, `path_per_sim`, `sampling`) in the dataset
-  `.npz` and have `test-ml` read them instead of its own `--reg_type` /
-  `--max_degree` flags, so the benchmark can't drift from the labels'
-  teacher (review-agent suggestion; the drift risk is described in
-  CLAUDE.md, "Working with this code").
 - [ ] Retrain and compare
   The mixed model must not regress on puts versus a put-only model trained
   on the same regenerated puts, and must match BS on calls.

@@ -237,7 +237,13 @@ def main():
     np.savez(
         output_dir / "american_option_dataset.npz",
         features=features,
-        label=labels
+        label=labels,
+        # The teacher's settings travel with the labels, so test-ml benchmarks
+        # against the same LSM instead of its own, possibly drifted, flags.
+        reg_type=args.reg_type,
+        max_degree=args.max_degree,
+        path_per_sim=args.path_per_sim,
+        sampling=args.sampling,
     )
     print(f"Dataset saved to '{output_dir / 'american_option_dataset.npz'}'.")
 

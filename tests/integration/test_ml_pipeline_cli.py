@@ -42,6 +42,13 @@ def test_generate_dataset_default_writes_five_columns_with_calls_and_puts(pipeli
     assert set(np.unique(features[:, 4])) == {0.0, 1.0}
     assert np.isfinite(data["label"]).all()
 
+def test_generate_dataset_stores_the_lsm_settings_it_labelled_with(pipeline, tmp_path):
+    _, data, _, _ = pipeline
+    assert (str(data["reg_type"]), int(data["max_degree"]), int(data["path_per_sim"]), int(data["sampling"])) \
+        == ("simple", 3, 500, 20)
+    custom = _generate(tmp_path, "--reg_type", "laguerre", "--max_degree", "2", "--option_type", "put")
+    assert (str(custom["reg_type"]), int(custom["max_degree"])) == ("laguerre", 2)
+
 def test_generate_dataset_single_type_still_writes_five_columns(tmp_path):
     features = _generate(tmp_path, "--option_type", "put")["features"]
     assert features.shape == (80, 5)
