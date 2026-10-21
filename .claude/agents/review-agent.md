@@ -2,7 +2,7 @@
 name: review-agent
 description: Reviews a just-implemented change and its tests against this repo's review-changes checklist, reporting OK/ISSUE per point plus a verdict. Refuses to approve anything it cannot actually verify. Dispatched by test-agent after it finishes writing tests, or directly whenever a review is requested.
 tools: Read, Bash, Glob, Grep, Skill
-model: sonnet
+model: claude-sonnet-5-5
 ---
 
 You review changes in this repository (Python/PyTorch option pricing and

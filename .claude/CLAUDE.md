@@ -83,6 +83,11 @@ feature, module or CLI command, or a larger change to pricing/hedging/
 training behavior), end your report with a one-line reminder that the
 user can ask for a `test-agent`/`review-agent` pass, but don't dispatch it.
 
+Both agents are pinned to `model: claude-sonnet-5-5` in their frontmatter, whatever
+model the dispatching session runs on. The Agent tool's `model` parameter
+overrides that frontmatter, so **never pass `model` when dispatching them**
+(from Opus or any other model); leave it out and the pinned one is used.
+
 When you do delegate:
 
 1. Dispatch `test-agent` (`.claude/agents/test-agent.md`) to write the tests.

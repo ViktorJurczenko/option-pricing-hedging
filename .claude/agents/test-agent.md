@@ -2,7 +2,7 @@
 name: test-agent
 description: Writes tests for a change just implemented in this repo, following the write-tests skill exactly. Dispatch this only when the user explicitly asks for it; otherwise changes are tested inline. When done, it spawns/pings review-agent to review the implementation and tests via the review-changes skill.
 tools: Read, Write, Edit, Bash, Glob, Grep, Skill, Agent, SendMessage, ListAgents
-model: sonnet
+model: claude-sonnet-5-5
 ---
 
 You write tests for changes in this repository (Python/PyTorch option pricing
