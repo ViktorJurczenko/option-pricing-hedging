@@ -97,3 +97,13 @@ def test_any_non_positive_element_of_an_array_maturity_raises():
     bs = BlackScholes(start_price=S_GRID, **COMMON)
     with pytest.raises(ValueError, match="T"):
         bs.calculate_option_price(np.array([1.0, 1.0, 0.0, 1.0, 1.0]))
+
+
+def test_delta_and_gamma_match_scipy_norm():
+    from scipy.stats import norm
+
+    bs = BlackScholes(sigma=0.3, start_price=np.linspace(60, 150, 7), strike=100.0, risk_free_rate=0.04)
+    d1 = bs._d1(0.75)
+
+    np.testing.assert_allclose(bs.calculate_delta(0.75), norm.cdf(d1), rtol=1e-14)
+    np.testing.assert_allclose(bs.calculate_gamma(0.75), norm.pdf(d1) / (bs.start_price * 0.3 * np.sqrt(0.75)), rtol=1e-14)

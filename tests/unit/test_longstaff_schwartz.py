@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from AmericanHedging.option_value import binomial_value_fn
-from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
+from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz, least_squares
 from core.gbm import GBM
 from EuropeanOptionPricing.BlackScholes import BlackScholes
 
@@ -312,3 +312,61 @@ def test_calculate_option_price_before_predict_payoff_raises():
     lsm = LongstaffSchwartz(np.full((3, 4), 100.0), strike=100.0, option_type="put")
     with pytest.raises(AttributeError, match="predict_payoff"):
         lsm.calculate_option_price()
+
+
+def _paths(sigma=0.3, n_paths=2000):
+    return GBM(sigma, 100.0, 0.05, seed=3).simulate_paths(n_paths, 1.0, 20)
+
+
+def test_least_squares_matches_lstsq_on_the_polynomial_basis():
+    rng = np.random.default_rng(0)
+    x = rng.uniform(0.5, 1.8, 5000)
+    features = np.column_stack([x ** i for i in range(4)])
+    target = np.sin(3 * x) + 0.1 * rng.standard_normal(5000)
+
+    expected = np.linalg.lstsq(features, target, rcond=None)[0]
+
+    np.testing.assert_allclose(least_squares(features, target), expected, rtol=1e-6, atol=1e-8)
+
+
+def test_least_squares_is_minimum_norm_when_every_path_shares_the_spot():
+    # Row 0 of a simulation: one distinct x, so the regression is rank 1 and
+    # the fit must still predict the target's mean (the plain MC estimate).
+    features = np.column_stack([np.full(50, 1.0) ** i for i in range(4)])
+    target = np.random.default_rng(1).uniform(0, 5, 50)
+
+    weights = least_squares(features, target)
+
+    np.testing.assert_allclose(weights, np.linalg.lstsq(features, target, rcond=None)[0], atol=1e-10)
+    assert (features @ weights)[0] == pytest.approx(target.mean())
+
+
+@pytest.mark.parametrize("option_type,control_variate", [("put", False), ("call", True), ("call", False)])
+def test_compute_greeks_off_leaves_price_and_exercise_rule_unchanged(option_type, control_variate):
+    simulation = _paths()
+    kwargs = dict(strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type=option_type,
+                  sigma=0.3 if option_type == "call" else None, control_variate=control_variate)
+    with_greeks = LongstaffSchwartz(simulation, **kwargs)
+    without = LongstaffSchwartz(simulation, compute_greeks=False, **kwargs)
+    with_greeks.predict_payoff()
+    without.predict_payoff()
+
+    assert without.calculate_option_price() == pytest.approx(with_greeks.calculate_option_price(), rel=1e-6)
+    np.testing.assert_array_equal(without.exercise_time, with_greeks.exercise_time)
+
+
+def test_compute_greeks_off_leaves_delta_and_gamma_unset():
+    lsm = LongstaffSchwartz(_paths(n_paths=50), strike=100.0, option_type="put", compute_greeks=False)
+    lsm.predict_payoff()
+
+    assert lsm.delta is None and lsm.gamma is None
+
+
+def test_compute_greeks_on_keeps_the_exact_lstsq_solver():
+    # The hedging environment trains on these deltas; they must not pick up the
+    # normal equations' ~1e-5 error (see least_squares).
+    lsm = LongstaffSchwartz(_paths(n_paths=50), strike=100.0, option_type="put")
+    features = np.random.default_rng(2).uniform(0.5, 2, (60, 4))
+    target = np.random.default_rng(3).uniform(0, 1, 60)
+
+    np.testing.assert_array_equal(lsm._regress(features, target), np.linalg.lstsq(features, target, rcond=None)[0])

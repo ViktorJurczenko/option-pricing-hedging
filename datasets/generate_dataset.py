@@ -105,7 +105,8 @@ def gen_data(simulation, S0, K, r, T, sigma, option_type, max_degree, reg_type) 
     """
     is_call = option_type == "call"
     lsm = LongstaffSchwartz(simulation, K, r, T, option_type, reg_type, max_degree,
-                            sigma=sigma if is_call else None, control_variate=is_call)
+                            sigma=sigma if is_call else None, control_variate=is_call,
+                            compute_greeks=False)
     lsm.predict_payoff()
     price = lsm.calculate_option_price()
     return (price - smooth_intrinsic_value(S0, K, option_type)) / K

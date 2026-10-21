@@ -9,6 +9,21 @@ from AmericanOptionPricing.basis_functions import (
     laguerre_deriv_k,
 )
 
+def least_squares(features: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """
+    Least-squares weights of `target` on `features` via the normal equations.
+
+    Solves the small (n_features x n_features) system `X^T X w = X^T y` instead
+    of taking an SVD of the tall (n_paths x n_features) matrix like
+    `np.linalg.lstsq(X, y)`, which is several times cheaper for the 10k-path
+    regressions here. Forming `X^T X` squares the condition number, which costs
+    about 4-5 digits on the Laguerre basis (deltas differ by ~1e-5), so
+    LongstaffSchwartz uses it only when it isn't fitting Greeks. The Gram matrix is still handed to `lstsq`, not `solve`,
+    so a degenerate system (every path at the same spot at row 0, or too few
+    ITM paths) gets the same minimum-norm solution as lstsq on `X` itself.
+    """
+    return np.linalg.lstsq(features.T @ features, features.T @ target, rcond=None)[0]
+
 class LongstaffSchwartz(OptionPricing):
     """
     Class for Longstaff-Schwartz option pricing.
@@ -25,7 +40,8 @@ class LongstaffSchwartz(OptionPricing):
             reg_type: str = "simple",
             max_degree: int = 3,
             sigma: float | None = None,
-            control_variate: bool = False
+            control_variate: bool = False,
+            compute_greeks: bool = True
         ):
         """
         Initialize the Longstaff-Schwartz model.
@@ -54,6 +70,11 @@ class LongstaffSchwartz(OptionPricing):
                 early exercise plain LSM makes near expiry; for a put the plain
                 rule is as good or better out of sample, so this is opt-in
                 (see BUGS.md). Also applied to calculate_option_price().
+            compute_greeks: fit the per-path delta and gamma (the hedging
+                environment needs them). Turn it off when only the price is
+                wanted (dataset generation): it skips the delta regression and
+                the Black-Scholes/basis derivatives, and `delta`/`gamma` stay
+                None. The price and the exercise rule are unaffected.
         """
         if option_type not in ["call", "put"]:
             raise ValueError("option_type must be 'call' or 'put'")
@@ -71,8 +92,10 @@ class LongstaffSchwartz(OptionPricing):
         self.simulation = simulation
         self.continue_val = np.zeros(simulation.shape)
         self.exercise_time = np.full(simulation.shape[1], simulation.shape[0] - 1) # Default = maturity (i.e. not early exercised)
-        self.delta = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) # No delta at the end
-        self.gamma = np.zeros((simulation.shape[0] - 1, simulation.shape[1]))
+        self.compute_greeks = compute_greeks
+        # No delta at the end. None (not zeros) without compute_greeks, so using them fails loudly.
+        self.delta = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) if compute_greeks else None
+        self.gamma = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) if compute_greeks else None
         self.payoff = None # Allocated by predict_payoff(); None marks an unfitted model
         self.strike = strike
         self.risk_free_rate = risk_free_rate
@@ -91,6 +114,13 @@ class LongstaffSchwartz(OptionPricing):
         if self.reg_type == "laguerre":
             return laguerre_poly_gen(x, self.max_degree) if k == 0 else laguerre_deriv_k(x, self.max_degree, k)
         return simple_poly(x, self.max_degree) if k == 0 else simple_poly_deriv_k(x, self.max_degree, k)
+
+    def _regress(self, features: np.ndarray, target: np.ndarray) -> np.ndarray:
+        """Least-squares weights: exact SVD `lstsq` when fitting Greeks (the hedging
+        environment trains on them), the faster normal equations for price-only runs."""
+        if self.compute_greeks:
+            return np.linalg.lstsq(features, target, rcond=None)[0]
+        return least_squares(features, target)
 
     def _intrinsic(self, S: np.ndarray) -> np.ndarray:
         if self.option_type == "call":
@@ -116,7 +146,7 @@ class LongstaffSchwartz(OptionPricing):
           With control_variate, the regression target is the realized
           cashflow minus the realized European payoff, and the exact European
           price is added back to the fit.
-        - Delta: its own regression, over all paths, of the pathwise delta
+        - Delta (only with compute_greeks): its own regression, over all paths, of the pathwise delta
           (the derivative of each path's discounted cashflow with respect to
           S_index: +-S_stop/S_index discounted, if the path pays off). Gamma is
           the derivative of that fit. Differentiating the continuation fit
@@ -135,8 +165,7 @@ class LongstaffSchwartz(OptionPricing):
         realized_continuation = np.exp(-self.risk_free_rate * dt) * payoff_next
         features = self._basis(x)
         tau = (n_steps - 1 - index) * dt
-        if self.sigma is not None:
-            european = self._european(S)
+        european = self._european(S) if self.sigma is not None and (self.control_variate or self.compute_greeks) else None
 
         # Continuation value, on ITM paths only
         itm_mask = self._intrinsic(S) > 0
@@ -145,11 +174,14 @@ class LongstaffSchwartz(OptionPricing):
             self.continue_val[index] = realized_continuation
         elif self.control_variate:
             target = realized_continuation - self._realized_european_payoff(index)
-            continuation_weights = np.linalg.lstsq(features[itm_mask], target[itm_mask], rcond=None)[0]
+            continuation_weights = self._regress(features[itm_mask], target[itm_mask])
             self.continue_val[index] = features @ continuation_weights + european.calculate_option_price(tau)
         else:
-            continuation_weights = np.linalg.lstsq(features[itm_mask], realized_continuation[itm_mask], rcond=None)[0]
+            continuation_weights = self._regress(features[itm_mask], realized_continuation[itm_mask])
             self.continue_val[index] = features @ continuation_weights
+
+        if not self.compute_greeks:
+            return
 
         # Pathwise delta. At this point exercise_time holds each path's
         # cashflow row under the rule for rows index + 1 onward.
@@ -168,7 +200,7 @@ class LongstaffSchwartz(OptionPricing):
             delta_features = np.column_stack([delta_features, european.calculate_delta(tau)])
             gamma_features = np.column_stack([gamma_features, european.calculate_gamma(tau)])
 
-        greeks_weights = np.linalg.lstsq(delta_features, pathwise_delta, rcond=None)[0]
+        greeks_weights = self._regress(delta_features, pathwise_delta)
         self.delta[index] = delta_features @ greeks_weights
         self.gamma[index] = gamma_features @ greeks_weights
 

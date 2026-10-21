@@ -5,6 +5,17 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Faster dataset generation
+
+A profile of one sample showed `LongstaffSchwartz.fit` at ~90% of the time,
+mostly work the dataset never uses (Greeks), SVD-based `lstsq` on 10k x 4
+systems and scipy's generic `norm.cdf`/`pdf`. Labels must stay the same.
+
+- [x] `compute_greeks` flag on `LongstaffSchwartz`
+- [x] Normal-equations least squares (price-only mode; the hedging path keeps `lstsq`, the normal equations cost ~1e-5 in the Laguerre deltas)
+- [x] `ndtr` in `BlackScholes`
+- [x] Tests, restart the run with `--nb_jobs 10`
+
 ## Resumable dataset generation
 
 Two generation runs were lost to a kill (see BUGS.md, "Dataset generation

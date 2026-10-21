@@ -1,7 +1,11 @@
 import numpy as np
-from scipy.stats import norm
+from scipy.special import ndtr
 
 from core.base import OptionPricing
+
+def _pdf(x):
+    """Standard normal density (scipy's `norm.pdf` without its distribution overhead)."""
+    return np.exp(-0.5 * np.square(x)) / np.sqrt(2 * np.pi)
 
 class BlackScholes(OptionPricing):
     """
@@ -60,18 +64,18 @@ class BlackScholes(OptionPricing):
         d2 = d1 - (self.sigma * np.sqrt(T))
 
         if self.option_type == 'call':
-            option_price = self.start_price * norm.cdf(d1) - self.strike * np.exp(-self.risk_free_rate * T) * norm.cdf(d2)
+            option_price = self.start_price * ndtr(d1) - self.strike * np.exp(-self.risk_free_rate * T) * ndtr(d2)
         else:
-            option_price = self.strike * np.exp(-self.risk_free_rate * T) * norm.cdf(-d2) - self.start_price * norm.cdf(-d1)
+            option_price = self.strike * np.exp(-self.risk_free_rate * T) * ndtr(-d2) - self.start_price * ndtr(-d1)
         return option_price
 
     def calculate_delta(self, T: float = 1) -> float:
         """Derivative of the price with respect to the spot: N(d1) for a call,
         N(d1) - 1 for a put."""
-        delta = norm.cdf(self._d1(T))
+        delta = ndtr(self._d1(T))
         return delta if self.option_type == "call" else delta - 1
 
     def calculate_gamma(self, T: float = 1) -> float:
         """Second derivative of the price with respect to the spot, the same
         for a call and a put: n(d1) / (S * sigma * sqrt(T))."""
-        return norm.pdf(self._d1(T)) / (self.start_price * self.sigma * np.sqrt(T))
+        return _pdf(self._d1(T)) / (self.start_price * self.sigma * np.sqrt(T))
