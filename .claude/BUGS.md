@@ -6,6 +6,46 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## Tree Greeks wrong just inside the exercise region (fixed)
+
+**Symptom:** found by step 2 of the MLP overhaul (tests for
+`binomial_put_batch`). On a 675-point grid over the sampling domain, `"bbsr"`
+at 400 steps returned delta = -1.0102 at (m = 0.8, T = 5, r = 0.08,
+sigma = 0.2) and gamma = -0.189 at (m = 0.449, T = 1, r = 0.08, sigma = 0.6),
+outside a put's bounds (delta in [-1, 0], gamma >= 0). `"crr"`/`"bbs"` only
+broke them by rounding (gamma -1e-10, delta -1 - 1e-13). A first fix clipped
+the Greeks to those bounds; a comparison with a 16000-step reference then
+showed the same point at 1000 steps had gamma 0.69 against a true 0, inside
+the bounds and the worst gamma error of 63 options. The clip hid the bound
+violations, not the error.
+
+**Root cause:** every bad point is exercised today: the put is worth exactly
+`1 - m` around today's spot, so delta = -1 and gamma = 0. The tree measures
+gamma over the level-2 nodes `m d^2, m, m u^2` (delta over level 1), and when
+`m` is just inside the exercise region the upper node is in the
+continuation region, where the price curves. That error is not smooth in N
+(BBS delta -1.0000 at N, -0.9898 at N/2), so Richardson's
+`2 D(N) - D(N/2)` pushed it past the bounds. Not the `dt` offset of the
+level-1/2 nodes: the extended tree (Pelsser-Vorst), which reads all three
+Greeks at t = 0, was no better (delta max error 1.2e-2 vs 2.6e-4).
+
+**Impact:** none yet (no dataset built), but delta and gamma are planned
+dataset columns (delta a differential-ML label), and 44% of the domain's
+draws are exercised today.
+
+**Fix:** a put exercised today (American, `m < 1`, price at most `1 - m`
+plus `_EXERCISE_TOL = 1e-12`) gets its exact values: price `1 - m`, delta
+-1, gamma 0. This also covers a `"bbsr"` price below `1 - m` (one of the two
+trees exercises, the other doesn't). Measured on the 63 options at 1000
+steps: gamma max error 0.69 -> 0.081, mean 1.3e-2 -> 1.4e-3, no bound
+violation, so the clip was removed. What remains is inherent: within ~1e-3
+of the boundary in `m` the tree's price error (~1e-6) exceeds the true time
+value, so the tree can call exercise one step early, and the true gamma
+jumps there (gamma 0 instead of 2.1 at m = 0.424, T = 3, r = 0.03,
+sigma = 0.4). Unit tests cover the rule, a deep out-of-the-money put
+(worth ~0, its payoff, but not exercisable) and the European variant (worth
+less than its payoff, no rule).
+
 ## Dataset generation loses all work when interrupted (fixed)
 
 **Symptom:** the 100,000-sample run was killed at 33% after 31 minutes (the

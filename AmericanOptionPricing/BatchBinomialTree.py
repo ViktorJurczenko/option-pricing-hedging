@@ -5,6 +5,10 @@ import numpy as np
 from EuropeanOptionPricing.BlackScholes import black_scholes_price
 
 METHODS = ("crr", "bbs", "bbsr")
+# price - (1 - m) at or below this means "exercised today": the root's
+# exercise value is 1 - m computed from a spot rebuilt by multiplications,
+# so it can differ from 1 - m by rounding (~1e-16)
+_EXERCISE_TOL = 1e-12
 
 class TreeResult(NamedTuple):
     """Per-option outputs of `binomial_put_batch`, all per unit of strike.
@@ -61,7 +65,9 @@ def binomial_put_batch(
 
     Delta and gamma are finite differences over the nodes of levels 1 and 2
     (they sit dt and 2 dt after today, an O(dt) offset that vanishes as
-    nb_steps grows); "bbsr" extrapolates them like the price.
+    nb_steps grows); "bbsr" extrapolates them like the price. When the put is
+    exercised today (price at most its payoff 1 - m, with m < 1), the exact
+    values replace them: price 1 - m, delta -1, gamma 0.
 
     Args:
         moneyness, maturity, risk_free_rate, sigma: arrays (or scalars) that
@@ -121,6 +127,21 @@ def binomial_put_batch(
                                           - _induct(part, nb_steps // 2, bbs=True, american=american))
         else:
             out[:, start:start + step] = _induct(part, nb_steps, bbs=method == "bbs", american=american)
+    # If the put is exercised today, it is worth exactly 1 - m around today's
+    # spot: delta -1, gamma 0. The finite differences can't see that when
+    # m is just inside the exercise region, since their outer nodes reach
+    # into the continuation region (gamma 0.69 instead of 0 measured), and
+    # "bbsr" extrapolates that error past a put's bounds (delta -1.01, gamma
+    # -0.19). A "bbsr" price below 1 - m (one tree exercises, the other
+    # doesn't) means the same thing. `m < 1` keeps a deep out-of-the-money
+    # put, worth ~0 = its payoff, out of this case. (A European put has no
+    # exercise region: it can be worth less than its payoff.)
+    if american:
+        intrinsic = 1 - params[0]
+        exercised = (intrinsic > 0) & (out[0] <= intrinsic + _EXERCISE_TOL)
+        out[0, exercised] = intrinsic[exercised]
+        out[1, exercised] = -1.0
+        out[2, exercised] = 0.0
     return TreeResult(*out.reshape(3, *batch_shape))
 
 def _induct(params, n, bbs, american):

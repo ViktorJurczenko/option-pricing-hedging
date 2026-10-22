@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from EuropeanOptionPricing.BlackScholes import BlackScholes
+from EuropeanOptionPricing.BlackScholes import (BlackScholes, black_scholes_delta, black_scholes_gamma,
+                                                black_scholes_price)
 
 def test_put_call_parity():
     common = dict(sigma=0.25, start_price=105.0, strike=100.0, risk_free_rate=0.03)
@@ -97,6 +98,25 @@ def test_any_non_positive_element_of_an_array_maturity_raises():
     bs = BlackScholes(start_price=S_GRID, **COMMON)
     with pytest.raises(ValueError, match="T"):
         bs.calculate_option_price(np.array([1.0, 1.0, 0.0, 1.0, 1.0]))
+
+
+def test_functions_match_the_class_option_by_option_with_array_sigma():
+    # The batch functions broadcast every argument; with array sigma each
+    # element must equal the class built for that option alone.
+    S = np.array([80.0, 100.0, 125.0])
+    T = np.array([0.3, 1.0, 2.5])
+    r = np.array([0.0, 0.03, 0.07])
+    sigma = np.array([0.1, 0.25, 0.5])
+    for option_type in ("call", "put"):
+        price = black_scholes_price(S, 100.0, T, r, sigma, option_type)
+        delta = black_scholes_delta(S, 100.0, T, r, sigma, option_type)
+        gamma = black_scholes_gamma(S, 100.0, T, r, sigma)
+        for k in range(3):
+            bs = BlackScholes(sigma=sigma[k], start_price=S[k], strike=100.0, risk_free_rate=r[k],
+                              option_type=option_type)
+            assert price[k] == pytest.approx(bs.calculate_option_price(T[k]), rel=1e-14)
+            assert delta[k] == pytest.approx(bs.calculate_delta(T[k]), rel=1e-14)
+            assert gamma[k] == pytest.approx(bs.calculate_gamma(T[k]), rel=1e-14)
 
 
 def test_delta_and_gamma_match_scipy_norm():

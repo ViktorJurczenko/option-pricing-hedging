@@ -40,37 +40,28 @@ design choice: `REMINDER.md`, "The MLP surrogate: tree teacher, and why
 every part is built the way it is".
 
 - [x] Vectorized smoothed binomial pricer
-- [ ] Tests and convergence study for the pricer
-  Unit tests: batch result equals `BinomialTree` per option (plain mode);
-  the European variant (no early exercise) converges to Black-Scholes; put
-  price >= max(BS European, intrinsic); delta/gamma against finite
-  differences. A small study (logged in this entry) of error vs `N` against
-  a very fine reference over the sampling domain, incl. the hard corner
-  (short T, low sigma, ATM), to pick `N` and BBSR vs CRR, and timing per
-  option to size the dataset.
-  From the review of `fcc60f1`, also test:
-  - The European BBSR error ratio is ~4 per doubling of `N` (clean 1/N^2,
-    measured 3.9-4.0 for N = 100-1600). This guards the BS last step, the
-    `dt`, the level indexing and the Richardson combination. American BBSR
-    is only ~1/N (exercise boundary, see the docstring), so don't assert 4
-    there.
-  - The 4.4867 literature value (S=36, K=40, r=0.06, sigma=0.2, T=1).
-  - Chunked == unchunked bit-identical; broadcasting shapes (scalar, 2-D,
-    per-option sigma); delta in [-1, 0], gamma > 0.
-  - Every `ValueError` branch: method, NaN/inf, m/T/sigma <= 0, too few or
-    odd steps, `chunk_size < 1`, `p` outside (0, 1) (few steps, high r,
-    low sigma).
-  - `black_scholes_price/delta/gamma` against the `BlackScholes` class with
-    array sigma.
-  For the study, cross-check the reference independently. Use plain CRR
-  averaged over `N` and `N + 1` (which cancels the zig-zag), then Richardson.
-  At 40000 steps this agreed with BBSR at 40000 to 5e-9.
+- [x] Tests and convergence study for the pricer
 - [ ] New generator `ML/surrogate/GenerateTreeDataset.py`
   Same resumable/seeded/chunked machinery as `generate_dataset.py` (reuse
   its helpers rather than copying them). Puts only (calls come from BS; the
   `is_call` input comes back with dividends `q`, see "Revisit the ML
-  surrogate with `q` as an input"). Samples `m` log-uniform over (0.4, 1.6),
-  `sigma`, `T` log-uniform, `r` uniform, as now, but no `S0`/`K` (homogeneity).
+  surrogate with `q` as an input"). No `S0`/`K` (homogeneity). Sampling
+  (reasons: `REMINDER.md`, "The tree dataset: how it is sampled and why"):
+  `T` log-uniform (0.25, 5), `sigma` log-uniform (0.05, 0.6), `r` uniform
+  (0, 0.08), as now; then moneyness through `z = ln(m) / (sigma sqrt(T))`,
+  uniform on that draw's allowed interval `[max(-3, ln 0.4 / v),
+  min(3, ln 2.5 / v)]`, `v = sigma sqrt(T)`, i.e. |z| <= 3 and `m` in
+  (0.4, 2.5). Drawing `z` within each draw's interval (not rejecting draws
+  outside the cap) keeps the `T`/`sigma`/`r` marginals as specified.
+  Measured: 27% of rows exercised today (45% with `m` log-uniform on
+  (0.4, 1.6)), 40% within |z| < 1, 0% beyond |z| > 3 (31%), and the
+  exercise boundary (always at z between -2.7 and -0.1 for r >= 0.005)
+  inside the domain for every draw with `m* > 0.4`. Store `z` too. The
+  domain bounds (z range, `m` cap) go into the dataset with the other
+  settings, so the `price` helper can route out-of-domain queries: z > 3 ->
+  Black-Scholes (premium < 4e-5 K measured there), z < -3 with r >= 0.005 ->
+  `1 - m` (exercised), anything else (`m` outside the cap, smaller `r`) ->
+  `binomial_put_batch`.
   Stores *raw* parameters and raw labels - `m, T, r, sigma`, the American
   price, the BS European price, delta, gamma - plus the generator settings
   (`teacher="tree"`, `N`, method, seed). No normalization in the generator:
@@ -81,7 +72,8 @@ every part is built the way it is".
   times; at 32 options and 1000 steps that is ~256 KB, which stays in the CPU
   cache, while a whole batch of 1000 (8 MB) goes to main memory on every
   pass. 32 was the fastest of 16-1000 for "bbsr" at 1000 steps (2.8 vs 8.9
-  ms/option before the discount was folded into the weights, 1.5 ms after);
+  ms/option before the discount was folded into the weights, 1.5 ms after;
+  2.7 ms on random draws over the whole domain, see the study below);
   smaller chunks pay more Python overhead per level.
 - [ ] Dataset class: features, target and stats at load time
   `ML/surrogate/dataset.py` (`AmericanOptionDataset` or a new class) builds
@@ -109,12 +101,16 @@ every part is built the way it is".
   decreasing and convex in S, increasing in T and sigma). Both lambdas are
   flags, 0 disables.
 - [ ] Evaluation overhaul in `test-ml`
-  Factorial grid (m x sigma x T, r fixed and a second r) against an
-  *independent*, finer tree reference (not the training teacher's settings),
-  BS for calls. Per moneyness bucket: mean abs error in $ (K = 100), relative
+  Factorial grid (z x sigma x T, r fixed and a second r; z on [-3, 3] within
+  the `m` cap, like the training domain) against an *independent*, finer
+  tree reference (not the training teacher's settings), BS for calls. Per
+  |z| bucket (core |z| < 1, where most quoted strikes sit; 1-2; 2-3; and
+  the exercised rows on their own), so the score reflects where the
+  surrogate is used: mean abs error in $ (K = 100), relative
   error only where the price is not tiny, implied-vol error; delta and gamma
   errors; no-arbitrage violation rates; MLP vs tree time per price. One unit
-  per column, no mixed %/$ averages.
+  per column, no mixed %/$ averages. Also check the out-of-domain routing
+  of the `price` helper (|z| > 3, `m` outside the cap) against the tree.
 - [ ] Tests, CLI wiring, docs
   Unit tests for the dataset features/target, the net's price/delta
   reconstruction, the loss terms; CLI smoke tests for the new generator
@@ -126,6 +122,44 @@ every part is built the way it is".
   Three seeds each: old architecture vs new on the same data; with/without
   the delta loss; with/without shape penalties; linear vs softplus output.
   Record the numbers here and in `REMINDER.md`.
+
+Step 2 convergence study (120 seeded random draws over the domain plus a
+21-point hard corner, `m` 0.95-1.05, `T = 0.25`, `sigma = 0.05`; reference
+BBSR at 20000 steps, which agrees with CRR averaged over N, N + 1 then
+Richardson to 3.3e-6 at worst). Errors per unit of strike, max | mean:
+
+| N = 1000 | price | delta | gamma |
+|---|---|---|---|
+| CRR | 5.5e-5 \| 5.8e-6 | 2.2e-4 \| 1.7e-5 | 0.46 \| 4.1e-3 |
+| BBS | 2.1e-5 \| 3.6e-6 | 2.9e-4 \| 1.5e-5 | 0.46 \| 4.1e-3 |
+| BBSR | 3.2e-5 \| 9.6e-7 | 8.3e-4 \| 1.4e-5 | 0.33 \| 3.2e-3 |
+
+Choice: **BBSR, N = 1000** (the defaults). Its mean price error is ~4x
+below BBS/6x below CRR; the max (~3e-5 K = $0.003 at K = 100) is far below
+what an MLP reaches (~1e-4 K). CRR is out: its odd/even swing between
+N = 1000 and 1001 is 8.7e-5. BBSR moves 1.5e-6 between N = 1000 and 1002
+(BBS 1.1e-7: Richardson amplifies the exercise boundary's jitter), still
+noise far below the MLP's error. N = 2000 halves the max error at 3.5x the
+cost, not worth it. Delta and gamma are both usable: the large gamma errors
+in the table (max 0.33) were puts exercised today, which now get their exact
+Greeks (BUGS.md, "Tree Greeks wrong just inside the exercise region"); with
+that rule, on 63 options vs a 16000-step reference: gamma mean error
+1.4e-3, median relative 3e-5 in the continuation region, delta mean 8.5e-6.
+Only a ~1e-3-wide band in `m` at the exercise boundary stays uncertain,
+where the true gamma jumps from 0. In the corner every method is accurate
+in price (BBSR 2.1e-6 max); gamma (~16) was off by up to 3.5 there before
+the rule, 8.4e-4 after on a corner sweep. Timing,
+2048 random options, chunks of 32, idle machine: BBSR 0.80 / 2.71 / 9.57
+ms per option at N = 500 / 1000 / 2000 (CRR 1.84 at 1000), so 200k puts
+cost ~9 min on one core. The teacher does not limit the dataset size.
+Labels can be slightly *below* Black-Scholes (min premium -2.7e-6 at
+N = 1000, OTM short T): matters for the softplus-output ablation. The error
+table predates the exercise-today rule, which only changes exercised puts.
+Sampling `m` log-uniform on (0.4, 1.6) makes 66% of the draws in the money
+(the range is asymmetric in log: ln 0.4 = -0.92, ln 1.6 = +0.47), and 67%
+of those are already past the exercise boundary: 44% of all rows would be
+exercised today, labels known in closed form. Decided: sample
+`z = ln(m) / (sigma sqrt(T))` instead (generator step above).
 
 ## Faster dataset generation
 
