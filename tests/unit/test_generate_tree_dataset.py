@@ -122,17 +122,37 @@ def test_main_rejects_sizes_that_are_not_powers_of_two(tmp_path, flag, value):
         gen.main([flag, value, "--output_dir", str(tmp_path), *TINY])
 
 
-def test_generate_tree_chunks_resumes_by_redoing_only_the_missing_chunk(tmp_path):
+def test_generate_tree_chunks_resumes_by_redoing_only_the_missing_chunk(tmp_path, monkeypatch):
     u = sobol_points(64, N_DIMS, seed=6)
     generate_tree_chunks(u, tmp_path, chunk_size=16, nb_steps=50, method="bbsr", n_jobs=1)
     full = load_tree_chunks(tmp_path, 4)
     chunk_file(tmp_path, 2).unlink()
-    kept = chunk_file(tmp_path, 1).stat().st_mtime_ns
+    # A redone chunk is bit-identical, so only a spy shows what was redone
+    # (n_jobs=1 runs the jobs in this process, through the patched name).
+    labelled = []
+    original = gen.generate_chunk
+    monkeypatch.setattr(gen, "generate_chunk", lambda path, *a: (labelled.append(path), original(path, *a)))
     generate_tree_chunks(u, tmp_path, chunk_size=16, nb_steps=50, method="bbsr", n_jobs=1)
-    assert chunk_file(tmp_path, 1).stat().st_mtime_ns == kept  # skipped, not redone
+    assert labelled == [chunk_file(tmp_path, 2)]
     resumed = load_tree_chunks(tmp_path, 4)
     for col in COLUMNS:
         np.testing.assert_array_equal(resumed[col], full[col])
+
+
+@pytest.mark.parametrize("nb_steps, error", [
+    ("51", "even"),  # "bbsr" halves the tree
+    # 10-step coarse tree at T = 5: r dt > sigma sqrt(dt) at sigma = 0.05, r = 0.08
+    ("20", "probability"),
+])
+def test_bad_tree_settings_fail_before_the_config_is_written(tmp_path, nb_steps, error):
+    # They used to fail inside the first job, after config.json was saved, so
+    # the corrected re-run was refused as "other settings".
+    args = ["--n_rows", "32", "--chunk_size", "16", "--nb_jobs", "1", "--output_dir", str(tmp_path)]
+    with pytest.raises(ValueError, match=error):
+        gen.main([*args, "--nb_steps", nb_steps])
+    assert not (tmp_path / "tree_chunks").exists()
+    gen.main([*args, "--nb_steps", "50"])
+    assert (tmp_path / "tree_put_dataset.npz").exists()
 
 
 def test_interrupted_main_resumes_with_the_same_flags_and_refuses_other_ones(tmp_path, monkeypatch):

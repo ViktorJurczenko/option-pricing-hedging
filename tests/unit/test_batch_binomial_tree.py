@@ -11,9 +11,11 @@ T = np.array([0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0])
 R = np.array([0.0, 0.01, 0.03, 0.05, 0.06, 0.07, 0.08])
 SIGMA = np.array([0.6, 0.1, 0.2, 0.3, 0.15, 0.4, 0.05])
 
-# A 25 x 3 x 3 x 3 grid over the generator's domain: m in (0.4, 1.6),
-# T in (0.25, 5), r in (0, 0.08), sigma in (0.05, 0.6).
-DOMAIN_GRID = np.meshgrid(np.exp(np.linspace(np.log(0.4), np.log(1.6), 25)), [0.25, 1.0, 5.0],
+# A 25 x 3 x 3 x 3 grid over the old generator's domain, with m up to the
+# tree generator's cap: m in (0.4, 2.5), T in (0.25, 5), r in (0, 0.08),
+# sigma in (0.05, 0.6). m above 1.6 covers deep out-of-the-money puts,
+# whose ~0 price must not be mistaken for an exercised payoff.
+DOMAIN_GRID = np.meshgrid(np.exp(np.linspace(np.log(0.4), np.log(2.5), 25)), [0.25, 1.0, 5.0],
                           [0.0, 0.04, 0.08], [0.05, 0.2, 0.6], indexing="ij")
 
 
@@ -151,6 +153,19 @@ def test_exercised_flag_marks_exactly_the_rows_at_their_payoff(method):
     assert 0 < res.exercised.mean() < 1  # the grid has both kinds
     at_payoff = (m < 1) & (res.price == 1 - m) & (res.delta == -1) & (res.gamma == 0)
     np.testing.assert_array_equal(res.exercised, at_payoff)
+
+
+@pytest.mark.parametrize("method", METHODS)
+def test_exercise_region_is_one_interval_below_the_boundary(method):
+    # On a fine m grid across the boundary (~0.88 here), the flag must be
+    # True up to some m* and False after it: no isolated snapped puts in the
+    # continuation region, none missed inside the exercise region. Just
+    # past m* the put keeps a time value above the snap tolerance.
+    m = np.linspace(0.80, 0.95, 1501)
+    res = binomial_put_batch(m, 1.0, 0.08, 0.2, nb_steps=200, method=method)
+    first_out = np.argmin(res.exercised)
+    assert 0 < first_out and res.exercised[:first_out].all() and not res.exercised[first_out:].any()
+    assert np.all(res.price[first_out:] > 1 - m[first_out:] + _EXERCISE_TOL)
 
 
 def test_deep_out_of_the_money_put_is_not_treated_as_exercised():

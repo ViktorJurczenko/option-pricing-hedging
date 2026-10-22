@@ -80,6 +80,19 @@ def map_to_domain(u: np.ndarray, domain: dict = DOMAIN) -> dict:
     z = z_low + col["z"] * (z_high - z_low)
     return {"m": np.exp(z * v), "T": T, "r": r, "sigma": sigma, "z": z}
 
+def check_teacher(nb_steps: int, method: str, domain: dict = DOMAIN) -> None:
+    """
+    Prices the domain's corner puts (every T, sigma, r bound, at the money)
+    so that tree settings the pricer would reject (unknown method, odd or
+    too few steps, a step so long the risk-neutral probability leaves
+    (0, 1), worst at the longest T, lowest sigma and highest r) raise its
+    ValueError now, before the chunk directory's config is written. A run
+    failing later, inside a worker, would leave a config that refuses the
+    corrected flags.
+    """
+    T, sigma, r = np.meshgrid(domain["T_range"], domain["sigma_range"], domain["r_range"])
+    binomial_put_batch(1.0, T, r, sigma, nb_steps=nb_steps, method=method)
+
 def label_puts(params: dict, nb_steps: int, method: str) -> dict:
     """
     Prices American puts (per unit of strike) with the tree and adds their
@@ -143,6 +156,7 @@ def main(argv=None):
     for name in ("n_rows", "chunk_size"):
         if not is_power_of_two(getattr(args, name)):
             raise ValueError(f"--{name} must be a power of 2, got {getattr(args, name)}")
+    check_teacher(args.nb_steps, args.method)
     start_time = time.time()
 
     output_dir = Path(args.output_dir)

@@ -6,6 +6,30 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## A bad tree flag locks the tree generator's resume directory (fixed)
+
+**Symptom:** found by the review of step 3 of the MLP overhaul.
+`python -m ML.surrogate.GenerateTreeDataset --nb_steps 51` (odd, with the
+default `"bbsr"`) failed with "nb_steps must be even", and re-running with
+the corrected `--nb_steps 50` then failed with "holds chunks generated with
+other settings": the user had to delete `tree_chunks/` by hand. The same
+happened with too few steps for the domain (`--nb_steps 20`: "risk-neutral
+probability outside (0, 1)").
+
+**Root cause:** `main` only checked the power-of-2 sizes before
+`prepare_chunk_dir` saved `config.json`. The tree settings were first used
+by `binomial_put_batch` inside the first job, after the config, with the
+bad values, was already on disk.
+
+**Impact:** none on data (no chunk was written), only a stuck directory.
+
+**Fix:** `check_teacher` prices the domain's 8 corner puts (every `T`,
+`sigma`, `r` bound, at the money) with the requested settings before the
+config is written, so the pricer's own checks raise first; the worst
+probability case is a corner (longest `T`, lowest `sigma`, highest `r`).
+`test_bad_tree_settings_fail_before_the_config_is_written` covers both
+flags and the corrected re-run.
+
 ## Tree Greeks wrong just inside the exercise region (fixed)
 
 **Symptom:** found by step 2 of the MLP overhaul (tests for
