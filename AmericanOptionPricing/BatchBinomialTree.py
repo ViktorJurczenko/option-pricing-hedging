@@ -52,7 +52,12 @@ def binomial_put_batch(
             kink at the strike, where the zig-zag comes from.
         "bbsr": "bbs" with Richardson extrapolation, 2 * P(N) - P(N / 2).
             The BBS error shrinks roughly like c / N, so this combination
-            cancels the leading error term. Needs an even nb_steps.
+            cancels the leading error term. Needs an even nb_steps. For a
+            European put the remainder then shrinks like 1 / N^2; for an
+            American put it still shrinks roughly like 1 / N (the early
+            exercise boundary falls between nodes differently for each N,
+            which no power series in 1 / N captures), but about 10 times
+            smaller than BBS's error and without CRR's zig-zag.
 
     Delta and gamma are finite differences over the nodes of levels 1 and 2
     (they sit dt and 2 dt after today, an O(dt) offset that vanishes as
@@ -72,7 +77,8 @@ def binomial_put_batch(
         TreeResult(price, delta, gamma).
 
     Raises:
-        ValueError: for an unknown method, moneyness/maturity/sigma <= 0, too
+        ValueError: for an unknown method, a non-finite (NaN or infinite)
+            parameter, moneyness/maturity/sigma <= 0, too
             few steps (gamma needs levels 1 and 2 below the root, after the
             BBS last step is taken off and N halved), an odd nb_steps with
             "bbsr", chunk_size < 1, or a risk-neutral probability outside
@@ -85,12 +91,15 @@ def binomial_put_batch(
         raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
     # one (4, *batch_shape) array: rows are moneyness, maturity, rate, sigma
     params = np.stack(np.broadcast_arrays(moneyness, maturity, risk_free_rate, sigma)).astype(float)
-    m, T, r, s = params
+    # NaN passes every `<= 0` check and would silently give NaN prices
+    if not np.all(np.isfinite(params)):
+        raise ValueError("moneyness, maturity, risk_free_rate and sigma must be finite")
+    m, T, r, sigma = params
     if np.any(m <= 0):
         raise ValueError("moneyness must be > 0")
     if np.any(T <= 0):
         raise ValueError("maturity must be > 0")
-    if np.any(s <= 0):
+    if np.any(sigma <= 0):
         raise ValueError("sigma must be > 0")
     if method == "bbsr" and nb_steps % 2:
         raise ValueError(f"nb_steps must be even for 'bbsr', got {nb_steps}")

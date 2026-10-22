@@ -48,6 +48,23 @@ every part is built the way it is".
   a very fine reference over the sampling domain, incl. the hard corner
   (short T, low sigma, ATM), to pick `N` and BBSR vs CRR, and timing per
   option to size the dataset.
+  From the review of `fcc60f1`, also test:
+  - The European BBSR error ratio is ~4 per doubling of `N` (clean 1/N^2,
+    measured 3.9-4.0 for N = 100-1600). This guards the BS last step, the
+    `dt`, the level indexing and the Richardson combination. American BBSR
+    is only ~1/N (exercise boundary, see the docstring), so don't assert 4
+    there.
+  - The 4.4867 literature value (S=36, K=40, r=0.06, sigma=0.2, T=1).
+  - Chunked == unchunked bit-identical; broadcasting shapes (scalar, 2-D,
+    per-option sigma); delta in [-1, 0], gamma > 0.
+  - Every `ValueError` branch: method, NaN/inf, m/T/sigma <= 0, too few or
+    odd steps, `chunk_size < 1`, `p` outside (0, 1) (few steps, high r,
+    low sigma).
+  - `black_scholes_price/delta/gamma` against the `BlackScholes` class with
+    array sigma.
+  For the study, cross-check the reference independently. Use plain CRR
+  averaged over `N` and `N + 1` (which cancels the zig-zag), then Richardson.
+  At 40000 steps this agreed with BBSR at 40000 to 5e-9.
 - [ ] New generator `ML/surrogate/GenerateTreeDataset.py`
   Same resumable/seeded/chunked machinery as `generate_dataset.py` (reuse
   its helpers rather than copying them). Puts only (calls come from BS; the
