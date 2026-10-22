@@ -194,10 +194,11 @@ def prepare_chunk_dir(chunk_dir: Path, config: dict) -> None:
         chunk_dir.mkdir(parents=True, exist_ok=True)
         config_path.write_text(json.dumps(config, indent=2))
 
-def save_chunk(path: Path, features: np.ndarray, labels: np.ndarray) -> None:
-    """Atomic: a run killed mid-write leaves no half-written chunk that a resume would trust."""
+def save_chunk(path: Path, **arrays: np.ndarray) -> None:
+    """Saves `arrays` under their names, atomically: a run killed mid-write
+    leaves no half-written chunk that a resume would trust."""
     tmp = path.with_name(path.stem + ".tmp.npz")
-    np.savez(tmp, features=features, label=labels)
+    np.savez(tmp, **arrays)
     os.replace(tmp, path)
 
 def generate_chunks(args_list: list, chunk_dir: Path, chunk_size: int, n_jobs: int) -> None:
@@ -221,7 +222,7 @@ def generate_chunks(args_list: list, chunk_dir: Path, chunk_size: int, n_jobs: i
                 rows     = [row for sample_rows in results for row in sample_rows] # type: ignore
                 features = np.array([feat for feat, _ in rows], dtype=float).reshape(-1, 5)
                 labels   = np.array([lab for _, lab in rows], dtype=float)
-                save_chunk(chunk_file(chunk_dir, i), features, labels)
+                save_chunk(chunk_file(chunk_dir, i), features=features, label=labels)
 
 def load_chunks(chunk_dir: Path, n_chunks: int) -> tuple:
     """Concatenates the chunks in order into (features, labels)."""

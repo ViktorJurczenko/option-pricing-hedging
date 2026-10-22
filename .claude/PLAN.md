@@ -41,61 +41,7 @@ every part is built the way it is".
 
 - [x] Vectorized smoothed binomial pricer
 - [x] Tests and convergence study for the pricer
-- [ ] New generator `ML/surrogate/GenerateTreeDataset.py`
-  Same resumable/seeded/chunked machinery as `generate_dataset.py` (reuse
-  its helpers rather than copying them). Puts only (calls come from BS; the
-  `is_call` input comes back with dividends `q`, see "The ML surrogate
-  with `q`"). No `S0`/`K` (homogeneity). Sampling (reasons: `REMINDER.md`,
-  "The tree dataset: how it is sampled and why"):
-  - Scrambled Sobol points (`scipy.stats.qmc.Sobol(4, scramble=True,
-    seed=seed)`) instead of independent draws: the 4 uniforms become `T`,
-    `sigma`, `r` and the position of `z` in its interval. 240x lower
-    discrepancy than random draws at 4096 points (no clumps or holes in
-    the parameter space). Point `i` is fixed by the seed, so the resumable
-    chunks still work; chunk sizes and the total are powers of 2 (default
-    chunk 1024), where the Sobol balance holds exactly.
-  - `T` log-uniform (1/52, 5): down to 1 week, where much option volume
-    trades (was 0.25). `sigma` log-uniform (0.05, 0.6) and `r` uniform
-    (0, 0.08), unchanged. The tree is as accurate at 1 week (price
-    <= 3e-7 K, delta <= 3e-4).
-  - Moneyness through `z = ln(m) / (sigma sqrt(T))`, uniform on that draw's
-    allowed interval `[max(-3.5, ln 0.4 / v), min(3, ln 2.5 / v)]`,
-    `v = sigma sqrt(T)`, i.e. z in [-3.5, 3] and `m` in (0.4, 2.5). -3.5,
-    not -3: at 1 week with `sigma >= 0.6` and `r = 0.005` the exercise
-    boundary reaches z = -3.2/-3.3. Drawing `z` within each draw's
-    interval (not rejecting draws outside the cap) keeps the
-    `T`/`sigma`/`r` marginals as specified.
-  Measured on 16,384 Sobol draws of this domain: 28% of rows exercised
-  today (45% with the old `m` log-uniform on (0.4, 1.6)), 35% within
-  |z| < 1, 53% in the money, 46% with `T` < 0.25, the cap binding for 19%,
-  and every row below z = -3.3 with r >= 0.005 exercised. The longer `T`
-  range dilutes the old one: at a fixed row count only 54% of the rows
-  stay in `T` >= 0.25, so ~1.86x the rows keep its density (the learning
-  curve below decides the final count). Store `z` and an `exercised` flag
-  (the tree's exercise-today rule fired: price `1 - m`, delta -1, gamma 0
-  exactly; have `binomial_put_batch` return it in `TreeResult` rather than
-  inferring it from delta), which the evaluation buckets and a thinning
-  ablation need. The domain bounds (z range, `m` cap, `T` range) go into
-  the dataset with the other settings, so the `price` helper can route
-  out-of-domain queries: `m` outside the cap -> `binomial_put_batch`;
-  z > 3 -> Black-Scholes (the premium there is < 4e-5 K); z < -3.5 with
-  r >= 0.005 -> `1 - m` (exercised); anything else -> `binomial_put_batch`.
-  Theta is not stored: the Black-Scholes PDE gives it from price, delta and
-  gamma (`REMINDER.md`, "Theta is not stored").
-  Stores *raw* parameters and raw labels - `m, T, r, sigma, z`, the
-  American price, the BS European price, delta, gamma, `exercised` - plus
-  the generator settings (`teacher="tree"`, `N`, method, seed, sampler,
-  domain bounds). No normalization in the generator:
-  features and their stats move to load time, so a feature change never
-  needs a regeneration. Run as `python -m ML.surrogate.GenerateTreeDataset`.
-  Calls `binomial_put_batch(..., chunk_size=32)`, with the reason in a
-  comment there: each tree level touches a (chunk, level + 1) array several
-  times; at 32 options and 1000 steps that is ~256 KB, which stays in the CPU
-  cache, while a whole batch of 1000 (8 MB) goes to main memory on every
-  pass. 32 was the fastest of 16-1000 for "bbsr" at 1000 steps (2.8 vs 8.9
-  ms/option before the discount was folded into the weights, 1.5 ms after;
-  2.7 ms on random draws over the whole domain, see the study below);
-  smaller chunks pay more Python overhead per level.
+- [x] New generator `ML/surrogate/GenerateTreeDataset.py`
 - [ ] Dataset class: features, target and stats at load time
   `ML/surrogate/dataset.py` (`AmericanOptionDataset` or a new class) builds
   the inputs from the raw columns: `log m`, standardized `log T`,
@@ -113,6 +59,11 @@ every part is built the way it is".
   `BS + K * net`, and `delta`/`gamma` via autograd, so every consumer
   reconstructs the same way. Retire `smooth_intrinsic_value` from the
   pipeline (keep the function and the decision doc as history).
+  The helper routes queries outside the training domain (the bounds are
+  stored in the dataset) instead of extrapolating: `m` outside the cap ->
+  `binomial_put_batch`; z > 3 -> Black-Scholes (the premium there is
+  < 4e-5 K); z < -3.5 with r >= 0.005 -> `1 - m` (exercised); anything
+  else outside -> `binomial_put_batch`.
 - [ ] Training loop overhaul
   Seed init and batch order (`torch.manual_seed`), batch 512-1024, Adam with
   cosine decay 1e-3 -> 1e-5, early stopping kept as a safety net, optional
@@ -144,8 +95,10 @@ every part is built the way it is".
   gamma.
 - [ ] Tests, CLI wiring, docs
   Unit tests for the dataset features/target, the net's price/delta
-  reconstruction, the loss terms; CLI smoke tests for the new generator
-  (tiny run) and `train-ml`/`test-ml` on it. Update CLAUDE.md, README.
+  reconstruction, the loss terms; CLI smoke tests for `train-ml`/`test-ml`
+  on a tiny tree dataset (the generator's own are in
+  `tests/integration/test_generate_tree_dataset_cli.py`). Update CLAUDE.md,
+  README.
 - [ ] Smoke run, then full generation
   Only now: a tiny generation (a few hundred rows) through train-ml/test-ml
   end to end. Then size the full run with a learning curve rather than a

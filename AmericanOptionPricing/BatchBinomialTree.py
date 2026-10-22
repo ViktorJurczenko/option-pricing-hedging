@@ -15,10 +15,14 @@ class TreeResult(NamedTuple):
 
     price: option value / K. delta: dV/dS (the same number for any K, since
     V is homogeneous of degree 1 in (S, K)). gamma: d2V/dS2 times K.
+    exercised: True where the put is exercised today (worth its payoff
+    1 - m, with m < 1), which fixes price, delta and gamma to 1 - m, -1 and
+    0 exactly; always False for a European put.
     """
     price: np.ndarray
     delta: np.ndarray
     gamma: np.ndarray
+    exercised: np.ndarray
 
 def binomial_put_batch(
         moneyness,
@@ -80,7 +84,7 @@ def binomial_put_batch(
             at once). Only affects speed and memory, never the results.
 
     Returns:
-        TreeResult(price, delta, gamma).
+        TreeResult(price, delta, gamma, exercised).
 
     Raises:
         ValueError: for an unknown method, a non-finite (NaN or infinite)
@@ -136,13 +140,14 @@ def binomial_put_batch(
     # doesn't) means the same thing. `m < 1` keeps a deep out-of-the-money
     # put, worth ~0 = its payoff, out of this case. (A European put has no
     # exercise region: it can be worth less than its payoff.)
+    exercised = np.zeros(n_options, dtype=bool)
     if american:
         intrinsic = 1 - params[0]
         exercised = (intrinsic > 0) & (out[0] <= intrinsic + _EXERCISE_TOL)
         out[0, exercised] = intrinsic[exercised]
         out[1, exercised] = -1.0
         out[2, exercised] = 0.0
-    return TreeResult(*out.reshape(3, *batch_shape))
+    return TreeResult(*out.reshape(3, *batch_shape), exercised.reshape(batch_shape))
 
 def _induct(params, n, bbs, american):
     """Backward induction over n-step trees for a (4, n_options) parameter

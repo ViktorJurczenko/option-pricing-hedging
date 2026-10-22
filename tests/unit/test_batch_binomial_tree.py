@@ -140,6 +140,17 @@ def test_put_exercised_today_gets_exact_price_and_greeks(nb_steps):
     # (true 0), and delta -1.0102 at 400 (BUGS.md).
     res = binomial_put_batch(0.8, 5.0, 0.08, 0.2, nb_steps=nb_steps)
     assert res.price == 1 - 0.8 and res.delta == -1.0 and res.gamma == 0.0
+    assert res.exercised
+
+
+@pytest.mark.parametrize("method", METHODS)
+def test_exercised_flag_marks_exactly_the_rows_at_their_payoff(method):
+    res = binomial_put_batch(*DOMAIN_GRID, nb_steps=200, method=method)
+    m = DOMAIN_GRID[0]
+    assert res.exercised.shape == m.shape and res.exercised.dtype == bool
+    assert 0 < res.exercised.mean() < 1  # the grid has both kinds
+    at_payoff = (m < 1) & (res.price == 1 - m) & (res.delta == -1) & (res.gamma == 0)
+    np.testing.assert_array_equal(res.exercised, at_payoff)
 
 
 def test_deep_out_of_the_money_put_is_not_treated_as_exercised():
@@ -147,6 +158,7 @@ def test_deep_out_of_the_money_put_is_not_treated_as_exercised():
     # only an in-the-money put can be exercised.
     res = binomial_put_batch(1.6, 0.25, 0.05, 0.05, nb_steps=200)
     assert res.delta > -0.5
+    assert not res.exercised
 
 
 def test_european_put_below_its_payoff_is_left_alone():
@@ -155,6 +167,7 @@ def test_european_put_below_its_payoff_is_left_alone():
     res = binomial_put_batch(0.5, 1.0, 0.05, 0.2, nb_steps=400, american=False)
     assert res.price == pytest.approx(black_scholes_price(0.5, 1.0, 1.0, 0.05, 0.2, "put"), abs=1e-6)
     assert res.delta > -1
+    assert not res.exercised
 
 
 def test_bbsr_has_no_odd_even_zig_zag_in_the_number_of_steps():

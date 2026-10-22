@@ -425,6 +425,20 @@ of `--chunk_size` samples is saved to `data/chunks/`, so after a Ctrl-C or a
 kill you re-run the same command and it continues where it stopped (at most
 one chunk is lost). Resuming with different settings is refused.
 
+The MLP overhaul's new dataset (in progress, see `.claude/PLAN.md`) is
+labelled by a vectorized binomial tree instead of LSM, puts only:
+
+```
+python -m ML.surrogate.GenerateTreeDataset [--n_rows N] [--chunk_size N] [--nb_steps N]     [--method crr|bbs|bbsr] [--nb_jobs N] [--seed N] [--output_dir data]
+```
+
+Parameters come from a scrambled Sobol sequence (`--n_rows` and
+`--chunk_size` are powers of 2), with moneyness sampled through
+`z = ln(m)/(σ√T)`, so every maturity and volatility gets the same
+coverage around the strike. It writes raw columns (parameters, American and
+European prices, delta, gamma, an `exercised` flag) and its settings to
+`data/tree_put_dataset.npz`, and resumes like the LSM generator.
+
 ## Testing
 
 ```
@@ -453,7 +467,8 @@ Pricers are grouped by option class, everything that is learned lives in
     5 inputs → 1 output: `(price - smooth_intrinsic_value) / K` — a smoothly
     decomposed residual, not raw price; see Results above for why),
     `dataset.py` (`AmericanOptionDataset`, seeded, disjoint train/test split),
-    `generate_dataset.py` (parallel, resumable LSM dataset generation) and
+    `generate_dataset.py` (parallel, resumable LSM dataset generation),
+    `GenerateTreeDataset.py` (its tree-labelled successor, puts only) and
     `evaluation.py` (regression/benchmark helpers used by `test-ml`).
   - `rl/`: the SAC hedging agent. `policy.py` (the Gaussian actor; its
     tanh-squashed output becomes a hedge in one of three action modes: a
