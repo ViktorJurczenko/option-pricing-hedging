@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from AmericanOptionPricing.ML import smooth_intrinsic_value
+from ML.surrogate.model import smooth_intrinsic_value
 from core.gbm import GBM
-from datasets.generate_dataset import (chunk_file, gen_data, gen_rdm_params, generate_chunks, load_chunks,
+from ML.surrogate.generate_dataset import (chunk_file, gen_data, gen_rdm_params, generate_chunks, load_chunks,
                                        prepare_chunk_dir, process_sample)
 from EuropeanOptionPricing.BlackScholes import BlackScholes
 

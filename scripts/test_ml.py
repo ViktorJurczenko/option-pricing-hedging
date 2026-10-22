@@ -7,9 +7,9 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 
 from core.gbm import GBM
-from datasets.american_option_dataset import AmericanOptionDataset
-from AmericanOptionPricing.ML import MLP
-from AmericanOptionPricing.evaluation import regression_tests, test_option_price_lsm
+from ML.surrogate.dataset import AmericanOptionDataset
+from ML.surrogate.model import MLP
+from ML.surrogate.evaluation import regression_tests, test_option_price_lsm
 
 def add_arguments(parser):
     parser.add_argument("--dataset_path", default="data/american_option_dataset.npz", type=str, help="Path to the dataset for MLP.")
@@ -19,12 +19,12 @@ def add_arguments(parser):
     parser.add_argument("--checkpoint_path", default="checkpoints/best_model.pth", type=str, help="Path to the trained model's weights.")
 
 def load_lsm_settings(dataset_path):
-    """The Longstaff-Schwartz settings the dataset's labels were generated with, as stored by `datasets.generate_dataset`."""
+    """The Longstaff-Schwartz settings the dataset's labels were generated with, as stored by `ML.surrogate.generate_dataset`."""
     data = np.load(dataset_path)
     missing = [key for key in ("reg_type", "max_degree", "sampling") if key not in data.files]
     if missing:
         raise ValueError(f"{dataset_path} has no stored LSM settings ({', '.join(missing)}): it predates them, "
-                         "regenerate it with `python -m datasets.generate_dataset`.")
+                         "regenerate it with `python -m ML.surrogate.generate_dataset`.")
     return {"reg_type": str(data["reg_type"]), "max_degree": int(data["max_degree"]), "sampling": int(data["sampling"])}
 
 def run(args):
@@ -36,7 +36,7 @@ def run(args):
                        ("--checkpoint_path", args.checkpoint_path)]:
         if not Path(path).is_file():
             raise FileNotFoundError(f"{flag}: no file at {path} (generate the dataset with "
-                                    "`python -m datasets.generate_dataset`, train with `train-ml`).")
+                                    "`python -m ML.surrogate.generate_dataset`, train with `train-ml`).")
     lsm_settings = load_lsm_settings(args.dataset_path)
     print(f"LSM benchmark settings (from the dataset): {lsm_settings}")
     dataset_test = AmericanOptionDataset(args.dataset_path, is_train=False, split_ratio=args.split_ratio, seed=args.seed)
@@ -67,7 +67,7 @@ def run(args):
     T_val_norm      = (np.log(T_val) - log_T_mean) / log_T_std
 
     # Sweeps the full range the model was trained on (moneyness_range=(0.4, 1.6)
-    # in datasets/generate_dataset.py), staying inside its edges, so this actually
+    # in ML/surrogate/generate_dataset.py), staying inside its edges, so this actually
     # stress-tests deep ITM/OTM instead of the narrow band around ATM.
     moneyness = np.linspace(0.5, 1.5, 50)
     K_val     = np.linspace(90, 110, 50)

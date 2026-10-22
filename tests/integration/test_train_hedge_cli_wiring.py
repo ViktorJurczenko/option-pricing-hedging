@@ -1,24 +1,24 @@
 """
 Tests for scripts/train_hedge.py::add_arguments()/run() -- specifically the
---lr/--alpha flags added to expose AmericanHedging.Hedge.train()'s existing
+--lr/--alpha flags added to expose ML.rl.sac.train()'s existing
 `lr`/`alpha` keyword arguments (previously stuck at their hardcoded defaults
 with no CLI override, unlike --risk_lambda/--fixed_tc/--grad_steps_per_update
 in the same file), plus the later --reward_mode/--gamma/--reward_scale/
 --auto_alpha flags and run()'s accounting-mode value_fn wiring (see
-AmericanHedging/option_value.py and HedgeEnv's reward_mode).
+Hedging/option_value.py and HedgingEnv's reward_mode).
 
 Mirrors tests/integration/test_hedge_policy_seeding.py's approach for the
 sibling script (scripts/test_hedge.py): run() is exercised with real GBM
 simulation + LongstaffSchwartz fit + env/policy/critic construction (all real,
 kept small/fast via tiny nb_predictions/sampling/maturity), while the actual
-training loop (AmericanHedging.Hedge.train) is stubbed out so the test stays
+training loop (ML.rl.sac.train) is stubbed out so the test stays
 fast and can assert on exactly what run() passed it.
 """
 import numpy as np
 import pytest
 
 from core.gbm import GBM
-from AmericanHedging.HedgeEnv import HedgingEnv
+from Hedging.env import HedgingEnv
 
 import scripts.train_hedge as train_hedge_script
 from tests.helpers import make_parser, parse_script_args

@@ -5,8 +5,8 @@ import torch
 
 from torch.utils.data import DataLoader, random_split
 
-from datasets.american_option_dataset import AmericanOptionDataset
-from AmericanOptionPricing.ML import MLP
+from ML.surrogate.dataset import AmericanOptionDataset
+from ML.surrogate.model import MLP
 
 def add_arguments(parser):
     parser.add_argument("--dataset_path", default="data/american_option_dataset.npz", type=str, help="Path to the dataset for MLP.")
@@ -20,7 +20,7 @@ def add_arguments(parser):
 def run(args):
     if not Path(args.dataset_path).is_file():
         raise FileNotFoundError(f"Dataset not found at {args.dataset_path}; generate it with "
-                                "`python -m datasets.generate_dataset` or pass --dataset_path.")
+                                "`python -m ML.surrogate.generate_dataset` or pass --dataset_path.")
     dataset_train = AmericanOptionDataset(args.dataset_path, is_train=True, split_ratio=args.split_ratio, seed=args.seed)
 
     mlp = MLP()

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from AmericanHedging.ReplayBuffer import ReplayBuffer
+from ML.rl.replay_buffer import ReplayBuffer
 
 
 def _push(buffer, i, action=None):

@@ -3,12 +3,12 @@ import math
 
 from core.gbm import GBM
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from AmericanHedging.Critic import Critic
-from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.ReplayBuffer import ReplayBuffer
-from AmericanHedging.RLPolicy import RLPolicy
-from AmericanHedging.Hedge import train
-from AmericanHedging.option_value import make_option_value_fn
+from ML.rl.critic import Critic
+from Hedging.env import HedgingEnv
+from ML.rl.replay_buffer import ReplayBuffer
+from ML.rl.policy import RLPolicy
+from ML.rl.sac import train
+from Hedging.option_value import make_option_value_fn
 
 def _positive_float(value: str) -> float:
     """argparse type for a finite float that must be > 0 (argparse turns

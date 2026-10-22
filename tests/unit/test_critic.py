@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from AmericanHedging.Critic import Critic
+from ML.rl.critic import Critic
 
 
 def test_first_layer_takes_state_plus_action_width():

@@ -3,10 +3,11 @@ import torch
 
 from core.gbm import GBM
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.RLPolicy import RLPolicy, checkpoint_action_dim
-from AmericanHedging.Hedge import deterministic_hedge, evaluate
-from AmericanHedging.baselines import delta_band, delta_hedge, no_hedge
+from Hedging.env import HedgingEnv
+from ML.rl.policy import RLPolicy, checkpoint_action_dim
+from ML.rl.sac import deterministic_hedge
+from Hedging.evaluation import evaluate
+from Hedging.baselines import delta_band, delta_hedge, no_hedge
 
 def add_arguments(parser):
     parser.add_argument("--sigma", default=0.2, type=float, help="Volatility (standard deviation of returns).")

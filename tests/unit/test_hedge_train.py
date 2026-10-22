@@ -1,4 +1,4 @@
-"""AmericanHedging.Hedge.train(): the training loop wiring, its argument
+"""ML.rl.sac.train(): the training loop wiring, its argument
 checks, the entropy coefficient, action squashing and each action mode."""
 import math
 
@@ -7,11 +7,11 @@ import pytest
 import torch
 import tqdm as tqdm_pkg
 
-import AmericanHedging.Hedge as hedge_module
-from AmericanHedging.Hedge import _squash, train
-from AmericanHedging.ReplayBuffer import ReplayBuffer
-from AmericanHedging.RLPolicy import RLPolicy
-from AmericanHedging.Critic import Critic
+import ML.rl.sac as hedge_module
+from ML.rl.sac import _squash, train
+from ML.rl.replay_buffer import ReplayBuffer
+from ML.rl.policy import RLPolicy
+from ML.rl.critic import Critic
 from tests.unit.hedge_fakes import FakeEnv, make_nets, ActionSpyBuffer, PositionEnv, BanditEnv, train_bandit
 
 

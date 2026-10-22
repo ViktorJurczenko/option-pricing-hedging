@@ -3,7 +3,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from AmericanOptionPricing.ML import MLP, intrinsic_value, option_type_feature, smooth_intrinsic_value
+from ML.surrogate.model import MLP, intrinsic_value, option_type_feature, smooth_intrinsic_value
 
 
 def test_option_type_feature_encodes_call_as_one_and_put_as_zero():
@@ -81,7 +81,7 @@ def test_train_model_early_stops_after_patience_epochs_without_improvement(tmp_p
     # lr=0 => weights never change => validation MSE is identical every epoch (BatchNorm
     # running stats move, so eval MSE is made constant by patching the metric): epoch 1 saves,
     # epochs 2.. count as no-improvement, so with patience=2 training stops after epoch 3.
-    import AmericanOptionPricing.ML as ml
+    import ML.surrogate.model as ml
     calls = []
     def const_mse(pred, true):
         calls.append(1)
@@ -94,7 +94,7 @@ def test_train_model_early_stops_after_patience_epochs_without_improvement(tmp_p
 def test_train_model_saves_only_on_validation_improvement(tmp_path, monkeypatch):
     # Validation MSE per epoch: 1.0 (save), 2.0 (worse), 0.5 (save), 0.7 (worse). The checkpoint
     # must hold the epoch-3 weights, not the final epoch's.
-    import AmericanOptionPricing.ML as ml
+    import ML.surrogate.model as ml
     per_epoch = iter([1.0, 2.0, 0.5, 0.7])
     state = {"cur": None, "n": 0}
     def scripted_mse(pred, true):
@@ -124,7 +124,7 @@ def test_train_model_saves_only_on_validation_improvement(tmp_path, monkeypatch)
     assert not torch.equal(saved["layer1.weight"], mlp.layer1.weight)  # epoch 4 trained further
 
 def test_train_model_steps_scheduler_with_validation_mse(tmp_path, monkeypatch):
-    import AmericanOptionPricing.ML as ml
+    import ML.surrogate.model as ml
     monkeypatch.setattr(ml, "mse_fn", lambda p, t: 0.25)
     seen = []
     class Sched:

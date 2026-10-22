@@ -114,8 +114,8 @@ For this repo, candidates beyond what's already in `tests/integration/`:
   count, normalization keys, checkpoint format).
   `tests/integration/test_bundled_dataset.py` is a starting point for this.
 - **Cross-module consistency**: a test that fails loudly if
-  `datasets/generate_dataset.py`'s normalization (log-sigma, log-T, raw-r)
-  and `datasets/american_option_dataset.py`/`scripts/test_ml.py`'s ever
+  `ML/surrogate/generate_dataset.py`'s normalization (log-sigma, log-T, raw-r)
+  and `ML/surrogate/dataset.py`/`scripts/test_ml.py`'s ever
   diverge — this is currently only enforced by a `CLAUDE.md` convention, not
   a test, and is exactly the kind of silent-mismatch bug integration tests
   exist for.

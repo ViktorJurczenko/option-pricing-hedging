@@ -1,10 +1,10 @@
-"""AmericanHedging.Hedge.evaluate() and cvar()."""
+"""Hedging.evaluation.evaluate() and cvar()."""
 import numpy as np
 import pytest
 
-from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.Hedge import cvar, evaluate
-from AmericanHedging.baselines import delta_hedge, no_hedge
+from Hedging.env import HedgingEnv
+from Hedging.evaluation import cvar, evaluate
+from Hedging.baselines import delta_hedge, no_hedge
 from tests.helpers import two_path_call_lsm
 
 

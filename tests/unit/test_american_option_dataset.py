@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from datasets.american_option_dataset import AmericanOptionDataset
+from ML.surrogate.dataset import AmericanOptionDataset
 
 def _write_toy_dataset(path, n=100, n_features=5):
     features = np.random.default_rng(0).random((n, n_features)).astype(np.float32)

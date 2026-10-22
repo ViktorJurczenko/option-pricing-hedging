@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from AmericanHedging.option_value import binomial_value_fn
+from Hedging.option_value import binomial_value_fn
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz, least_squares
 from core.gbm import GBM
 from EuropeanOptionPricing.BlackScholes import BlackScholes

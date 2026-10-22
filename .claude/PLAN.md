@@ -5,6 +5,23 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Restructure: ML/ for everything learned, Hedging/ for the hedging problem
+
+ML code was spread over `AmericanOptionPricing/` (`ML.py`, `evaluation.py`),
+a top-level `datasets/` (which shadows the HuggingFace `datasets` package
+name) and `AmericanHedging/`, where the SAC agent sat next to the
+environment it is trained in. Chosen layout (option B of three): `ML/`
+holds what is learned, `Hedging/` the finance problem (env, value functions,
+baselines, P&L metrics), shared by any learner (SAC now, Deep Hedging later).
+Pricing folders unchanged. Done before the MLP overhaul below, so that one
+starts in its final place.
+
+- [x] Move files with `git mv` (history kept)
+- [x] Split `Hedge.py`
+- [x] Rewrite imports and string references
+- [x] Docs
+- [x] Full test suite (427 unit as before the move, 91 integration)
+
 ## MLP surrogate overhaul: binomial-tree teacher, premium target, smooth net
 
 An analysis of the regenerated dataset and of the course (ch. 23) found:

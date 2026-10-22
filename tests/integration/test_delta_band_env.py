@@ -10,10 +10,11 @@ import torch
 
 from core.gbm import GBM
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from AmericanHedging.HedgeEnv import HedgingEnv
-from AmericanHedging.baselines import delta_band
-from AmericanHedging.Hedge import deterministic_hedge, evaluate
-from AmericanHedging.RLPolicy import RLPolicy
+from Hedging.env import HedgingEnv
+from Hedging.baselines import delta_band
+from ML.rl.sac import deterministic_hedge
+from Hedging.evaluation import evaluate
+from ML.rl.policy import RLPolicy
 
 FIXED_COST = 0.5
 

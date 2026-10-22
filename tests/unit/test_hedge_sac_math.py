@@ -5,9 +5,9 @@ import numpy as np
 import pytest
 import torch
 
-import AmericanHedging.Hedge as hedge_module
-from AmericanHedging.Hedge import train
-from AmericanHedging.ReplayBuffer import ReplayBuffer
+import ML.rl.sac as hedge_module
+from ML.rl.sac import train
+from ML.rl.replay_buffer import ReplayBuffer
 from tests.unit.hedge_fakes import make_nets
 
 
@@ -46,7 +46,7 @@ def _single_update_train(monkeypatch, tmp_path, tau, gamma=0.9, alpha=0.3, log_p
     monkeypatch.setattr(hedge_module.copy, "deepcopy", lambda m: targets.append(real_deepcopy(m)) or targets[-1])
     monkeypatch.setattr(hedge_module, "_squash",
                         lambda dist: (torch.tanh(dist.mean), torch.full(dist.mean.shape[:-1] + (1,), log_pi_value)))
-    monkeypatch.setattr("AmericanHedging.ReplayBuffer.random.sample", lambda pop, k: list(pop)[:k])
+    monkeypatch.setattr("ML.rl.replay_buffer.random.sample", lambda pop, k: list(pop)[:k])
     captured_targets = []
     real_mse = hedge_module.F.mse_loss
     monkeypatch.setattr(hedge_module.F, "mse_loss",

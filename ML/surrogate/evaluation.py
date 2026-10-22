@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from utils.metrics import mse_fn, mae_fn, r2_fn
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from AmericanOptionPricing.ML import smooth_intrinsic_value, option_type_feature
+from ML.surrogate.model import smooth_intrinsic_value, option_type_feature
 
 def regression_tests(model: torch.nn.Module, dataloader_test):
     model.eval() # Set the model on evaluation mode
@@ -34,7 +34,7 @@ def test_option_price_lsm(model: nn.Module, simulation, moneyness, K, r, r_norm,
     Args:
         sigma, control_variate: passed to the LSM benchmark. Calls should use
             control_variate=True (which needs sigma), matching how
-            datasets/generate_dataset.py labels them.
+            ML/surrogate/generate_dataset.py labels them.
 
 
     Returns:

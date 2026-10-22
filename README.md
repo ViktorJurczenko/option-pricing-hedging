@@ -83,7 +83,7 @@ with the default degree-3 polynomial fit, delta landed outside that range
 (depending on random seed), with values reaching into the tens — or, at a
 higher regression degree, the thousands. This matters in practice:
 `HedgeEnv` feeds this delta straight into the hedging policy's state, and
-`AmericanHedging/baselines.py`'s `delta_hedge` baseline trades on it
+`Hedging/baselines.py`'s `delta_hedge` baseline trades on it
 directly and unclamped — a negative "delta" near expiry could execute as an
 actual short position, the wrong trade direction. Switching to the Laguerre
 basis changes nothing at the same degree (see "Which regression basis?"
@@ -153,7 +153,7 @@ and `test-ml` to `laguerre`; switching any of them changes nothing.
 ### MLP surrogate vs. Longstaff-Schwartz
 
 ```
-python -m datasets.generate_dataset   # regenerate the training set (~40 min at defaults)
+python -m ML.surrogate.generate_dataset   # regenerate the training set (~40 min at defaults)
 python main.py train-ml
 python main.py test-ml
 ```
@@ -161,9 +161,9 @@ python main.py test-ml
 An earlier version of this surrogate had a real ~9.5% average error on ITM
 puts. Chasing that down changed several things about how the dataset is built
 and how the model's target is defined — worth explaining since none of it is
-obvious from reading `ML.py` alone:
+obvious from reading `ML/surrogate/model.py` alone:
 
-**1. Training data now covers moneyness continuously.** `datasets/generate_dataset.py`
+**1. Training data now covers moneyness continuously.** `ML/surrogate/generate_dataset.py`
 used to sample moneyness (`S0/K`) from 5 discrete buckets (`{0.5, 0.7, 1.0, 1.2,
 1.5}` ± a little noise), leaving large *untrained* gaps between them (e.g.
 nothing at all between 0.75 and 0.95). The old evaluation benchmark happened to
@@ -173,7 +173,7 @@ samples moneyness log-uniformly and continuously over `(0.4, 1.6)` instead.
 
 **2. The label is a *smoothly* decomposed residual, not raw price.** The MLP
 predicts `(price - smooth_intrinsic_value) / K` rather than `price / K`
-directly (see `AmericanOptionPricing/ML.py::smooth_intrinsic_value`). The
+directly (see `ML/surrogate/model.py::smooth_intrinsic_value`). The
 naive version of this idea — subtracting the *exact* intrinsic value
 `max(K-S, 0)` — helps in general (it shrinks the target's dynamic range: deep
 ITM prices can be many times larger than deep OTM ones), but that exact
@@ -410,7 +410,7 @@ Dataset generation for the MLP is a separate entry point and must be run as a
 module (absolute imports require the project root on `sys.path`):
 
 ```
-python -m datasets.generate_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] \
+python -m ML.surrogate.generate_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] \
     [--nb_jobs N] [--sampling N] [--option_type call|put] [--reg_type simple|laguerre] [--max_degree N] \
     [--output_dir data] [--seed N] [--chunk_size N]
 ```
@@ -435,7 +435,9 @@ python -m pytest tests/integration      # convergence checks + CLI smoke tests; 
 
 ## Architecture
 
-Module layout mirrors option class for pricing, and role for everything else:
+Pricers are grouped by option class, everything that is learned lives in
+`ML/`, and the hedging problem the learners are trained in lives in
+`Hedging/`:
 
 - **`core/`** — the foundation every pricer depends on: `gbm.py` (GBM path
   simulator) and `base.py` (the `OptionPricing` ABC).
@@ -444,33 +446,35 @@ Module layout mirrors option class for pricing, and role for everything else:
 - **`AmericanOptionPricing/`** — `BinomialTree` (CRR tree with backward
   induction), `LongstaffSchwartz` (LSM with simple/Laguerre polynomial
   regression bases, an optional European control variate, and delta/gamma
-  from a regression of pathwise deltas — see Results above),
-  `basis_functions.py` (the
-  regression bases, unit-tested independently), `ML.py` (the `MLP` surrogate,
-  4 inputs → 1 output: `(price - smooth_intrinsic_value) / K` — a smoothly
-  decomposed residual, not raw price; see Results above for why), `evaluation.py`
-  (regression/benchmark helpers used by `test-ml`).
-- **`AmericanHedging/`** — a SAC-style continuous-control setup:
-  - `HedgeEnv.py`: wraps a fitted `LongstaffSchwartz` instance. State =
-    spot/strike, time, delta, gamma, position; episodes run to each path's
-    exercise time under LSM's exercise rule. Proportional and fixed trading
-    costs; a `terminal` reward (hedge P&L minus the payoff) or an
+  from a regression of pathwise deltas — see Results above) and
+  `basis_functions.py` (the regression bases, unit-tested independently).
+- **`ML/`** — everything that is learned:
+  - `surrogate/`: the MLP surrogate pricer. `model.py` (the `MLP`,
+    5 inputs → 1 output: `(price - smooth_intrinsic_value) / K` — a smoothly
+    decomposed residual, not raw price; see Results above for why),
+    `dataset.py` (`AmericanOptionDataset`, seeded, disjoint train/test split),
+    `generate_dataset.py` (parallel, resumable LSM dataset generation) and
+    `evaluation.py` (regression/benchmark helpers used by `test-ml`).
+  - `rl/`: the SAC hedging agent. `policy.py` (the Gaussian actor; its
+    tanh-squashed output becomes a hedge in one of three action modes: a
+    correction to the LSM delta (`residual`, the default), the fraction of
+    the gap to delta closed each step (`gap_fraction`), or a 2-D no-trade
+    band (`band`)), `critic.py` (twin Q-networks), `replay_buffer.py`, and
+    `sac.py` (the training loop: target networks, warmup, learned entropy
+    coefficient, mean-variance reward shaping, checkpointing on held-out
+    validation paths).
+- **`Hedging/`** — the hedging problem, independent of any learner:
+  - `env.py`: `HedgingEnv`, wraps a fitted `LongstaffSchwartz` instance.
+    State = spot/strike, time, delta, gamma, position; episodes run to each
+    path's exercise time under LSM's exercise rule. Proportional and fixed
+    trading costs; a `terminal` reward (hedge P&L minus the payoff) or an
     `accounting` one (minus the option's value change every step, used for
     training); a batched `rollout_pnl` for fast validation.
   - `option_value.py`: the option values the accounting reward needs
     (Black-Scholes for calls, a binomial tree for puts).
-  - `RLPolicy.py`: the Gaussian actor. Its tanh-squashed output becomes a
-    hedge in one of three action modes: a correction to the LSM delta
-    (`residual`, the default), the fraction of the gap to delta closed
-    each step (`gap_fraction`), or a 2-D no-trade band (`band`).
-  - `Critic.py` (twin Q-networks) and `ReplayBuffer.py`.
-  - `Hedge.py`: the SAC training loop (target networks, warmup, learned
-    entropy coefficient, mean-variance reward shaping, checkpointing on
-    held-out validation paths) and `evaluate()` (mean, std, VaR and CVaR
-    of the P&L).
   - `baselines.py`: delta hedge, no-trade band and no-hedge policies.
-- **`datasets/`** — `AmericanOptionDataset` (seeded, disjoint train/test split)
-  and `generate_dataset.py` (parallel LSM dataset generation).
+  - `evaluation.py`: `evaluate()` (mean, std, VaR and CVaR of the P&L of
+    any policy) and `cvar()`.
 - **`scripts/`** — one module per CLI subcommand, wired into `main.py`'s
   `argparse` subparsers.
 - **`data/`, `checkpoints/`** — generated artifacts only (gitignored): the

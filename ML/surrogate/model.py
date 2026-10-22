@@ -51,7 +51,7 @@ def smooth_intrinsic_value(S, K, option_type: str = "put", beta_frac: float = 0.
     0.06 was the best 3-way balance found, not a derived/theoretical constant.
 
     beta_frac is a fixed constant here, not a CLI flag: it must be identical
-    between whatever generated the training labels (datasets/generate_dataset.py)
+    between whatever generated the training labels (ML/surrogate/generate_dataset.py)
     and whatever reconstructs price from the model's output
     (evaluation.py::test_option_price_lsm) or the comparison is invalid - see
     CLAUDE.md's note on the same class of bug with reg_type/max_degree drift.

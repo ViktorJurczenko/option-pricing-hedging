@@ -10,7 +10,7 @@ import re
 import pytest
 import torch
 
-from AmericanHedging.RLPolicy import checkpoint_action_dim
+from ML.rl.policy import checkpoint_action_dim
 from tests.helpers import ROOT, run_cli
 
 def _price(stdout, label):

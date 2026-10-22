@@ -9,14 +9,14 @@ import numpy as np
 import pytest
 import torch
 
-from AmericanOptionPricing.ML import MLP
+from ML.surrogate.model import MLP
 from tests.helpers import run_cli, run_python
 
 # Dataset generation and training take longer than the helpers' default timeout.
 PIPELINE_TIMEOUT = 600
 
 def _generate(out_dir, *extra):
-    result = run_python("-m", "datasets.generate_dataset", "--path_per_sim", "500", "--nb_param_comb", "40",
+    result = run_python("-m", "ML.surrogate.generate_dataset", "--path_per_sim", "500", "--nb_param_comb", "40",
                   "--samples_per_param", "2", "--nb_jobs", "2", "--sampling", "20",
                   "--output_dir", str(out_dir), *extra, timeout=PIPELINE_TIMEOUT)
     assert result.returncode == 0, result.stderr

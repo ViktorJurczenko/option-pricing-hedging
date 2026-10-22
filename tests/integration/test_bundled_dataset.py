@@ -1,7 +1,7 @@
 import os
 import pytest
 
-from datasets.american_option_dataset import AmericanOptionDataset
+from ML.surrogate.dataset import AmericanOptionDataset
 
 DATASET_PATH = "data/american_option_dataset.npz"
 

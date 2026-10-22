@@ -23,7 +23,7 @@ class HedgingEnv:
                 of a penalty on holding any position. The episode sum telescopes
                 to the terminal-mode sum plus the constant V_0/K.
         value_fn: value_fn(t, S) -> option value at simulation row t for spots S
-            (see AmericanHedging/option_value.py). Required for "accounting".
+            (see Hedging/option_value.py). Required for "accounting".
         """
         if reward_mode not in ["terminal", "accounting"]:
             raise ValueError("reward_mode must be 'terminal' or 'accounting'")

@@ -12,7 +12,7 @@ import time
 import argparse
 
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from AmericanOptionPricing.ML import smooth_intrinsic_value, option_type_feature
+from ML.surrogate.model import smooth_intrinsic_value, option_type_feature
 from core.gbm import GBM
 
 @contextmanager
@@ -90,7 +90,7 @@ def gen_rdm_params(
 def gen_data(simulation, S0, K, r, T, sigma, option_type, max_degree, reg_type) -> float:
     """
     Runs LSM and returns the time value (price minus a *smooth* approximation of
-    intrinsic value - see AmericanOptionPricing.ML.smooth_intrinsic_value),
+    intrinsic value - see ML.surrogate.model.smooth_intrinsic_value),
     scaled by strike. Subtracting the exact intrinsic value would stamp its hard
     kink at S == K onto this residual even though the pre-expiry price has no
     kink there, which empirically showed up as the MLP's error spiking right at
