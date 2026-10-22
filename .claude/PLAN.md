@@ -39,17 +39,7 @@ tested before any full generation run. Background and the reasons for each
 design choice: `REMINDER.md`, "The MLP surrogate: tree teacher, and why
 every part is built the way it is".
 
-- [ ] Vectorized smoothed binomial pricer
-  New `AmericanOptionPricing/` function pricing a *batch* of American puts
-  at once (arrays of `m, T, r, sigma`, K = 1 by homogeneity): one numpy loop
-  over tree steps, all options side by side, so the Python overhead is paid
-  once per step, not once per option. Plain CRR prices zig-zag as `N` changes
-  (odd/even oscillation), which would be structured label noise, so start
-  from the binomial Black-Scholes variant (last step replaced by the
-  European BS value) with Richardson extrapolation (`2 P(N) - P(N/2)`), and
-  keep plain CRR as the fallback if BBSR is not smoother. Also return delta
-  and gamma from the first tree nodes (nearly free; delta labels for the
-  differential loss). Keep `BinomialTree` as is (the `price` command uses it).
+- [x] Vectorized smoothed binomial pricer
 - [ ] Tests and convergence study for the pricer
   Unit tests: batch result equals `BinomialTree` per option (plain mode);
   the European variant (no early exercise) converges to Black-Scholes; put
@@ -58,7 +48,7 @@ every part is built the way it is".
   a very fine reference over the sampling domain, incl. the hard corner
   (short T, low sigma, ATM), to pick `N` and BBSR vs CRR, and timing per
   option to size the dataset.
-- [ ] New generator `ML/surrogate/generate_tree_dataset.py`
+- [ ] New generator `ML/surrogate/GenerateTreeDataset.py`
   Same resumable/seeded/chunked machinery as `generate_dataset.py` (reuse
   its helpers rather than copying them). Puts only (calls come from BS; the
   `is_call` input comes back with dividends `q`, see "Revisit the ML
@@ -68,7 +58,14 @@ every part is built the way it is".
   price, the BS European price, delta, gamma - plus the generator settings
   (`teacher="tree"`, `N`, method, seed). No normalization in the generator:
   features and their stats move to load time, so a feature change never
-  needs a regeneration. Run as `python -m ML.surrogate.generate_tree_dataset`.
+  needs a regeneration. Run as `python -m ML.surrogate.GenerateTreeDataset`.
+  Calls `binomial_put_batch(..., chunk_size=32)`, with the reason in a
+  comment there: each tree level touches a (chunk, level + 1) array several
+  times; at 32 options and 1000 steps that is ~256 KB, which stays in the CPU
+  cache, while a whole batch of 1000 (8 MB) goes to main memory on every
+  pass. 32 was the fastest of 16-1000 for "bbsr" at 1000 steps (2.8 vs 8.9
+  ms/option before the discount was folded into the weights, 1.5 ms after);
+  smaller chunks pay more Python overhead per level.
 - [ ] Dataset class: features, target and stats at load time
   `ML/surrogate/dataset.py` (`AmericanOptionDataset` or a new class) builds
   the inputs from the raw columns: `log m`, standardized `log T`,
