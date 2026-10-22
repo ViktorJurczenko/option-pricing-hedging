@@ -5,6 +5,97 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## MLP surrogate overhaul: binomial-tree teacher, premium target, smooth net
+
+An analysis of the regenerated dataset and of the course (ch. 23) found:
+call labels are exactly Black-Scholes (the net re-learns a closed form);
+the fixed-width softplus (`beta = 0.06 K`) is wider than the price's own
+curvature for the ~33% of rows with `sigma*sqrt(T) < 0.12`, so the kink is
+back there and 43% of labels are negative; a ReLU net is piecewise linear
+(staircase delta, no gamma) and `layer3`/`layer4` collapse into one linear
+map; BatchNorm/Dropout add noise to a noise-free fit; LSM labels are biased
+upward and 1.9% of put labels sit below the European price; `test-ml` mixes
+% and $ in a bucket over a confounded 50-point grid. For a one-asset GBM put,
+a binomial tree is a faster and nearly exact teacher, so LSM is dropped as
+the MLP's teacher (it stays in the hedging env). All code is written and
+tested before any full generation run. Background and the reasons for each
+design choice: `REMINDER.md`, "The MLP surrogate: tree teacher, and why
+every part is built the way it is".
+
+- [ ] Vectorized smoothed binomial pricer
+  New `AmericanOptionPricing/` function pricing a *batch* of American puts
+  at once (arrays of `m, T, r, sigma`, K = 1 by homogeneity): one numpy loop
+  over tree steps, all options side by side, so the Python overhead is paid
+  once per step, not once per option. Plain CRR prices zig-zag as `N` changes
+  (odd/even oscillation), which would be structured label noise, so start
+  from the binomial Black-Scholes variant (last step replaced by the
+  European BS value) with Richardson extrapolation (`2 P(N) - P(N/2)`), and
+  keep plain CRR as the fallback if BBSR is not smoother. Also return delta
+  and gamma from the first tree nodes (nearly free; delta labels for the
+  differential loss). Keep `BinomialTree` as is (the `price` command uses it).
+- [ ] Tests and convergence study for the pricer
+  Unit tests: batch result equals `BinomialTree` per option (plain mode);
+  the European variant (no early exercise) converges to Black-Scholes; put
+  price >= max(BS European, intrinsic); delta/gamma against finite
+  differences. A small study (logged in this entry) of error vs `N` against
+  a very fine reference over the sampling domain, incl. the hard corner
+  (short T, low sigma, ATM), to pick `N` and BBSR vs CRR, and timing per
+  option to size the dataset.
+- [ ] New generator `ML/surrogate/generate_tree_dataset.py`
+  Same resumable/seeded/chunked machinery as `generate_dataset.py` (reuse
+  its helpers rather than copying them). Puts only (calls come from BS; the
+  `is_call` input comes back with dividends `q`, see "Revisit the ML
+  surrogate with `q` as an input"). Samples `m` log-uniform over (0.4, 1.6),
+  `sigma`, `T` log-uniform, `r` uniform, as now, but no `S0`/`K` (homogeneity).
+  Stores *raw* parameters and raw labels - `m, T, r, sigma`, the American
+  price, the BS European price, delta, gamma - plus the generator settings
+  (`teacher="tree"`, `N`, method, seed). No normalization in the generator:
+  features and their stats move to load time, so a feature change never
+  needs a regeneration. Run as `python -m ML.surrogate.generate_tree_dataset`.
+- [ ] Dataset class: features, target and stats at load time
+  `ML/surrogate/dataset.py` (`AmericanOptionDataset` or a new class) builds
+  the inputs from the raw columns: `log m`, standardized `log T`,
+  `log sigma`, `r`, plus `sigma*sqrt(T)`
+  and `log m / (sigma*sqrt(T))`. Target = early-exercise premium
+  `(P_american - P_european) / K`, delta target = premium delta. Standardization
+  stats come from the *training* split only and are saved next to the
+  checkpoint (replaces `features_norm.npz` for this pipeline). Split grouped
+  by parameter draw if several rows share one.
+- [ ] Smooth configurable MLP
+  Replace `MLP` (`ML/surrogate/model.py`): depth/width/activation as
+  constructor args (start 4 x 128, SiLU), no BatchNorm/Dropout, linear output (try softplus output to force
+  premium >= 0 in the ablation). Architecture args saved in the checkpoint so
+  `test-ml` rebuilds the right net. A `price(m, T, r, sigma)` helper returns
+  `BS + K * net`, and `delta`/`gamma` via autograd, so every consumer
+  reconstructs the same way. Retire `smooth_intrinsic_value` from the
+  pipeline (keep the function and the decision doc as history).
+- [ ] Training loop overhaul
+  Seed init and batch order (`torch.manual_seed`), batch 512-1024, Adam with
+  cosine decay 1e-3 -> 1e-5, early stopping kept as a safety net, optional
+  full-batch L-BFGS finish. Loss = premium MSE + `lambda_delta` * delta MSE
+  (differential ML, Huge & Savine 2020) + `lambda_shape` * shape penalties
+  (on random unlabeled points, through autograd on the *full* price: put
+  decreasing and convex in S, increasing in T and sigma). Both lambdas are
+  flags, 0 disables.
+- [ ] Evaluation overhaul in `test-ml`
+  Factorial grid (m x sigma x T, r fixed and a second r) against an
+  *independent*, finer tree reference (not the training teacher's settings),
+  BS for calls. Per moneyness bucket: mean abs error in $ (K = 100), relative
+  error only where the price is not tiny, implied-vol error; delta and gamma
+  errors; no-arbitrage violation rates; MLP vs tree time per price. One unit
+  per column, no mixed %/$ averages.
+- [ ] Tests, CLI wiring, docs
+  Unit tests for the dataset features/target, the net's price/delta
+  reconstruction, the loss terms; CLI smoke tests for the new generator
+  (tiny run) and `train-ml`/`test-ml` on it. Update CLAUDE.md, README.
+- [ ] Smoke run, then full generation
+  Only now: a tiny generation (a few hundred rows) through train-ml/test-ml
+  end to end, then the full run sized from the timing study.
+- [ ] Seeded ablations
+  Three seeds each: old architecture vs new on the same data; with/without
+  the delta loss; with/without shape penalties; linear vs softplus output.
+  Record the numbers here and in `REMINDER.md`.
+
 ## Faster dataset generation
 
 A profile of one sample showed `LongstaffSchwartz.fit` at ~90% of the time,
