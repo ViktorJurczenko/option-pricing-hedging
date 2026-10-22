@@ -44,27 +44,48 @@ every part is built the way it is".
 - [ ] New generator `ML/surrogate/GenerateTreeDataset.py`
   Same resumable/seeded/chunked machinery as `generate_dataset.py` (reuse
   its helpers rather than copying them). Puts only (calls come from BS; the
-  `is_call` input comes back with dividends `q`, see "Revisit the ML
-  surrogate with `q` as an input"). No `S0`/`K` (homogeneity). Sampling
-  (reasons: `REMINDER.md`, "The tree dataset: how it is sampled and why"):
-  `T` log-uniform (0.25, 5), `sigma` log-uniform (0.05, 0.6), `r` uniform
-  (0, 0.08), as now; then moneyness through `z = ln(m) / (sigma sqrt(T))`,
-  uniform on that draw's allowed interval `[max(-3, ln 0.4 / v),
-  min(3, ln 2.5 / v)]`, `v = sigma sqrt(T)`, i.e. |z| <= 3 and `m` in
-  (0.4, 2.5). Drawing `z` within each draw's interval (not rejecting draws
-  outside the cap) keeps the `T`/`sigma`/`r` marginals as specified.
-  Measured: 27% of rows exercised today (45% with `m` log-uniform on
-  (0.4, 1.6)), 40% within |z| < 1, 0% beyond |z| > 3 (31%), and the
-  exercise boundary (always at z between -2.7 and -0.1 for r >= 0.005)
-  inside the domain for every draw with `m* > 0.4`. Store `z` too. The
-  domain bounds (z range, `m` cap) go into the dataset with the other
-  settings, so the `price` helper can route out-of-domain queries: z > 3 ->
-  Black-Scholes (premium < 4e-5 K measured there), z < -3 with r >= 0.005 ->
-  `1 - m` (exercised), anything else (`m` outside the cap, smaller `r`) ->
-  `binomial_put_batch`.
-  Stores *raw* parameters and raw labels - `m, T, r, sigma`, the American
-  price, the BS European price, delta, gamma - plus the generator settings
-  (`teacher="tree"`, `N`, method, seed). No normalization in the generator:
+  `is_call` input comes back with dividends `q`, see "The ML surrogate
+  with `q`"). No `S0`/`K` (homogeneity). Sampling (reasons: `REMINDER.md`,
+  "The tree dataset: how it is sampled and why"):
+  - Scrambled Sobol points (`scipy.stats.qmc.Sobol(4, scramble=True,
+    seed=seed)`) instead of independent draws: the 4 uniforms become `T`,
+    `sigma`, `r` and the position of `z` in its interval. 240x lower
+    discrepancy than random draws at 4096 points (no clumps or holes in
+    the parameter space). Point `i` is fixed by the seed, so the resumable
+    chunks still work; chunk sizes and the total are powers of 2 (default
+    chunk 1024), where the Sobol balance holds exactly.
+  - `T` log-uniform (1/52, 5): down to 1 week, where much option volume
+    trades (was 0.25). `sigma` log-uniform (0.05, 0.6) and `r` uniform
+    (0, 0.08), unchanged. The tree is as accurate at 1 week (price
+    <= 3e-7 K, delta <= 3e-4).
+  - Moneyness through `z = ln(m) / (sigma sqrt(T))`, uniform on that draw's
+    allowed interval `[max(-3.5, ln 0.4 / v), min(3, ln 2.5 / v)]`,
+    `v = sigma sqrt(T)`, i.e. z in [-3.5, 3] and `m` in (0.4, 2.5). -3.5,
+    not -3: at 1 week with `sigma >= 0.6` and `r = 0.005` the exercise
+    boundary reaches z = -3.2/-3.3. Drawing `z` within each draw's
+    interval (not rejecting draws outside the cap) keeps the
+    `T`/`sigma`/`r` marginals as specified.
+  Measured on 16,384 Sobol draws of this domain: 28% of rows exercised
+  today (45% with the old `m` log-uniform on (0.4, 1.6)), 35% within
+  |z| < 1, 53% in the money, 46% with `T` < 0.25, the cap binding for 19%,
+  and every row below z = -3.3 with r >= 0.005 exercised. The longer `T`
+  range dilutes the old one: at a fixed row count only 54% of the rows
+  stay in `T` >= 0.25, so ~1.86x the rows keep its density (the learning
+  curve below decides the final count). Store `z` and an `exercised` flag
+  (the tree's exercise-today rule fired: price `1 - m`, delta -1, gamma 0
+  exactly; have `binomial_put_batch` return it in `TreeResult` rather than
+  inferring it from delta), which the evaluation buckets and a thinning
+  ablation need. The domain bounds (z range, `m` cap, `T` range) go into
+  the dataset with the other settings, so the `price` helper can route
+  out-of-domain queries: `m` outside the cap -> `binomial_put_batch`;
+  z > 3 -> Black-Scholes (the premium there is < 4e-5 K); z < -3.5 with
+  r >= 0.005 -> `1 - m` (exercised); anything else -> `binomial_put_batch`.
+  Theta is not stored: the Black-Scholes PDE gives it from price, delta and
+  gamma (`REMINDER.md`, "Theta is not stored").
+  Stores *raw* parameters and raw labels - `m, T, r, sigma, z`, the
+  American price, the BS European price, delta, gamma, `exercised` - plus
+  the generator settings (`teacher="tree"`, `N`, method, seed, sampler,
+  domain bounds). No normalization in the generator:
   features and their stats move to load time, so a feature change never
   needs a regeneration. Run as `python -m ML.surrogate.GenerateTreeDataset`.
   Calls `binomial_put_batch(..., chunk_size=32)`, with the reason in a
@@ -101,26 +122,44 @@ every part is built the way it is".
   decreasing and convex in S, increasing in T and sigma). Both lambdas are
   flags, 0 disables.
 - [ ] Evaluation overhaul in `test-ml`
-  Factorial grid (z x sigma x T, r fixed and a second r; z on [-3, 3] within
-  the `m` cap, like the training domain) against an *independent*, finer
-  tree reference (not the training teacher's settings), BS for calls. Per
-  |z| bucket (core |z| < 1, where most quoted strikes sit; 1-2; 2-3; and
-  the exercised rows on their own), so the score reflects where the
+  Factorial grid (z x sigma x T, r fixed and a second r; z on [-3.5, 3]
+  within the `m` cap and `T` from 1 week, like the training domain)
+  against an *independent*, finer tree reference (not the training
+  teacher's settings), BS for calls. Per |z| bucket (core |z| < 1, where
+  most quoted strikes sit; 1-2; 2-3.5; and the exercised rows on their own,
+  via the `exercised` flag) and per `T` bucket (< 1 month, 1-3 months,
+  >= 3 months: short-dated puts are cheap, so a fixed error is a larger
+  relative and implied-vol error there), so the score reflects where the
   surrogate is used: mean abs error in $ (K = 100), relative
   error only where the price is not tiny, implied-vol error; delta and gamma
   errors; no-arbitrage violation rates; MLP vs tree time per price. One unit
   per column, no mixed %/$ averages. Also check the out-of-domain routing
-  of the `price` helper (|z| > 3, `m` outside the cap) against the tree.
+  of the `price` helper (z outside [-3.5, 3], `m` outside the cap) against
+  the tree. Theta check, no label needed: the network's autograd theta
+  `-dV/dT` against the Black-Scholes PDE from its own outputs,
+  `r V - r m delta - 1/2 sigma^2 m^2 gamma` in the continuation region and
+  0 on exercised rows; on the tree itself the two agree to 1.8e-6 (median,
+  against |theta| ~ 7.8e-3), so a gap measures the network's
+  inconsistency between its time-dependence and its price, delta and
+  gamma.
 - [ ] Tests, CLI wiring, docs
   Unit tests for the dataset features/target, the net's price/delta
   reconstruction, the loss terms; CLI smoke tests for the new generator
   (tiny run) and `train-ml`/`test-ml` on it. Update CLAUDE.md, README.
 - [ ] Smoke run, then full generation
   Only now: a tiny generation (a few hundred rows) through train-ml/test-ml
-  end to end, then the full run sized from the timing study.
+  end to end. Then size the full run with a learning curve rather than a
+  guess: seeded trainings on 25k, 50k, 100k, 200k and 400k rows of one
+  generation, error of the core `|z| < 1` bucket against the row count. If
+  it still falls at 400k, generate more (the teacher costs ~9 min per 200k
+  rows on one core); if it has flattened, the network, not the data, is
+  the limit. Record the curve here.
 - [ ] Seeded ablations
   Three seeds each: old architecture vs new on the same data; with/without
-  the delta loss; with/without shape penalties; linear vs softplus output.
+  the delta loss; with/without shape penalties; linear vs softplus output;
+  `T` from 1 week vs from 0.25 (rows scaled to the same density), both
+  scored on the `T` >= 0.25 grid, to confirm the longer range costs the
+  old region nothing; all exercised rows vs a thinned share.
   Record the numbers here and in `REMINDER.md`.
 
 Step 2 convergence study (120 seeded random draws over the domain plus a
@@ -528,11 +567,36 @@ genuine American option. No order is set yet relative to the other entries.
   American call and put with `q > 0`: LSM price and exercise agreement vs
   CRR, deltas vs tree deltas. Check whether the call control variate still
   helps now that calls have an early-exercise premium.
-- [ ] Revisit the ML surrogate with `q` as an input
-  With `q > 0` the call half of the mixed dataset stops being plain
-  Black-Scholes.
 - [ ] Dispatch test-agent/review-agent
 - [ ] Update README/CLAUDE.md
+
+### The ML surrogate with `q`
+
+With `q > 0` the American call stops being plain Black-Scholes, so the
+surrogate needs `q` as an input. Instead of a second network (or an
+`is_call` input) for calls, use the put-call symmetry of American options
+under GBM (McDonald & Schroder 1998): `C(S, K, r, q, sigma, T) =
+P(K, S, q, r, sigma, T)`, the call is the put with spot and strike swapped
+and rate and dividend yield swapped. Per unit of strike (homogeneity):
+`C / K = m * p(1 / m; rate = q, yield = r)`, where `p` is the put per unit
+of strike. One put dataset and one put network then price both.
+
+- [ ] Check the symmetry on the tree first
+  `binomial_put_batch` (and a call tree) with `q`: American call vs put
+  with `(S, K)` and `(r, q)` swapped, over the domain, to ~1e-12. Only then
+  build on it.
+- [ ] Put dataset over `(m, T, r, q, sigma)`
+  A call query becomes a put query at `1 / m` (so `z -> -z`) with `r` and
+  `q` swapped, so the put domain must cover both roles: identical sampling
+  ranges for `r` and `q`, and a `z` range and `m` cap symmetric around 0
+  (the `m` cap (0.4, 2.5) is; the `z` range [-3.5, 3] must widen to
+  [-3.5, 3.5]). Premium target and Black-Scholes
+  part become Black-Scholes-Merton with `q`.
+- [ ] Price helper and evaluation for calls
+  `price` maps a call to the symmetric put and back (`m * p(1 / m)`, delta
+  and gamma through the chain rule). `test-ml` scores calls against a call
+  tree with `q`, per `|z|` bucket like the puts, plus the `q = 0` case,
+  where the call must stay Black-Scholes.
 
 ## Fix LSM exercise decisions and Greeks
 
