@@ -52,8 +52,8 @@ def map_to_domain(u: np.ndarray, domain: dict = DOMAIN) -> dict:
     its interval.
 
     z is drawn uniformly on that draw's allowed interval
-    [max(z_low, ln m_low / v), min(z_high, ln m_high / v)],
-    v = sigma sqrt(T), so m = exp(z v) stays in the moneyness cap. Rejecting draws with m outside
+    [max(z_low, ln m_low / vol), min(z_high, ln m_high / vol)],
+    vol = sigma sqrt(T), so m = exp(z vol) stays in the moneyness cap. Rejecting draws with m outside
     the cap instead would reject long, volatile options more often and skew
     the T and sigma distributions.
 
@@ -74,21 +74,39 @@ def map_to_domain(u: np.ndarray, domain: dict = DOMAIN) -> dict:
     sigma = log_uniform(col["sigma"], domain["sigma_range"])
     r_low, r_high = domain["r_range"]
     r = r_low + col["r"] * (r_high - r_low)
-    v = sigma * np.sqrt(T)
-    z_low = np.maximum(domain["z_range"][0], np.log(domain["m_range"][0]) / v)
-    z_high = np.minimum(domain["z_range"][1], np.log(domain["m_range"][1]) / v)
+    vol = sigma * np.sqrt(T)
+    # Each end takes the tighter of the z range and the z where m = exp(z vol)
+    # hits the moneyness cap (ln(m_cap) / vol): the z range binds for short,
+    # low-vol options, the cap for long, volatile ones.
+    z_low = np.maximum(domain["z_range"][0], np.log(domain["m_range"][0]) / vol)
+    z_high = np.minimum(domain["z_range"][1], np.log(domain["m_range"][1]) / vol)
     z = z_low + col["z"] * (z_high - z_low)
-    return {"m": np.exp(z * v), "T": T, "r": r, "sigma": sigma, "z": z}
+    return {"m": np.exp(z * vol), "T": T, "r": r, "sigma": sigma, "z": z}
 
 def check_teacher(nb_steps: int, method: str, domain: dict = DOMAIN) -> None:
     """
-    Prices the domain's corner puts (every T, sigma, r bound, at the money)
-    so that tree settings the pricer would reject (unknown method, odd or
-    too few steps, a step so long the risk-neutral probability leaves
-    (0, 1), worst at the longest T, lowest sigma and highest r) raise its
-    ValueError now, before the chunk directory's config is written. A run
-    failing later, inside a worker, would leave a config that refuses the
-    corrected flags.
+    Checks, before any work starts, that the teacher (`binomial_put_batch`
+    with these `nb_steps` and `method`) can price every put of the
+    sampling domain; raises the pricer's ValueError if not.
+
+    What can go wrong:
+    - the settings themselves: an unknown method, too few steps, an odd
+      `nb_steps` for "bbsr" (its coarse tree has nb_steps / 2 steps);
+    - the settings combined with the domain: a tree step dt = T / nb_steps
+      so long that the risk-neutral probability of an up move leaves
+      (0, 1), which the pricer rejects rather than return a wrong price;
+    - the domain itself, if DOMAIN is edited: a T or sigma bound <= 0.
+
+    The probability depends on T, sigma and r only, and gets worse
+    monotonically in each one (it reaches 1 when r sqrt(dt) gets large
+    against sigma: longest T, lowest sigma, highest r). So the worst case
+    is a corner of the domain, and pricing the 8 corner puts (each T,
+    sigma, r bound, at the money) checks the whole domain in milliseconds.
+
+    Why up front: `main` writes the chunk directory's config.json before
+    the workers start. If a bad setting only failed later, inside a worker,
+    that config would stay behind and a re-run with corrected flags would
+    be refused as "other settings".
     """
     T, sigma, r = np.meshgrid(domain["T_range"], domain["sigma_range"], domain["r_range"])
     binomial_put_batch(1.0, T, r, sigma, nb_steps=nb_steps, method=method)
