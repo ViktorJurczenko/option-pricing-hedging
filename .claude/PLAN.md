@@ -42,19 +42,12 @@ every part is built the way it is".
 - [x] Vectorized smoothed binomial pricer
 - [x] Tests and convergence study for the pricer
 - [x] New generator `ML/surrogate/GenerateTreeDataset.py`
-- [ ] Dataset class: features, target and stats at load time
-  `ML/surrogate/dataset.py` (`AmericanOptionDataset` or a new class) builds
-  the inputs from the raw columns: `log m`, standardized `log T`,
-  `log sigma`, `r`, plus `sigma*sqrt(T)`
-  and `log m / (sigma*sqrt(T))`. Target = early-exercise premium
-  `(P_american - P_european) / K`, delta target = premium delta. Standardization
-  stats come from the *training* split only and are saved next to the
-  checkpoint (replaces `features_norm.npz` for this pipeline). Split grouped
-  by parameter draw if several rows share one.
+- [x] Dataset class: features, target and stats at load time
 - [ ] Smooth configurable MLP
   Replace `MLP` (`ML/surrogate/model.py`): depth/width/activation as
   constructor args (start 4 x 128, SiLU), no BatchNorm/Dropout, linear output (try softplus output to force
-  premium >= 0 in the ablation). Architecture args saved in the checkpoint so
+  premium >= 0 in the ablation). Architecture args and the dataset's
+  `FeatureStats.to_dict()` saved in the checkpoint so
   `test-ml` rebuilds the right net. A `price(m, T, r, sigma)` helper returns
   `BS + K * net`, and `delta`/`gamma` via autograd, so every consumer
   reconstructs the same way. Retire `smooth_intrinsic_value` from the
