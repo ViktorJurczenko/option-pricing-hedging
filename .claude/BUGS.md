@@ -6,6 +6,139 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## Shape penalty's convexity term ~3000x too big (fixed)
+
+**Symptom:** with `lambda_shape = 1` the step-6 training loop tripled the
+test price error (4.4e-4 -> 1.5e-3 at 4k rows) in every region alike,
+7x at 32k rows, while violations barely moved. An independent agent
+study (REMINDER.md, "The shape penalty, investigated") traced it.
+
+**Root cause:** `shape_violations` scaled the derivatives by `m`, `m^2`,
+`T`, `sigma` to put them "in price units" so they could share the
+premium's `Var(premium)` normalization. That holds for units, not size:
+the price bends over a distance `w = sigma sqrt(T)` in log m, so
+`m^2 d2V/dm2` is ~price / `w^2`, up to ~20,000x a price at `w = 0.007`.
+On a lambda-0 model the penalty was 54.8 against a labeled loss of
+0.017, 99.99% of it convexity (re-checked here), 82% from the third of
+points with `w < 0.06`; its gradient was ~10,000x the labeled loss's
+and opposed to it (cosine -0.77). The optimizer flattened the curvature
+at the cost of the fit. The derivatives themselves were right (autograd
+matches finite differences).
+
+**Impact:** none on a shipped model: `lambda_shape` already defaulted
+to 0 after the first trial; it would have broken any ablation run with
+the penalty on, and step 7's violation rates, which reuse the function.
+
+**Fix:** the m columns are `w m dV/dm` and `w^2 m^2 d2V/dm2`, the
+first- and second-order price change over a one-standard-deviation
+move. With it, lambda 1 is within seed noise of lambda 0 (4.7e-4 vs
+4.4e-4), so `lambda_shape` stays 0 (no measurable gain, ~3.4x the step
+time). `test_shape_violations_are_the_relu_of_the_full_price_derivatives`
+checks the scaled formula; dropping the `w` factors fails it.
+
+## Shape-violation rate inflated by exercised points (open, for step 7)
+
+**Symptom:** found while trying the step-6 training loop on a 4,096-row
+dataset. The rate of points breaking a no-arbitrage condition (any
+`shape_violations` column > 1e-6) sat at ~30% for every run, with or
+without the shape penalty, which made the penalty look useless.
+
+**Root cause:** a measurement artefact, not a network flaw. On puts
+exercised today (29% of the points) `V = 1 - m`, so three of the four
+conditions hold with equality (`d2V/dm2 = dV/dT = dV/dsigma = 0`). Any
+tiny negative wobble of the net around those true zeros counts: 65-85%
+of the exercised points were flagged even at a 1e-3 tolerance, against
+6-9% of the others.
+
+**Impact:** none yet (no metric is reported); it would have misled
+step 7's no-arbitrage column.
+
+**Status:** step 7 must report violation rates for the continuation and
+exercised regions separately, with a tolerance, on the `w`-scaled
+violations (see the convexity-scaling entry above). The independent
+study confirmed it: ~80% of exercised points flag for every model, a
+fit-noise number, not an arbitrage rate.
+
+## Training test: "always keep the L-BFGS finish" went undetected (fixed)
+
+**Symptom:** a manual mutation check of `ML/surrogate/training.py`:
+replacing `kept = metrics["loss"] < best_loss` by `kept = True` left
+all tests passing.
+
+**Root cause:** in `test_lbfgs_finish_is_kept_only_if_it_improves_validation`
+the real L-BFGS finish happened to improve validation on both cases, so
+its "reject" branch never ran.
+
+**Impact:** none (caught before the first commit), but a regression
+returning L-BFGS's worse weights would have shipped unnoticed.
+
+**Fix:** `test_an_lbfgs_finish_that_makes_validation_worse_is_thrown_away`
+replaces the finish with one that wrecks the weights and checks the best
+Adam weights come back.
+
+## Training test: a shape point outside the net's domain (fixed)
+
+**Symptom:** `test_shape_violations_are_the_relu_of_the_full_price_derivatives`
+failed on its first point: `shape_violations` reported 1.7 and 6.2, the
+finite differences 0.
+
+**Root cause:** the test's mistake. That point (`m = 0.7`, `T = 0.1`,
+`sigma = 0.2`) has `z = -5.6`, so `PutSurrogate.price`, which the
+finite differences use, routes it to "exercised" (`1 - m`) and never
+sees the net; `shape_violations` differentiates the net directly.
+
+**Fix:** the point moved inside the domain (`T = 1`, `z = -1.8`), and
+the test now asserts every point takes the `net` route, so a point
+leaving the domain fails loudly instead of comparing two different
+functions.
+
+## Diverging training run would crash on missing weights (fixed)
+
+**Symptom:** found reading the step-6 draft: if the validation loss is
+NaN at every epoch, `best_state` stays `None` and
+`model.load_state_dict(None)` fails with an unrelated-looking error.
+
+**Root cause:** `NaN < best_loss` is always False, so a diverged run
+never records a best epoch.
+
+**Impact:** none observed (no run diverged).
+
+**Fix:** `train_surrogate` raises `ValueError("the validation loss was
+never finite: training diverged ...")`
+(`test_a_validation_loss_that_is_never_finite_raises`).
+
+## L-BFGS finish seemed to hang: oversized shape pool (fixed)
+
+**Symptom:** in the first step-6 trial, the run with `lbfgs_steps=100`
+printed nothing for minutes, after three runs of ~5-20 s each. A
+20-step run then showed 1.3 s per loss evaluation on 2,621 training
+rows.
+
+**Root cause:** the fixed shape pool for L-BFGS was a constant 65,536
+points, 25 times the training rows, and the shape term (three
+derivatives plus a second-order one per point) dominated each
+full-batch evaluation.
+
+**Impact:** a 100-step finish would have taken ~3 minutes on a toy
+dataset.
+
+**Fix:** the pool has as many points as training rows, as many
+unlabeled points as labeled ones.
+
+## L-BFGS progress bar did not follow real work (fixed)
+
+**Symptom:** found reading the step-6 draft: the L-BFGS finish showed a
+bar with `total=1` that filled only when `optimizer.step` returned.
+
+**Root cause:** `torch.optim.LBFGS.step` runs all its iterations inside
+one call, and the bar wrapped that call.
+
+**Impact:** no ETA during a finish that can take minutes, against
+`.claude/rules/progress-bars.md`.
+
+**Fix:** the closure ticks the bar once per loss evaluation, out of
+LBFGS's cap (`max_eval = 1.25 x lbfgs_steps`), and shows the loss.
+
 ## PutSurrogate answers m = 0 and m = inf silently (fixed)
 
 **Symptom:** found by the review of step 5 of the MLP overhaul.

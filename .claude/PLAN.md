@@ -44,14 +44,8 @@ every part is built the way it is".
 - [x] New generator `ML/surrogate/GenerateTreeDataset.py`
 - [x] Dataset class: features, target and stats at load time
 - [x] Smooth configurable MLP and the `PutSurrogate` price helper
-- [ ] Training loop overhaul
-  Seed init and batch order (`torch.manual_seed`), batch 512-1024, Adam with
-  cosine decay 1e-3 -> 1e-5, early stopping kept as a safety net, optional
-  full-batch L-BFGS finish. Loss = premium MSE + `lambda_delta` * delta MSE
-  (differential ML, Huge & Savine 2020) + `lambda_shape` * shape penalties
-  (on random unlabeled points, through autograd on the *full* price: put
-  decreasing and convex in S, increasing in T and sigma). Both lambdas are
-  flags, 0 disables.
+- [x] Training loop overhaul (`ML/surrogate/training.py`)
+- [x] Shape penalty study: `w`-scaled violations, payoff floor in `PutSurrogate`
 - [ ] Evaluation overhaul in `test-ml`
   Factorial grid (z x sigma x T, r fixed and a second r; z on [-3.5, 3]
   within the `m` cap and `T` from 1 week, like the training domain)

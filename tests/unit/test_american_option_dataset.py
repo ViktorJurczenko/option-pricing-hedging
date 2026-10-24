@@ -5,6 +5,7 @@ import torch
 import ML.surrogate.GenerateTreeDataset as gen
 from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_scholes_price
 from ML.surrogate.dataset import FEATURES, AmericanOptionDataset, FeatureStats, TreePutDataset, build_features
+from tests.helpers import write_tree_dataset
 
 def _write_toy_dataset(path, n=100, n_features=5):
     features = np.random.default_rng(0).random((n, n_features)).astype(np.float32)
@@ -98,12 +99,7 @@ def test_transforms_are_applied_to_features_and_labels_separately(tmp_path):
 
 @pytest.fixture(scope="module")
 def tree_file(tmp_path_factory):
-    # a real generator file: 50-step trees keep it fast, the labels' accuracy
-    # is the pricer's tests' job
-    out = tmp_path_factory.mktemp("tree")
-    gen.main(["--n_rows", "128", "--chunk_size", "64", "--nb_steps", "50", "--nb_jobs", "1", "--seed", "3",
-              "--output_dir", str(out)])
-    return out / "tree_put_dataset.npz"
+    return write_tree_dataset(tmp_path_factory.mktemp("tree"))
 
 def _raw(ds):
     return build_features(*(ds.params[c] for c in ("m", "T", "r", "sigma")))
@@ -181,12 +177,12 @@ def test_targets_are_the_early_exercise_premium_and_its_delta(tree_file):
     m, T, r, sigma = (raw[c][i] for c in ("m", "T", "r", "sigma"))
     np.testing.assert_allclose(ds.premium.numpy(), raw["price"][i] - black_scholes_price(m, 1.0, T, r, sigma, "put"),
                                rtol=1e-6, atol=1e-9)
-    np.testing.assert_allclose(ds.premium_delta.numpy(),
+    np.testing.assert_allclose(ds.premium_dm.numpy(),
                                raw["delta"][i] - black_scholes_delta(m, 1.0, T, r, sigma, "put"), rtol=1e-6, atol=1e-8)
     # an exercised put is worth 1 - m with delta -1: its premium delta is -N(d1)
     ex = ds.exercised
     assert ex.any() and not ex.all()
-    np.testing.assert_allclose(ds.premium_delta.numpy()[ex], -black_scholes_delta(m, 1.0, T, r, sigma, "call")[ex],
+    np.testing.assert_allclose(ds.premium_dm.numpy()[ex], -black_scholes_delta(m, 1.0, T, r, sigma, "call")[ex],
                                rtol=1e-6, atol=1e-8)
 
 def test_features_dm_matches_a_finite_difference_of_the_features_in_m(tree_file):
@@ -203,9 +199,9 @@ def test_features_dm_matches_a_finite_difference_of_the_features_in_m(tree_file)
 
 def test_tree_dataset_items_are_aligned_float32_rows(tree_file):
     ds = TreePutDataset(tree_file, split_ratio=0.5, seed=0)
-    x, premium, premium_delta, x_dm = ds[3]
-    assert x.shape == x_dm.shape == (len(FEATURES),) and premium.shape == premium_delta.shape == ()
-    assert all(t.dtype == torch.float32 for t in (x, premium, premium_delta, x_dm))
+    x, x_dm, premium, premium_dm = ds[3]
+    assert x.shape == x_dm.shape == (len(FEATURES),) and premium.shape == premium_dm.shape == ()
+    assert all(t.dtype == torch.float32 for t in (x, x_dm, premium, premium_dm))
     torch.testing.assert_close(x, ds.stats.apply(_raw(ds)[3]).float())
     # a DataLoader batch keeps the four columns together
     batch = next(iter(torch.utils.data.DataLoader(ds, batch_size=8)))

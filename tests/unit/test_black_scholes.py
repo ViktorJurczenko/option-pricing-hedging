@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from EuropeanOptionPricing.BlackScholes import (BlackScholes, black_scholes_delta, black_scholes_gamma,
-                                                black_scholes_price)
+from EuropeanOptionPricing.BlackScholes import (BlackScholes, black_scholes_delta, black_scholes_dT,
+                                                black_scholes_gamma, black_scholes_price, black_scholes_vega)
 
 def test_put_call_parity():
     common = dict(sigma=0.25, start_price=105.0, strike=100.0, risk_free_rate=0.03)
@@ -127,3 +127,33 @@ def test_delta_and_gamma_match_scipy_norm():
 
     np.testing.assert_allclose(bs.calculate_delta(0.75), norm.cdf(d1), rtol=1e-14)
     np.testing.assert_allclose(bs.calculate_gamma(0.75), norm.pdf(d1) / (bs.start_price * 0.3 * np.sqrt(0.75)), rtol=1e-14)
+
+
+# --- vega and the maturity derivative (the MLP's shape penalties use them) ---
+
+FN_ARGS = dict(strike=100.0, risk_free_rate=0.03)
+
+def test_vega_matches_finite_difference_in_sigma_for_both_types():
+    h = 1e-5
+    for option_type in ("call", "put"):
+        price = lambda s: black_scholes_price(S_GRID, maturity=0.7, sigma=s, option_type=option_type, **FN_ARGS)
+        # central difference: O(h^2) truncation, rounding ~1e-14 / h ~ 1e-9 on prices ~10
+        np.testing.assert_allclose(black_scholes_vega(S_GRID, maturity=0.7, sigma=0.25, **FN_ARGS),
+                                   (price(0.25 + h) - price(0.25 - h)) / (2 * h), atol=1e-6)
+
+@pytest.mark.parametrize("option_type", ["call", "put"])
+def test_dT_matches_finite_difference_in_maturity(option_type):
+    h = 1e-5
+    price = lambda T: black_scholes_price(S_GRID, maturity=T, sigma=0.25, option_type=option_type, **FN_ARGS)
+    np.testing.assert_allclose(black_scholes_dT(S_GRID, maturity=0.7, sigma=0.25, option_type=option_type, **FN_ARGS),
+                               (price(0.7 + h) - price(0.7 - h)) / (2 * h), atol=1e-6)
+
+def test_dT_is_negative_for_a_deep_itm_european_put_and_positive_for_calls():
+    # the reason the MLP's T-monotonicity penalty is applied to the *American* price
+    deep_itm_put = black_scholes_dT(40.0, 100.0, 1.0, 0.05, 0.2, "put")
+    calls = black_scholes_dT(S_GRID, maturity=0.7, sigma=0.25, option_type="call", **FN_ARGS)
+    assert deep_itm_put < 0 and (calls > 0).all()
+
+def test_dT_rejects_an_unknown_option_type():
+    with pytest.raises(ValueError):
+        black_scholes_dT(100.0, 100.0, 1.0, 0.03, 0.2, "both")

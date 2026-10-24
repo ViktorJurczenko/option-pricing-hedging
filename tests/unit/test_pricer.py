@@ -41,11 +41,38 @@ def test_net_route_is_black_scholes_plus_the_nets_premium():
     assert np.abs(premium).min() > 1e-3  # the check above would pass trivially with a ~0 net
 
 def test_zero_premium_net_reproduces_black_scholes_greeks():
-    res = _surrogate(zero_net=True).price(M_IN, T_IN, R_IN, S_IN)
-    args = (M_IN, 1.0, T_IN, R_IN, S_IN)
+    m = M_IN[1:]  # from 0.95 up: there the European put is above the payoff, so no floor applies
+    res = _surrogate(zero_net=True).price(m, T_IN, R_IN, S_IN)
+    args = (m, 1.0, T_IN, R_IN, S_IN)
+    assert (black_scholes_price(*args, "put") > np.maximum(1 - m, 0)).all() and (res.route == "net").all()
     np.testing.assert_allclose(res.price, black_scholes_price(*args, "put"), atol=1e-15)
     np.testing.assert_allclose(res.delta, black_scholes_delta(*args, "put"), atol=1e-15)
     np.testing.assert_allclose(res.gamma, black_scholes_gamma(*args), atol=1e-12)
+
+def test_net_price_below_the_payoff_in_the_money_is_floored_at_one_minus_m():
+    # deep in the money the European put is worth less than exercising now;
+    # with no premium the net's price is that European price
+    m, T, r = 0.8, 2.0, 0.06
+    assert black_scholes_price(m, 1.0, T, r, S_IN, "put") < 1 - m
+    res = _surrogate(zero_net=True).price(m, T, r, S_IN)
+    assert res.route == "payoff_floor"
+    assert (res.price, res.delta, res.gamma) == (1 - m, -1.0, 0.0)
+
+def test_negative_net_price_out_of_the_money_is_floored_at_zero():
+    sur = _surrogate(zero_net=True)
+    torch.nn.init.constant_(sur.model.net[-1].bias, -1.0)  # premium -1: the price would be negative
+    res = sur.price(np.array([1.05, 1.2]), T_IN, R_IN, S_IN)
+    assert (res.route == "payoff_floor").all()
+    np.testing.assert_array_equal(res.price, 0.0)
+    np.testing.assert_array_equal(res.delta, 0.0)
+    np.testing.assert_array_equal(res.gamma, 0.0)
+
+def test_payoff_floor_leaves_prices_above_the_payoff_untouched():
+    sur = _surrogate(zero_net=True)
+    torch.nn.init.constant_(sur.model.net[-1].bias, 0.05)  # a positive premium: always above the payoff
+    res = sur.price(M_IN, T_IN, R_IN, S_IN)
+    assert (res.route == "net").all()
+    np.testing.assert_allclose(res.price, black_scholes_price(M_IN, 1.0, T_IN, R_IN, S_IN, "put") + 0.05, atol=1e-15)
 
 def test_net_route_delta_and_gamma_match_finite_differences_of_the_price():
     sur = _surrogate()

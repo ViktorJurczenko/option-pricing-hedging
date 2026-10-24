@@ -472,6 +472,9 @@ Pricers are grouped by option class, everything that is learned lives in
     Black-Scholes + the net's premium, delta and gamma by autograd, queries
     outside the training domain routed to Black-Scholes, `1 - m` or the tree,
     saved and loaded as one checkpoint),
+    `training.py` (its training loop: premium + delta loss, optional
+    no-arbitrage shape penalties, cosine-decayed Adam, early stopping,
+    optional L-BFGS finish; not yet behind `train-ml`),
     `dataset.py` (`AmericanOptionDataset`, seeded, disjoint train/test split),
     `generate_dataset.py` (parallel, resumable LSM dataset generation),
     `GenerateTreeDataset.py` (its tree-labelled successor, puts only) and

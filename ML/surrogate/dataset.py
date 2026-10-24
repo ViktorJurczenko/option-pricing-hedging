@@ -171,10 +171,11 @@ class TreePutDataset(Dataset):
     with the MLP's features and targets built at load time from the raw
     columns, so a feature change never needs a regeneration.
 
-    Each item is `(features, premium, premium_delta, features_dm)`, float32:
+    Each item is `(features, features_dm, premium, premium_dm)`, float32,
+    each value followed by its derivative in m:
     - features: build_features, standardized with `stats`;
     - premium: the early-exercise premium (American - European) / K, the target;
-    - premium_delta: its derivative in m, tree delta - Black-Scholes delta,
+    - premium_dm: its derivative in m, tree delta - Black-Scholes delta,
       the differential-loss target;
     - features_dm: d features / d m of the *standardized* features (through
       `stats`), so the network's delta in m is its input gradient dotted
@@ -241,10 +242,10 @@ class TreePutDataset(Dataset):
         self.features = x.detach().float()
         self.features_dm = x_dm.float()
         self.premium = torch.tensor(cols["price"][idx] - cols["european_price"][idx], dtype=torch.float32)
-        self.premium_delta = torch.tensor(cols["delta"][idx] - european_delta, dtype=torch.float32)
+        self.premium_dm = torch.tensor(cols["delta"][idx] - european_delta, dtype=torch.float32)
 
     def __getitem__(self, idx):
-        return self.features[idx], self.premium[idx], self.premium_delta[idx], self.features_dm[idx]
+        return self.features[idx], self.features_dm[idx], self.premium[idx], self.premium_dm[idx]
 
     def __len__(self):
         return len(self.premium)
