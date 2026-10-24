@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 
 from core.gbm import GBM
 from ML.surrogate.dataset import AmericanOptionDataset
-from ML.surrogate.model import MLP
+from ML.surrogate.model import LegacyMLP
 from ML.surrogate.evaluation import regression_tests, test_option_price_lsm
 
 def add_arguments(parser):
@@ -41,7 +41,7 @@ def run(args):
     print(f"LSM benchmark settings (from the dataset): {lsm_settings}")
     dataset_test = AmericanOptionDataset(args.dataset_path, is_train=False, split_ratio=args.split_ratio, seed=args.seed)
 
-    mlp = MLP()
+    mlp = LegacyMLP()
     mlp.load_state_dict(torch.load(args.checkpoint_path, map_location="cpu"))
 
     dataloader_test = DataLoader(dataset_test)

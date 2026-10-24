@@ -43,20 +43,7 @@ every part is built the way it is".
 - [x] Tests and convergence study for the pricer
 - [x] New generator `ML/surrogate/GenerateTreeDataset.py`
 - [x] Dataset class: features, target and stats at load time
-- [ ] Smooth configurable MLP
-  Replace `MLP` (`ML/surrogate/model.py`): depth/width/activation as
-  constructor args (start 4 x 128, SiLU), no BatchNorm/Dropout, linear output (try softplus output to force
-  premium >= 0 in the ablation). Architecture args and the dataset's
-  `FeatureStats.to_dict()` saved in the checkpoint so
-  `test-ml` rebuilds the right net. A `price(m, T, r, sigma)` helper returns
-  `BS + K * net`, and `delta`/`gamma` via autograd, so every consumer
-  reconstructs the same way. Retire `smooth_intrinsic_value` from the
-  pipeline (keep the function and the decision doc as history).
-  The helper routes queries outside the training domain (the bounds are
-  stored in the dataset) instead of extrapolating: `m` outside the cap ->
-  `binomial_put_batch`; z > 3 -> Black-Scholes (the premium there is
-  < 4e-5 K); z < -3.5 with r >= 0.005 -> `1 - m` (exercised); anything
-  else outside -> `binomial_put_batch`.
+- [x] Smooth configurable MLP and the `PutSurrogate` price helper
 - [ ] Training loop overhaul
   Seed init and batch order (`torch.manual_seed`), batch 512-1024, Adam with
   cosine decay 1e-3 -> 1e-5, early stopping kept as a safety net, optional

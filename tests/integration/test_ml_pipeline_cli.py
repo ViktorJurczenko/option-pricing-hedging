@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from ML.surrogate.model import MLP
+from ML.surrogate.model import LegacyMLP
 from tests.helpers import run_cli, run_python
 
 # Dataset generation and training take longer than the helpers' default timeout.
@@ -65,7 +65,7 @@ def test_generate_dataset_single_type_still_writes_five_columns(tmp_path):
 def test_train_ml_saves_a_checkpoint_that_loads_into_the_mlp(pipeline):
     _, _, ckpt, train = pipeline
     assert train.returncode == 0, train.stderr
-    MLP().load_state_dict(torch.load(ckpt, map_location="cpu"))  # strict: shapes must match
+    LegacyMLP().load_state_dict(torch.load(ckpt, map_location="cpu"))  # strict: shapes must match
     assert f"Model was saved as : {ckpt}" in train.stdout
 
 def test_test_ml_reports_put_and_call_blocks(pipeline):

@@ -463,9 +463,15 @@ Pricers are grouped by option class, everything that is learned lives in
   from a regression of pathwise deltas — see Results above) and
   `basis_functions.py` (the regression bases, unit-tested independently).
 - **`ML/`** — everything that is learned:
-  - `surrogate/`: the MLP surrogate pricer. `model.py` (the `MLP`,
-    5 inputs → 1 output: `(price - smooth_intrinsic_value) / K` — a smoothly
-    decomposed residual, not raw price; see Results above for why),
+  - `surrogate/`: the MLP surrogate pricer. `model.py` (`LegacyMLP`, the
+    LSM-trained net `train-ml`/`test-ml` still use, 5 inputs → 1 output:
+    `(price - smooth_intrinsic_value) / K` — a smoothly decomposed residual,
+    not raw price; see Results above for why; and `MLP`, its configurable,
+    smooth (SiLU) successor for the tree dataset, which predicts the
+    early-exercise premium over Black-Scholes), `pricer.py` (`PutSurrogate`:
+    Black-Scholes + the net's premium, delta and gamma by autograd, queries
+    outside the training domain routed to Black-Scholes, `1 - m` or the tree,
+    saved and loaded as one checkpoint),
     `dataset.py` (`AmericanOptionDataset`, seeded, disjoint train/test split),
     `generate_dataset.py` (parallel, resumable LSM dataset generation),
     `GenerateTreeDataset.py` (its tree-labelled successor, puts only) and

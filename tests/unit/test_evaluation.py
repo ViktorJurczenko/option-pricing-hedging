@@ -3,7 +3,7 @@ import pytest
 import torch
 
 from ML.surrogate.evaluation import test_option_price_lsm as price_vs_lsm
-from ML.surrogate.model import MLP, smooth_intrinsic_value
+from ML.surrogate.model import LegacyMLP, smooth_intrinsic_value
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
 from core.gbm import GBM
 from EuropeanOptionPricing.BlackScholes import BlackScholes
@@ -58,7 +58,7 @@ def test_control_variate_without_sigma_is_rejected_by_benchmark(simulation):
 
 def _constant_output_mlp(output):
     """A real MLP whose output is `output` for every input (last layer zeroed, bias set)."""
-    mlp = MLP()
+    mlp = LegacyMLP()
     with torch.no_grad():
         mlp.layer4.weight.zero_()
         mlp.layer4.bias.fill_(output)

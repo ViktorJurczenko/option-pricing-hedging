@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 
 from ML.surrogate.dataset import AmericanOptionDataset
-from ML.surrogate.model import MLP
+from ML.surrogate.model import LegacyMLP
 
 def add_arguments(parser):
     parser.add_argument("--dataset_path", default="data/american_option_dataset.npz", type=str, help="Path to the dataset for MLP.")
@@ -23,7 +23,7 @@ def run(args):
                                 "`python -m ML.surrogate.generate_dataset` or pass --dataset_path.")
     dataset_train = AmericanOptionDataset(args.dataset_path, is_train=True, split_ratio=args.split_ratio, seed=args.seed)
 
-    mlp = MLP()
+    mlp = LegacyMLP()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")
