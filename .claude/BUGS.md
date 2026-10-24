@@ -6,6 +6,30 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## PutSurrogate answers m = 0 and m = inf silently (fixed)
+
+**Symptom:** found by the review of step 5 of the MLP overhaul.
+`PutSurrogate.price(0.0, 0.5, 0.03, 0.25)` returned price 1, delta -1,
+route `exercised`, with no error (`m = 1e-300` the same), and `m = inf`
+returned a NaN price through the `black_scholes` route. The docstring,
+CLAUDE.md and REMINDER.md all promised invalid input always raises.
+
+**Root cause:** invalid input was meant to fail every domain check and
+fall through to `binomial_put_batch`, which validates it. That holds for
+NaN (every comparison is False) and for `T`, `sigma`, `r` (bounded by
+their ranges), but the two closed-form routes check `z` only, not `m`'s
+range: `ln 0 = -inf` satisfies `z < z_low`, and `ln inf = +inf`
+satisfies `z > z_high`. The tests tried `m = -1` and `m = NaN` only
+(`ln` of both is NaN), so they passed.
+
+**Impact:** none: nothing calls `PutSurrogate` yet (steps 6-7 will).
+
+**Fix:** `price` requires `m_valid = isfinite(m) & (m > 0)` for every
+route but the tree, so such queries reach it and it raises.
+`test_invalid_queries_reach_the_tree_and_raise` now covers `m = 0`,
+`m = inf`, and NaN/inf in `T` and `r`; the `m = 0`/`inf` cases fail
+without the fix.
+
 ## An invalid split_ratio is used silently (fixed in TreePutDataset)
 
 **Symptom:** found by the review of step 4 of the MLP overhaul.

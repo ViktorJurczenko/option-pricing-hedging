@@ -85,9 +85,9 @@ class PutSurrogate:
             SurrogateResult(price, delta, gamma, route).
 
         Raises:
-            ValueError: from binomial_put_batch, for a query routed to the
-                tree with a non-finite parameter or m, T or sigma <= 0 (such
-                queries always fail every domain check, so they reach it).
+            ValueError: from binomial_put_batch, for a non-finite parameter
+                or m, T or sigma <= 0: such queries are kept out of every
+                other route, so they always reach the tree, which rejects them.
         """
         # work on flat 1-D arrays so one boolean mask per route indexes every
         # input and output alike; the caller's shape is restored at the end
@@ -105,15 +105,20 @@ class PutSurrogate:
         # hence params_inside; they don't need m's cap (beyond z's bounds,
         # further out of / into the money only makes them more exact). The
         # three masks are disjoint: z can't be both inside and outside its range.
-        params_inside = inside(T, "T_range") & inside(sigma, "sigma_range") & inside(r, "r_range")
+        # The m check is needed because the z rules don't bound m: m = 0
+        # (z = -inf) would pass as exercised and m = inf (z = +inf) as
+        # Black-Scholes; T, sigma and r are already bounded by their ranges.
+        m_valid = np.isfinite(m) & (m > 0)
+        params_inside = m_valid & inside(T, "T_range") & inside(sigma, "sigma_range") & inside(r, "r_range")
         z_low, z_high = self.domain["z_range"]
         routes = {
             "net": params_inside & inside(z, "z_range") & inside(m, "m_range"),
             "black_scholes": params_inside & (z > z_high),
             "exercised": params_inside & (z < z_low) & (r >= EXERCISE_MIN_RATE),
         }
-        # written as "none of the others" so a NaN, which fails every
-        # comparison above, lands here and the tree raises on it
+        # written as "none of the others" so invalid input (NaN, which fails
+        # every comparison above, or m excluded by m_valid) lands here and
+        # the tree raises on it
         routes["tree"] = ~(routes["net"] | routes["black_scholes"] | routes["exercised"])
 
         # np.empty is safe: the masks cover every row exactly once, so every
@@ -142,7 +147,9 @@ class PutSurrogate:
         price[exercised], delta[exercised], gamma[exercised] = 1.0 - m[exercised], -1.0, 0.0
         tree = routes["tree"]
         if tree.any():
-            # chunks of 32: the speed sweet spot found for the generator
+            # chunks of 32 (results don't depend on it): stepping the whole
+            # batch at once makes each level's arrays too big for the CPU
+            # cache, which the generator's timing found slower
             res = binomial_put_batch(m[tree], T[tree], r[tree], sigma[tree], chunk_size=32)
             price[tree], delta[tree], gamma[tree] = res.price, res.delta, res.gamma
 

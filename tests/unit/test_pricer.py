@@ -7,7 +7,7 @@ from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_schole
 from ML.surrogate.dataset import FeatureStats, build_features
 from ML.surrogate.GenerateTreeDataset import DOMAIN, map_to_domain, sobol_points
 from ML.surrogate.model import MLP, LegacyMLP
-from ML.surrogate.pricer import PutSurrogate
+from ML.surrogate.pricer import EXERCISE_MIN_RATE, PutSurrogate
 
 
 def _stats():
@@ -100,10 +100,39 @@ def test_other_queries_outside_the_domain_go_to_the_tree(m, T, r, sigma):
     tree = binomial_put_batch(m, T, r, sigma)
     assert (res.price, res.delta, res.gamma) == (tree.price, tree.delta, tree.gamma)
 
-def test_domain_bounds_are_inclusive():
-    T_low, T_high = DOMAIN["T_range"]
-    res = _surrogate().price(1.0, np.array([T_low, T_high]), DOMAIN["r_range"][0], DOMAIN["sigma_range"][1])
-    assert (res.route == "net").all()
+@pytest.mark.parametrize("m, T, r, sigma", [
+    (1.0, DOMAIN["T_range"][0], R_IN, S_IN),
+    (1.0, DOMAIN["T_range"][1], R_IN, S_IN),
+    (1.0, T_IN, R_IN, DOMAIN["sigma_range"][0]),
+    (1.0, T_IN, R_IN, DOMAIN["sigma_range"][1]),
+    (1.0, T_IN, DOMAIN["r_range"][0], S_IN),
+    (1.0, T_IN, DOMAIN["r_range"][1], S_IN),
+    (DOMAIN["m_range"][0], 1.0, R_IN, 0.5),  # z = ln 0.4 / 0.5 = -1.8, inside z's range
+    (DOMAIN["m_range"][1], 1.0, R_IN, 0.5),  # z = +1.8
+])
+def test_parameter_and_moneyness_bounds_are_inclusive(m, T, r, sigma):
+    assert _surrogate().price(m, T, r, sigma).route == "net"
+
+@pytest.mark.parametrize("m, beyond", [(1.2, "black_scholes"), (0.8, "exercised")])
+def test_z_bounds_are_inclusive(m, beyond):
+    # a z exactly on the bound can't be built from m (exp then log rounds),
+    # so the bound is set to the query's own z, computed as price() does
+    z = np.log(m) / (S_IN * np.sqrt(T_IN))
+    side = 1 if beyond == "black_scholes" else 0
+    z_range = [-3.5, 3.0]
+    z_range[side] = z
+    sur = PutSurrogate(_surrogate().model, _stats(), {**DOMAIN, "z_range": tuple(z_range)})
+    assert sur.price(m, T_IN, R_IN, S_IN).route == "net"
+    assert sur.price(m * (1.01 if side else 0.99), T_IN, R_IN, S_IN).route == beyond
+
+def test_exercised_rule_includes_the_minimum_rate():
+    m = np.exp(-3.6 * S_IN * np.sqrt(T_IN))
+    assert _surrogate().price(m, T_IN, EXERCISE_MIN_RATE, S_IN).route == "exercised"
+    assert _surrogate().price(m, T_IN, EXERCISE_MIN_RATE * 0.99, S_IN).route == "tree"
+
+def test_empty_query_gives_empty_outputs():
+    res = _surrogate().price(np.array([]), T_IN, R_IN, S_IN)
+    assert res.price.shape == res.route.shape == (0,)
 
 def test_mixed_batch_routes_each_query_and_keeps_the_broadcast_shape():
     m = np.array([[1.0, 1.0], [np.exp(3.2 * S_IN * np.sqrt(T_IN)), np.exp(-3.6 * S_IN * np.sqrt(T_IN))]])
@@ -115,10 +144,18 @@ def test_mixed_batch_routes_each_query_and_keeps_the_broadcast_shape():
     assert alone.price.shape == ()
     assert alone.price == res.price[0, 0]
 
-@pytest.mark.parametrize("m, sigma", [(np.nan, S_IN), (1.0, np.nan), (-1.0, S_IN), (1.0, 0.0)])
-def test_invalid_queries_reach_the_tree_and_raise(m, sigma):
+@pytest.mark.parametrize("m, T, r, sigma", [
+    (np.nan, T_IN, R_IN, S_IN), (-1.0, T_IN, R_IN, S_IN),
+    # m = 0 and m = inf were answered silently, as exercised (z = -inf)
+    # and as a NaN Black-Scholes price (z = +inf), before m was checked
+    (0.0, T_IN, R_IN, S_IN), (np.inf, T_IN, R_IN, S_IN),
+    (1.0, np.nan, R_IN, S_IN), (1.0, np.inf, R_IN, S_IN), (1.0, 0.0, R_IN, S_IN),
+    (1.0, T_IN, np.nan, S_IN), (1.0, T_IN, np.inf, S_IN),
+    (1.0, T_IN, R_IN, np.nan), (1.0, T_IN, R_IN, 0.0),
+])
+def test_invalid_queries_reach_the_tree_and_raise(m, T, r, sigma):
     with pytest.raises(ValueError):
-        _surrogate().price(m, T_IN, R_IN, sigma)
+        _surrogate().price(m, T, r, sigma)
 
 
 # --- construction, save and load ---

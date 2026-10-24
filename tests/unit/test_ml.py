@@ -43,12 +43,21 @@ def test_mlp_rows_are_independent_and_train_mode_changes_nothing():
     torch.testing.assert_close(mlp.eval()(x), full)
     torch.testing.assert_close(mlp(x[3:4]), full[3:4])
 
-def test_mlp_softplus_output_is_positive_and_linear_output_is_not():
+@pytest.mark.parametrize("output", ["linear", "softplus"])
+def test_mlp_softplus_output_stays_positive_where_linear_goes_negative(output):
+    # the last layer's bias forces a negative pre-output, so the result
+    # doesn't depend on how a seed happens to initialize the weights
     torch.manual_seed(0)
-    x = 10 * torch.randn(512, len(FEATURES))
-    assert (MLP(output="softplus")(x) > 0).all()
-    torch.manual_seed(0)
-    assert (MLP(output="linear")(x) < 0).any()
+    mlp = MLP(output=output)
+    last = [l for l in mlp.net if isinstance(l, torch.nn.Linear)][-1]
+    with torch.no_grad():
+        last.weight.zero_()
+        last.bias.fill_(-1.0)
+    out = mlp(torch.randn(8, len(FEATURES)))
+    if output == "linear":
+        assert (out == -1.0).all()
+    else:
+        torch.testing.assert_close(out, torch.full_like(out, float(np.log1p(np.exp(-1.0)))))  # softplus(-1) > 0
 
 def test_mlp_silu_has_curvature_where_relu_has_none():
     # why SiLU: a ReLU net is piecewise linear, its second input derivative is 0
