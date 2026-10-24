@@ -97,11 +97,14 @@ def check_teacher(nb_steps: int, method: str, domain: dict = DOMAIN) -> None:
       (0, 1), which the pricer rejects rather than return a wrong price;
     - the domain itself, if DOMAIN is edited: a T or sigma bound <= 0.
 
-    The probability depends on T, sigma and r only, and gets worse
-    monotonically in each one (it reaches 1 when r sqrt(dt) gets large
-    against sigma: longest T, lowest sigma, highest r). So the worst case
-    is a corner of the domain, and pricing the 8 corner puts (each T,
-    sigma, r bound, at the money) checks the whole domain in milliseconds.
+    With u = exp(sigma sqrt(dt)) and d = 1 / u, the probability
+    p = (exp(r dt) - d) / (u - d) reaches 1 exactly when r sqrt(dt) >= sigma,
+    a condition that worsens steadily with T and r and as sigma falls (p
+    itself is not monotone in T, but the breach condition is). Reaching 0
+    would need r < 0, which the domain excludes. So the worst case is a
+    corner of the domain (longest T, lowest sigma, highest r), and pricing
+    the 8 corner puts (each T, sigma, r bound, at the money) checks the
+    whole domain in milliseconds.
 
     Why up front: `main` writes the chunk directory's config.json before
     the workers start. If a bad setting only failed later, inside a worker,

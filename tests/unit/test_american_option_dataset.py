@@ -212,8 +212,27 @@ def test_tree_dataset_items_are_aligned_float32_rows(tree_file):
     assert [t.shape[0] for t in batch] == [8] * 4
 
 def test_tree_dataset_reads_the_sampling_domain_from_the_file(tree_file):
-    assert TreePutDataset(tree_file, split_ratio=1.0).domain == {k: tuple(v) for k, v in gen.DOMAIN.items()}
+    expected = {k: tuple(v) for k, v in gen.DOMAIN.items() if k.endswith("_range")}
+    assert TreePutDataset(tree_file, split_ratio=1.0).domain == expected
 
+def test_build_features_broadcast_scalars_against_arrays():
+    # a delta curve over m at one (T, r, sigma), as the price helper will be asked
+    m = np.linspace(0.8, 1.2, 5)
+    full = build_features(m, np.full(5, 0.5), np.full(5, 0.03), np.full(5, 0.2))
+    torch.testing.assert_close(build_features(m, 0.5, 0.03, 0.2), full)
+    assert build_features(1.0, 0.5, 0.03, 0.2).shape == (len(FEATURES),)
+
+@pytest.mark.parametrize("split_ratio", [-0.1, 1.1])
+def test_tree_dataset_rejects_a_split_ratio_outside_0_1(tree_file, split_ratio):
+    # slicing used to accept them silently: -0.1 gave a 90/10 split
+    with pytest.raises(ValueError, match="split_ratio"):
+        TreePutDataset(tree_file, split_ratio=split_ratio)
+
+def test_tree_dataset_names_a_missing_column(tree_file, tmp_path):
+    path = tmp_path / "no_delta.npz"
+    np.savez(path, **{k: v for k, v in np.load(tree_file).items() if k != "delta"})
+    with pytest.raises(ValueError, match=r"missing \['delta'\]"):
+        TreePutDataset(path)
 def test_tree_dataset_rejects_an_lsm_dataset(tmp_path):
     path = tmp_path / "lsm.npz"
     _write_toy_dataset(path)

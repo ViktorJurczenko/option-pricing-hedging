@@ -1,8 +1,10 @@
 import numpy as np
 import torch
 
+import os
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
+from numpy.typing import ArrayLike
 from torch.utils.data import Dataset
 
 from EuropeanOptionPricing.BlackScholes import black_scholes_delta
@@ -64,25 +66,31 @@ FEATURES = ("log_m", "log_T", "log_sigma", "r", "total_vol", "z")
 # Columns TreePutDataset reads from a `GenerateTreeDataset` file.
 TREE_COLUMNS = ("m", "T", "r", "sigma", "price", "european_price", "delta", "exercised")
 
-def build_features(m, T, r, sigma) -> torch.Tensor:
+def build_features(m: Union[ArrayLike, torch.Tensor], T: Union[ArrayLike, torch.Tensor],
+                   r: Union[ArrayLike, torch.Tensor], sigma: Union[ArrayLike, torch.Tensor]) -> torch.Tensor:
     """
     The MLP's raw (unstandardized) inputs for puts per unit of strike, one
     column per entry of FEATURES: log m, log T, log sigma, r, the total
     volatility sigma sqrt(T) and z = log m / (sigma sqrt(T)), the distance
-    to the strike in standard deviations. Arrays become float64 tensors;
-    tensors are used as they are, so autograd flows through (the delta
-    loss and the price helper differentiate the features in m).
+    to the strike in standard deviations. Arrays and scalars become float64
+    tensors; tensors are used as they are, so autograd flows through (the
+    delta loss and the price helper differentiate the features in m).
+    The inputs are broadcast together, so a curve over m at one (T, r,
+    sigma) needs no repeated arrays. Inputs are not validated: m, T or
+    sigma <= 0 give NaN or inf.
 
     Returns:
-        (n, len(FEATURES)) tensor.
+        (*broadcast shape, len(FEATURES)) tensor, e.g. (n, 6) for (n,) inputs.
     """
-    m, T, r, sigma = (torch.as_tensor(x, dtype=torch.float64) if not torch.is_tensor(x) else x
-                      for x in (m, T, r, sigma))
+    m, T, r, sigma = torch.broadcast_tensors(*(torch.as_tensor(x, dtype=torch.float64) if not torch.is_tensor(x)
+                                               else x for x in (m, T, r, sigma)))
     log_m = torch.log(m)
     total_vol = sigma * torch.sqrt(T)
     return torch.stack([log_m, torch.log(T), torch.log(sigma), r, total_vol, log_m / total_vol], dim=-1)
 
-@dataclass(frozen=True)
+# eq=False: the generated __eq__ would compare tensors and raise "Boolean
+# value of Tensor is ambiguous"; compare the fields with torch instead
+@dataclass(frozen=True, eq=False)
 class FeatureStats:
     """
     Per-feature mean and std that standardize build_features' output.
@@ -137,11 +145,18 @@ class FeatureStats:
         return (raw - self.mean.to(raw)) / self.std.to(raw)
 
     def to_dict(self) -> dict:
+        """
+        The stats as plain Python lists, with the feature names they were
+        fitted for, ready to store in a checkpoint (torch.save or JSON).
+        The tensors' dtype is not kept: from_dict rebuilds them as float64.
+        """
         return {"names": list(FEATURES), "mean": self.mean.tolist(), "std": self.std.tolist()}
 
     @classmethod
     def from_dict(cls, d: dict) -> "FeatureStats":
         """
+        Rebuilds stats saved by to_dict, as float64 tensors.
+
         Raises:
             ValueError: if the stats were saved for other features than
                 FEATURES (a model trained before a feature change).
@@ -161,11 +176,13 @@ class TreePutDataset(Dataset):
     - premium: the early-exercise premium (American - European) / K, the target;
     - premium_delta: its derivative in m, tree delta - Black-Scholes delta,
       the differential-loss target;
-    - features_dm: d features / d m, so the network's delta in m is its
-      input gradient dotted with this row (chain rule through the features).
+    - features_dm: d features / d m of the *standardized* features (through
+      `stats`), so the network's delta in m is its input gradient dotted
+      with this row (chain rule through the features).
 
-    The split is a seeded shuffle like `AmericanOptionDataset`'s. Each row is
-    its own parameter draw (puts only), so no group of rows can straddle it.
+    The split is a seeded shuffle like `AmericanOptionDataset`'s. It is not
+    grouped by parameter draw: each row is its own draw (puts only), so no
+    group of rows can straddle it.
 
     Args:
         data_path: the `tree_put_dataset.npz` file.
@@ -178,25 +195,30 @@ class TreePutDataset(Dataset):
             its inputs.
 
     Raises:
-        ValueError: if the file is not a tree dataset, or `stats` is None
-            and the training split is empty.
+        ValueError: if `split_ratio` is outside [0, 1], the file is not a
+            tree dataset, or `stats` is None and the training split is empty.
     """
-    def __init__(self, data_path, is_train: bool = True, split_ratio: float = 0.8, seed: int = 42,
-                 stats: Optional[FeatureStats] = None):
-        data = np.load(data_path)
-        missing = [c for c in ("teacher", *TREE_COLUMNS) if c not in data.files]
-        if missing or str(data["teacher"]) != "tree":
-            reason = f"missing {missing}" if missing else f"teacher is '{data['teacher']}', expected 'tree'"
-            raise ValueError(f"'{data_path}' is not a tree put dataset (GenerateTreeDataset): {reason}")
-        # the sampling domain, for routing queries outside it
-        self.domain = {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
+    def __init__(self, data_path: Union[str, os.PathLike], is_train: bool = True, split_ratio: float = 0.8,
+                 seed: int = 42, stats: Optional[FeatureStats] = None):
+        # slicing would silently accept others: -0.1 acts as 0.9, and above 1 empties the test split
+        if not 0 <= split_ratio <= 1:
+            raise ValueError(f"split_ratio must be in [0, 1], got {split_ratio}")
+        # read everything, then close the file explicitly rather than when
+        # garbage collection gets to it
+        with np.load(data_path) as data:
+            missing = [c for c in ("teacher", *TREE_COLUMNS) if c not in data.files]
+            if missing or str(data["teacher"]) != "tree":
+                reason = f"missing {missing}" if missing else f"teacher is '{data['teacher']}', expected 'tree'"
+                raise ValueError(f"'{data_path}' is not a tree put dataset (GenerateTreeDataset): {reason}")
+            # the sampling domain, for routing queries outside it
+            self.domain = {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
+            cols = {c: data[c] for c in TREE_COLUMNS}
 
-        n_samples = len(data["m"])
+        n_samples = len(cols["m"])
         rdm_idx = np.random.default_rng(seed=seed).permutation(n_samples)
         n_train = int(n_samples * split_ratio)
         idx = rdm_idx[:n_train] if is_train else rdm_idx[n_train:]
 
-        cols = {c: data[c] for c in TREE_COLUMNS}
         if stats is None:
             train = rdm_idx[:n_train]
             stats = FeatureStats.fit(build_features(*(cols[c][train] for c in ("m", "T", "r", "sigma"))))
@@ -206,10 +228,13 @@ class TreePutDataset(Dataset):
         self.exercised = cols["exercised"][idx]
         m = torch.tensor(self.params["m"], dtype=torch.float64, requires_grad=True)
         x = stats.apply(build_features(m, *(self.params[c] for c in ("T", "r", "sigma"))))
-        # each row's features depend on its own m only, so the gradient of a
-        # column's sum is that column's derivative, row by row
-        x_dm = torch.stack([torch.autograd.grad(x[:, j].sum(), m, retain_graph=True)[0]
-                            for j in range(len(FEATURES))], dim=-1) if len(m) else torch.zeros_like(x)
+        if len(m) == 0:  # nothing to differentiate (autograd.grad would fail)
+            x_dm = torch.zeros_like(x)
+        else:
+            # each row's features depend on its own m only, so the gradient
+            # of a column's sum is that column's derivative, row by row
+            x_dm = torch.stack([torch.autograd.grad(x[:, j].sum(), m, retain_graph=True)[0]
+                                for j in range(len(FEATURES))], dim=-1)
 
         european_delta = black_scholes_delta(self.params["m"], 1.0, self.params["T"], self.params["r"],
                                              self.params["sigma"], "put")

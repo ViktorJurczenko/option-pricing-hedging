@@ -6,6 +6,27 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## An invalid split_ratio is used silently (fixed in TreePutDataset)
+
+**Symptom:** found by the review of step 4 of the MLP overhaul.
+`TreePutDataset(path, split_ratio=-0.1)` built without complaint, and so
+does `AmericanOptionDataset`: on 100 rows it gave 90 training and 10 test
+rows, i.e. a ratio of 0.9. A ratio above 1 gave an empty test split. (The
+review first said the splits overlap; checked, they stay disjoint.)
+
+**Root cause:** `n_train = int(n * split_ratio)` is negative for a
+negative ratio, and Python slicing reads `rdm_idx[:n_train]` as "all but
+the last `|n_train|` rows", so a ratio `s < 0` acts as `1 + s`. Above 1,
+`n_train > n` and the test slice is empty. Neither class validated it.
+
+**Impact:** none observed: every caller passes the default 0.8 or a
+`--split_ratio` in (0, 1).
+
+**Fix:** `TreePutDataset` raises a `ValueError` unless
+`0 <= split_ratio <= 1` (`test_tree_dataset_rejects_a_split_ratio_outside_0_1`).
+`AmericanOptionDataset` is left as is: it goes away when `train-ml`/`test-ml`
+switch to the tree pipeline (steps 5-7).
+
 ## A bad tree flag locks the tree generator's resume directory (fixed)
 
 **Symptom:** found by the review of step 3 of the MLP overhaul.
