@@ -146,9 +146,9 @@ def test_test_ml_with_missing_files_fails_naming_the_flag():
     assert "FileNotFoundError" in result.stderr and "--dataset_path" in result.stderr
 
 def test_test_ml_scores_a_saved_surrogate_on_the_test_split_and_the_grid(tmp_path):
-    from ML.surrogate.dataset import TreePutDataset
-    from ML.surrogate.model import MLP
-    from ML.surrogate.pricer import PutSurrogate
+    from ML.surrogate.tree.tree_dataset import TreePutDataset
+    from ML.surrogate.tree.tree_model import MLP
+    from ML.surrogate.tree.tree_pricer import PutSurrogate
     from tests.helpers import write_tree_dataset
 
     dataset = write_tree_dataset(tmp_path)
@@ -165,3 +165,22 @@ def test_test_ml_scores_a_saved_surrogate_on_the_test_split_and_the_grid(tmp_pat
     # the all-rows price MAE of each table is a finite, non-negative $ figure
     maes = [float(line.split()[2]) for line in out.splitlines() if line.startswith("all ")]
     assert len(maes) == 5 and all(np.isfinite(maes)) and min(maes) >= 0
+
+def test_train_ml_then_test_ml_scores_the_surrogate_it_trained(tmp_path):
+    from ML.surrogate.tree.tree_pricer import PutSurrogate
+    from tests.helpers import write_tree_dataset
+
+    dataset = write_tree_dataset(tmp_path)
+    ckpt = tmp_path / "surrogate.pth"
+    # a tiny net for a few epochs: this checks the wiring between the two commands, not the accuracy
+    train = run_cli("train-ml", "--dataset_path", str(dataset), "--checkpoint_path", str(ckpt),
+                    "--depth", "1", "--width", "8", "--batch_size", "16", "--epochs", "3", "--seed", "0")
+    assert train.returncode == 0, train.stderr
+    assert "Best validation loss" in train.stdout and f"Model was saved as : {ckpt}" in train.stdout
+    assert PutSurrogate.load(ckpt).model.config["depth"] == 1  # the flags reached the saved net
+
+    # --seed 0 again: test-ml's test split is only unseen with the training run's seed
+    test = run_cli("test-ml", "--dataset_path", str(dataset), "--checkpoint_path", str(ckpt), "--seed", "0",
+                   "--ref_steps", "100", "--n_z", "5", "--n_sigma", "2", "--n_T", "3")
+    assert test.returncode == 0, test.stderr
+    assert "=== Test split" in test.stdout and "=== Grid" in test.stdout

@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 import torch
 
-from ML.surrogate.evaluation import test_option_price_lsm as price_vs_lsm
-from ML.surrogate.model import LegacyMLP, smooth_intrinsic_value
+from ML.surrogate.legacy.lsm_evaluation import test_option_price_lsm as price_vs_lsm
+from ML.surrogate.legacy.lsm_model import LegacyMLP, smooth_intrinsic_value
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
 from core.gbm import GBM
 from EuropeanOptionPricing.BlackScholes import BlackScholes
@@ -104,7 +104,7 @@ def test_error_falls_back_to_absolute_error_when_lsm_price_is_below_ten_cents():
 
 def test_regression_tests_prints_mse_mae_r2_for_a_known_case(capsys):
     from torch.utils.data import DataLoader, TensorDataset
-    from ML.surrogate.evaluation import regression_tests
+    from ML.surrogate.legacy.lsm_evaluation import regression_tests
 
     class Identity(torch.nn.Module):
         def forward(self, x):

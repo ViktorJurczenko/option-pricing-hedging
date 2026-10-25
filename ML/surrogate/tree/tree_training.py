@@ -9,10 +9,10 @@ from tqdm import tqdm
 
 from EuropeanOptionPricing.BlackScholes import (black_scholes_delta, black_scholes_dT, black_scholes_gamma,
                                                 black_scholes_vega)
-from ML.surrogate.dataset import FEATURES, FeatureStats, TreePutDataset, build_features
-from ML.surrogate.GenerateTreeDataset import SAMPLED, map_to_domain
-from ML.surrogate.model import MLP
-from ML.surrogate.pricer import PutSurrogate
+from ML.surrogate.tree.tree_dataset import FEATURES, FeatureStats, TreePutDataset, build_features
+from ML.surrogate.tree.generate_tree_dataset import SAMPLED, map_to_domain
+from ML.surrogate.tree.tree_model import MLP
+from ML.surrogate.tree.tree_pricer import PutSurrogate
 
 # The no-arbitrage conditions of shape_violations, in its column order.
 SHAPE_CONDITIONS = ("decreasing_in_m", "convex_in_m", "increasing_in_T", "increasing_in_sigma")
@@ -119,7 +119,7 @@ class ShapePoints(NamedTuple):
     @classmethod
     def sample(cls, rng: np.random.Generator, n: int, domain: dict, device=None) -> "ShapePoints":
         """
-        `n` points drawn like the dataset's rows (GenerateTreeDataset's
+        `n` points drawn like the dataset's rows (generate_tree_dataset's
         map_to_domain, on independent uniforms rather than Sobol points),
         so the penalties act where the network is used.
         """
@@ -294,7 +294,7 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
                     checkpoint_path: Optional[Union[str, os.PathLike]] = None, device=None) -> TrainResult:
     """
     Trains an MLP on the training split of a tree put dataset
-    (`python -m ML.surrogate.GenerateTreeDataset`) and returns it as a
+    (`python -m ML.surrogate.tree.generate_tree_dataset`) and returns it as a
     PutSurrogate with the dataset's feature stats and domain.
 
     The training split (TreePutDataset, `config.split_ratio`, `config.seed`)

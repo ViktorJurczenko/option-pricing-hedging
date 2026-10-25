@@ -6,6 +6,26 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## bucket_metrics crashed on vega without exercised flags (fixed)
+
+**Symptom:** found in the step-7 review: `bucket_metrics(..., vega=v)`
+called without `exercised` raised `TypeError: bad operand type for
+unary ~: 'NoneType'` in the implied-vol mask, instead of computing or
+refusing anything meaningful.
+
+**Root cause:** the implied-vol error is only defined off the exercise
+region, so its mask is `(vega >= MIN_IV_VEGA) & ~exercised`; both
+arguments are optional, and nothing checked that `exercised` came with
+`vega`.
+
+**Impact:** none on results: `evaluate_test_split`/`evaluate_grid` always
+pass both. Only a direct caller (a notebook, a new evaluation) would hit
+the bare `TypeError`.
+
+**Fix:** `bucket_metrics` raises `ValueError("vega needs the exercised
+flags: ...")` up front (`ML/surrogate/tree/tree_evaluation.py`), pinned by
+`test_bucket_metrics_refuses_vega_without_the_exercised_flags`.
+
 ## test-ml report crashed printing to the Windows console (fixed)
 
 **Symptom:** the first run of the step-7 evaluation report died with
@@ -19,7 +39,7 @@ which has no `Γ`.
 **Impact:** none (caught on the first trial run, before any commit).
 
 **Fix:** ASCII-only labels (gamma now "gamma MAE 1/$", "us") in
-`ML/surrogate/tree_evaluation.py`; the `test-ml` CLI smoke test prints the
+`ML/surrogate/tree/tree_evaluation.py`; the `test-ml` CLI smoke test prints the
 whole report through a subprocess, so a non-cp1252 character there would
 fail it again.
 
@@ -70,7 +90,7 @@ of the exercised points were flagged even at a 1e-3 tolerance, against
 **Impact:** none yet (no metric is reported); it would have misled
 step 7's no-arbitrage column.
 
-**Fix:** `test-ml` (`ML/surrogate/tree_evaluation.py::violation_rates`)
+**Fix:** `test-ml` (`ML/surrogate/tree/tree_evaluation.py::violation_rates`)
 reports the rates for the continuation and exercised regions separately,
 counting a point only above a tolerance (`--violation_tol`, default
 1e-4) on the `w`-scaled violations (see the convexity-scaling entry
@@ -82,7 +102,7 @@ checks the split and the strict tolerance.
 
 ## Training test: "always keep the L-BFGS finish" went undetected (fixed)
 
-**Symptom:** a manual mutation check of `ML/surrogate/training.py`:
+**Symptom:** a manual mutation check of `ML/surrogate/tree/tree_training.py`:
 replacing `kept = metrics["loss"] < best_loss` by `kept = True` left
 all tests passing.
 
@@ -208,7 +228,7 @@ switch to the tree pipeline (steps 5-7).
 ## A bad tree flag locks the tree generator's resume directory (fixed)
 
 **Symptom:** found by the review of step 3 of the MLP overhaul.
-`python -m ML.surrogate.GenerateTreeDataset --nb_steps 51` (odd, with the
+`python -m ML.surrogate.tree.generate_tree_dataset --nb_steps 51` (odd, with the
 default `"bbsr"`) failed with "nb_steps must be even", and re-running with
 the corrected `--nb_steps 50` then failed with "holds chunks generated with
 other settings": the user had to delete `tree_chunks/` by hand. The same

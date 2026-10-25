@@ -29,9 +29,9 @@ from tqdm import tqdm
 
 from AmericanOptionPricing.BatchBinomialTree import TreeResult, binomial_put_batch
 from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_scholes_price
-from ML.surrogate.dataset import TreePutDataset
-from ML.surrogate.pricer import DOMAIN_KEYS, ROUTES, PutSurrogate
-from ML.surrogate.training import EVAL_CHUNK, SHAPE_CONDITIONS, ShapePoints, price_derivatives, scaled_violations
+from ML.surrogate.tree.tree_dataset import TreePutDataset
+from ML.surrogate.tree.tree_pricer import DOMAIN_KEYS, ROUTES, PutSurrogate
+from ML.surrogate.tree.tree_training import EVAL_CHUNK, SHAPE_CONDITIONS, ShapePoints, price_derivatives, scaled_violations
 
 # ---------------------------------------------------------------------------
 # Units and buckets

@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from AmericanOptionPricing.BatchBinomialTree import binomial_put_batch
 from EuropeanOptionPricing.BlackScholes import black_scholes_price
-from ML.surrogate.generate_dataset import chunk_file, n_chunks_for, prepare_chunk_dir, save_chunk, tqdm_joblib
+from ML.surrogate.chunks import chunk_file, n_chunks_for, prepare_chunk_dir, save_chunk, tqdm_joblib
 
 # The sampling domain, stored in the dataset so consumers know where the
 # labels are valid (the `price` helper routes queries outside it).

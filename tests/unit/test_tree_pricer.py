@@ -4,10 +4,11 @@ import torch
 
 from AmericanOptionPricing.BatchBinomialTree import binomial_put_batch
 from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
-from ML.surrogate.dataset import FeatureStats, build_features
-from ML.surrogate.GenerateTreeDataset import DOMAIN, map_to_domain, sobol_points
-from ML.surrogate.model import MLP, LegacyMLP
-from ML.surrogate.pricer import EXERCISE_MIN_RATE, PutSurrogate
+from ML.surrogate.tree.tree_dataset import FeatureStats, build_features
+from ML.surrogate.tree.generate_tree_dataset import DOMAIN, map_to_domain, sobol_points
+from ML.surrogate.legacy.lsm_model import LegacyMLP
+from ML.surrogate.tree.tree_model import MLP
+from ML.surrogate.tree.tree_pricer import EXERCISE_MIN_RATE, PutSurrogate
 
 
 def _stats():

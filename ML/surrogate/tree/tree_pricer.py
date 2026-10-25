@@ -8,10 +8,10 @@ from numpy.typing import ArrayLike
 
 from AmericanOptionPricing.BatchBinomialTree import binomial_put_batch
 from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
-from ML.surrogate.dataset import FeatureStats, build_features
-from ML.surrogate.model import MLP
+from ML.surrogate.tree.tree_dataset import FeatureStats, build_features
+from ML.surrogate.tree.tree_model import MLP
 
-# The sampling ranges a surrogate is valid on, as GenerateTreeDataset stores
+# The sampling ranges a surrogate is valid on, as generate_tree_dataset stores
 # them (TreePutDataset.domain); each is an inclusive (low, high).
 DOMAIN_KEYS = ("T_range", "sigma_range", "r_range", "z_range", "m_range")
 # Below z_range's low end a put is exercised today only if r is not ~0: as

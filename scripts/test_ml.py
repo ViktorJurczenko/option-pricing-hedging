@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from AmericanOptionPricing.BatchBinomialTree import METHODS
-from ML.surrogate.pricer import PutSurrogate
-from ML.surrogate.tree_evaluation import (GRID_N_SIGMA, GRID_N_T, GRID_N_Z, GRID_RATES, REF_METHOD, REF_STEPS,
+from ML.surrogate.tree.tree_pricer import PutSurrogate
+from ML.surrogate.tree.tree_evaluation import (GRID_N_SIGMA, GRID_N_T, GRID_N_Z, GRID_RATES, REF_METHOD, REF_STEPS,
                                           VIOLATION_TOL, check_reference, evaluate_grid, evaluate_test_split,
                                           print_report, teacher_settings)
 
@@ -28,7 +28,8 @@ def run(args):
     for flag, path in [("--dataset_path", args.dataset_path), ("--checkpoint_path", args.checkpoint_path)]:
         if not Path(path).is_file():
             raise FileNotFoundError(f"{flag}: no file at {path} (generate the dataset with "
-                                    "`python -m ML.surrogate.GenerateTreeDataset`, then train the surrogate).")
+                                    "`python -m ML.surrogate.tree.generate_tree_dataset`, then train the surrogate with "
+                                    "`python main.py train-ml`).")
     # before any work: a reference with the teacher's settings would score how well the net copies it
     teacher = teacher_settings(args.dataset_path)
     check_reference(teacher, args.ref_method, args.ref_steps)

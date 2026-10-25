@@ -1,40 +1,23 @@
-import json
-import os
+"""
+The legacy LSM dataset: Longstaff-Schwartz-labelled calls and puts for
+lsm_model.LegacyMLP, written to `<output_dir>/american_option_dataset.npz`
+with `features_norm.npz`. Run as a module from the project root:
+`python -m ML.surrogate.legacy.generate_lsm_dataset`. The tree-trained
+surrogate uses `python -m ML.surrogate.tree.generate_tree_dataset` instead.
+"""
 import shutil
 import numpy as np
 from typing import Optional
 from pathlib import Path
-from contextlib import contextmanager
-import joblib
 from joblib import Parallel, delayed
 from tqdm import tqdm
 import time
 import argparse
 
 from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from ML.surrogate.model import smooth_intrinsic_value, option_type_feature
+from ML.surrogate.chunks import chunk_file, n_chunks_for, prepare_chunk_dir, save_chunk, tqdm_joblib
+from ML.surrogate.legacy.lsm_model import smooth_intrinsic_value, option_type_feature
 from core.gbm import GBM
-
-@contextmanager
-def tqdm_joblib(tqdm_object):
-    """
-    Context manager that makes a tqdm bar advance on each completed joblib
-    batch, instead of on each submitted argument (the default `tqdm(args_list)`
-    wrapping reports submission order, not completion, so it doesn't reflect
-    actual progress/ETA for parallel work).
-    """
-    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
-        def __call__(self, *args, **kwargs):
-            tqdm_object.update(n=self.batch_size)
-            return super().__call__(*args, **kwargs)
-
-    old_callback = joblib.parallel.BatchCompletionCallBack
-    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
-    try:
-        yield tqdm_object
-    finally:
-        joblib.parallel.BatchCompletionCallBack = old_callback
-        tqdm_object.close()
 
 def gen_rdm_params(
     n_samples: int,
@@ -90,7 +73,7 @@ def gen_rdm_params(
 def gen_data(simulation, S0, K, r, T, sigma, option_type, max_degree, reg_type) -> float:
     """
     Runs LSM and returns the time value (price minus a *smooth* approximation of
-    intrinsic value - see ML.surrogate.model.smooth_intrinsic_value),
+    intrinsic value - see ML.surrogate.legacy.lsm_model.smooth_intrinsic_value),
     scaled by strike. Subtracting the exact intrinsic value would stamp its hard
     kink at S == K onto this residual even though the pre-expiry price has no
     kink there, which empirically showed up as the MLP's error spiking right at
@@ -170,36 +153,6 @@ def process_sample(
     except Exception as e:
         print(f"Skipping sample (S0={S0}, K={K}, sigma={sigma}, r={r}, T={T}): {e}")
         return []
-
-def chunk_file(chunk_dir: Path, idx: int) -> Path:
-    return chunk_dir / f"chunk_{idx:05d}.npz"
-
-def n_chunks_for(n_total: int, chunk_size: int) -> int:
-    return -(-n_total // chunk_size)
-
-def prepare_chunk_dir(chunk_dir: Path, config: dict) -> None:
-    """
-    Creates the chunk directory, or checks that the chunks already in it were
-    produced with the same generation settings. Resuming with different
-    settings would silently mix labels from two different datasets.
-    """
-    config_path = chunk_dir / "config.json"
-    if config_path.exists():
-        stored = json.loads(config_path.read_text())
-        if stored != config:
-            diff = {k: (stored.get(k), config.get(k)) for k in config if stored.get(k) != config[k]}
-            raise ValueError(f"{chunk_dir} holds chunks generated with other settings ((stored, requested): {diff}). "
-                             "Use the same flags to resume, or delete the directory to start over.")
-    else:
-        chunk_dir.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(config, indent=2))
-
-def save_chunk(path: Path, **arrays: np.ndarray) -> None:
-    """Saves `arrays` under their names, atomically: a run killed mid-write
-    leaves no half-written chunk that a resume would trust."""
-    tmp = path.with_name(path.stem + ".tmp.npz")
-    np.savez(tmp, **arrays)
-    os.replace(tmp, path)
 
 def generate_chunks(args_list: list, chunk_dir: Path, chunk_size: int, n_jobs: int) -> None:
     """
@@ -311,8 +264,9 @@ def main():
         output_dir / "american_option_dataset.npz",
         features=features,
         label=labels,
-        # The teacher's settings travel with the labels, so test-ml benchmarks
-        # against the same LSM instead of its own, possibly drifted, flags.
+        # The teacher's settings travel with the labels, so an evaluation
+        # (lsm_evaluation.test_option_price_lsm) can benchmark against the
+        # same LSM instead of its own, possibly drifted, settings.
         reg_type=args.reg_type,
         max_degree=args.max_degree,
         path_per_sim=args.path_per_sim,

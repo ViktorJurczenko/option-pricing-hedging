@@ -41,25 +41,13 @@ every part is built the way it is".
 
 - [x] Vectorized smoothed binomial pricer
 - [x] Tests and convergence study for the pricer
-- [x] New generator `ML/surrogate/GenerateTreeDataset.py`
+- [x] New generator `ML/surrogate/tree/generate_tree_dataset.py`
 - [x] Dataset class: features, target and stats at load time
 - [x] Smooth configurable MLP and the `PutSurrogate` price helper
-- [x] Training loop overhaul (`ML/surrogate/training.py`)
+- [x] Training loop overhaul (`ML/surrogate/tree/tree_training.py`)
 - [x] Shape penalty study: `w`-scaled violations, payoff floor in `PutSurrogate`
 - [x] Evaluation overhaul in `test-ml`
-- [ ] Tests, CLI wiring, docs
-  Switch `train-ml` to `train_surrogate`, one flag per `TrainConfig`
-  field, saving to `checkpoints/put_surrogate.pth` (`test-ml`'s default,
-  already switched in step 7, which refuses the legacy checkpoint).
-  Decide the legacy LSM pipeline's fate (`LegacyMLP`,
-  `AmericanOptionDataset`, `generate_dataset.py`, `evaluation.py`, the
-  legacy pipeline test): with no CLI consumer left, remove or keep it as
-  a library. Unit tests for the dataset features/target, the net's
-  price/delta reconstruction, the loss terms; a `train-ml` -> `test-ml`
-  CLI test on a tiny tree dataset (the generator's own are in
-  `tests/integration/test_generate_tree_dataset_cli.py`, `test-ml`'s
-  in `test_cli_smoke.py`). Update CLAUDE.md, README (still describes the
-  LSM `test-ml`).
+- [x] Tests, CLI wiring, docs
 - [ ] Smoke run, then full generation
   Only now: a tiny generation (a few hundred rows) through train-ml/test-ml
   end to end. Then size the full run with a learning curve rather than a

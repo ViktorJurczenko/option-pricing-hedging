@@ -3,67 +3,15 @@ import torch
 
 import os
 from dataclasses import dataclass
-from typing import Callable, Optional, Union
+from typing import Optional, Union
 from numpy.typing import ArrayLike
 from torch.utils.data import Dataset
 
 from EuropeanOptionPricing.BlackScholes import black_scholes_delta
 
-class AmericanOptionDataset(Dataset):
-    """
-    Custom Dataset for American option pricing data.
-
-    Args:
-        data_path (str): Path to the .npz file containing the dataset.
-        transform (callable, optional): Optional transform to be applied to features.
-        label_transform (callable, optional): Optional transform to be applied to labels.
-        is_train (bool): Whether to load the training or test split.
-        split_ratio (float): Ratio of data to use for training (default: 0.8).
-    """
-    def __init__(self,
-                 data_path,
-                 transform:Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-                 label_transform:Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-                 is_train=True,
-                 split_ratio=0.8,
-                 seed=42
-        ):
-
-        data = np.load(data_path, mmap_mode='r') # mmap avoids loading the whole archive eagerly
-        features = data["features"]
-        label    = data["label"]
-
-        # Shuffle with fixed seed before splitting
-        n_samples = len(features)
-        rng       = np.random.default_rng(seed=seed)
-        rdm_idx   = rng.permutation(n_samples)
-        n_train   = int(n_samples * split_ratio)
-
-        idx = rdm_idx[:n_train] if is_train else rdm_idx[n_train:]
-
-        self.features        = features[idx]
-        self.label           = label[idx]
-        self.transform       = transform
-        self.label_transform = label_transform
-
-    def __getitem__(self, idx):
-        features = torch.tensor(self.features[idx], dtype=torch.float32)
-        label    = torch.tensor(self.label[idx], dtype=torch.float32)
-
-        if self.transform:
-            features = self.transform(features)
-        if self.label_transform:
-            label = self.label_transform(label)
-
-        return features, label
-
-    def __len__(self):
-            return len(self.features)
-
-
 # The MLP's inputs, in column order (see build_features).
 FEATURES = ("log_m", "log_T", "log_sigma", "r", "total_vol", "z")
-# Columns TreePutDataset reads from a `GenerateTreeDataset` file.
+# Columns TreePutDataset reads from a `generate_tree_dataset` file.
 TREE_COLUMNS = ("m", "T", "r", "sigma", "price", "european_price", "delta", "exercised")
 
 def build_features(m: Union[ArrayLike, torch.Tensor], T: Union[ArrayLike, torch.Tensor],
@@ -167,7 +115,7 @@ class FeatureStats:
 
 class TreePutDataset(Dataset):
     """
-    The tree-labelled put dataset (`python -m ML.surrogate.GenerateTreeDataset`),
+    The tree-labelled put dataset (`python -m ML.surrogate.tree.generate_tree_dataset`),
     with the MLP's features and targets built at load time from the raw
     columns, so a feature change never needs a regeneration.
 
@@ -181,7 +129,7 @@ class TreePutDataset(Dataset):
       `stats`), so the network's delta in m is its input gradient dotted
       with this row (chain rule through the features).
 
-    The split is a seeded shuffle like `AmericanOptionDataset`'s. It is not
+    The split is a seeded shuffle like the legacy `AmericanOptionDataset`'s. It is not
     grouped by parameter draw: each row is its own draw (puts only), so no
     group of rows can straddle it.
 
@@ -210,7 +158,7 @@ class TreePutDataset(Dataset):
             missing = [c for c in ("teacher", *TREE_COLUMNS) if c not in data.files]
             if missing or str(data["teacher"]) != "tree":
                 reason = f"missing {missing}" if missing else f"teacher is '{data['teacher']}', expected 'tree'"
-                raise ValueError(f"'{data_path}' is not a tree put dataset (GenerateTreeDataset): {reason}")
+                raise ValueError(f"'{data_path}' is not a tree put dataset (generate_tree_dataset): {reason}")
             # the sampling domain, for routing queries outside it
             self.domain = {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
             cols = {c: data[c] for c in TREE_COLUMNS}

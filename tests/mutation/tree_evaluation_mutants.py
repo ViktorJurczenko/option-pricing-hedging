@@ -1,5 +1,5 @@
 """
-Hand mutation check of ML/surrogate/tree_evaluation.py: each mutant is one
+Hand mutation check of ML/surrogate/tree/tree_evaluation.py: each mutant is one
 small, plausible bug (a flipped comparison, a dropped threshold, a wrong
 factor); every one must make tests/unit/test_tree_evaluation.py fail. A
 mutant that survives is a behaviour no test pins down.
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TARGET = ROOT / "ML" / "surrogate" / "tree_evaluation.py"
+TARGET = ROOT / "ML" / "surrogate" / "tree" / "tree_evaluation.py"
 TESTS = "tests/unit/test_tree_evaluation.py"
 
 # (what the mutant breaks, original text, mutated text); each original must occur exactly once

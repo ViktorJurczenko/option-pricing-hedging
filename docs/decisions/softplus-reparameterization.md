@@ -7,7 +7,7 @@ extracted from.
 
 ## Symptom
 
-The MLP surrogate pricer (`ML/surrogate/model.py`) is trained on
+The legacy MLP surrogate pricer (`LegacyMLP`, `ML/surrogate/legacy/lsm_model.py`) is trained on
 `time_value = (price - intrinsic_value) / K` rather than raw price, to
 shrink the target's dynamic range. Early versions used the exact intrinsic
 value, `max(K - S, 0)` for a put. This produced a ~16% average error
@@ -46,7 +46,7 @@ away from the kink but rounds off the corner over a small window
 (`beta_frac`, default `0.06`, fixed in code rather than a CLI flag so it
 can't drift out of sync between label generation and reconstruction). The
 same smooth version must be used everywhere the component is added back to
-reconstruct the true value (`ML/surrogate/evaluation.py::test_option_price_lsm`) —
+reconstruct the true value (`ML/surrogate/legacy/lsm_evaluation.py::test_option_price_lsm`) —
 training and reconstruction must agree or predictions will be
 systematically biased.
 

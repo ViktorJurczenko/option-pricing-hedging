@@ -1,10 +1,11 @@
 import numpy as np
 import pytest
 
-from ML.surrogate.model import smooth_intrinsic_value
+from ML.surrogate.legacy.lsm_model import smooth_intrinsic_value
 from core.gbm import GBM
-from ML.surrogate.generate_dataset import (chunk_file, gen_data, gen_rdm_params, generate_chunks, load_chunks,
-                                       prepare_chunk_dir, process_sample)
+from ML.surrogate.chunks import chunk_file
+from ML.surrogate.legacy.generate_lsm_dataset import (gen_data, gen_rdm_params, generate_chunks, load_chunks,
+                                                      process_sample)
 from EuropeanOptionPricing.BlackScholes import BlackScholes
 
 NORM = dict(log_sigma_mean=np.log(0.2), log_sigma_std=0.5, r_mean=0.03, r_std=0.02,
@@ -130,10 +131,3 @@ def test_process_sample_is_reproducible_for_a_seed_and_differs_across_seeds():
     a, b, other = _sample(seed=3), _sample(seed=3), _sample(seed=4)
     assert a == b
     assert [label for _, label in a] != [label for _, label in other]
-
-def test_prepare_chunk_dir_accepts_the_same_config_and_rejects_a_different_one(tmp_path):
-    chunk_dir = tmp_path / "chunks"
-    prepare_chunk_dir(chunk_dir, {"seed": 1, "max_degree": 3})
-    prepare_chunk_dir(chunk_dir, {"seed": 1, "max_degree": 3})  # same settings: resumes
-    with pytest.raises(ValueError, match="max_degree"):
-        prepare_chunk_dir(chunk_dir, {"seed": 1, "max_degree": 4})

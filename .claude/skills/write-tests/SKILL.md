@@ -109,13 +109,13 @@ For this repo, candidates beyond what's already in `tests/integration/`:
 
 - **Pipeline-level checks**: dataset generation → training → evaluation on a
   tiny synthetic dataset (a handful of samples, few epochs) to verify the
-  full `generate_dataset.py` → `train_ml.py` → `test_ml.py` path stays wired
+  full `generate_tree_dataset.py` → `train_ml.py` → `test_tree_model.py` path stays wired
   correctly end-to-end when any one of the three changes shape (feature
   count, normalization keys, checkpoint format).
-  `tests/integration/test_bundled_dataset.py` is a starting point for this.
+  `test_cli_smoke.py`'s `train-ml` → `test-ml` run is a starting point for this.
 - **Cross-module consistency**: a test that fails loudly if
-  `ML/surrogate/generate_dataset.py`'s normalization (log-sigma, log-T, raw-r)
-  and `ML/surrogate/dataset.py`/`scripts/test_ml.py`'s ever
+  `ML/surrogate/legacy/generate_lsm_dataset.py`'s normalization (log-sigma, log-T, raw-r)
+  and `ML/surrogate/legacy/lsm_dataset.py`'s ever
   diverge — this is currently only enforced by a `CLAUDE.md` convention, not
   a test, and is exactly the kind of silent-mismatch bug integration tests
   exist for.
