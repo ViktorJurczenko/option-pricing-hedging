@@ -1,104 +1,41 @@
 from pathlib import Path
 
-import numpy as np
-import torch
-from tqdm import tqdm
-
-from torch.utils.data import DataLoader
-
-from core.gbm import GBM
-from ML.surrogate.dataset import AmericanOptionDataset
-from ML.surrogate.model import LegacyMLP
-from ML.surrogate.evaluation import regression_tests, test_option_price_lsm
+from AmericanOptionPricing.BatchBinomialTree import METHODS
+from ML.surrogate.pricer import PutSurrogate
+from ML.surrogate.tree_evaluation import (GRID_N_SIGMA, GRID_N_T, GRID_N_Z, GRID_RATES, REF_METHOD, REF_STEPS,
+                                          VIOLATION_TOL, check_reference, evaluate_grid, evaluate_test_split,
+                                          print_report, teacher_settings)
 
 def add_arguments(parser):
-    parser.add_argument("--dataset_path", default="data/american_option_dataset.npz", type=str, help="Path to the dataset for MLP.")
-    parser.add_argument("--features_norm_path", default="data/features_norm.npz", type=str, help="Path to the feature normalization stats.")
-    parser.add_argument("--split_ratio", default=0.8, type=float, help="Split size between test and train data.")
-    parser.add_argument("--seed", default=42, type=int, help="Random seed for reproducibility.")
-    parser.add_argument("--checkpoint_path", default="checkpoints/best_model.pth", type=str, help="Path to the trained model's weights.")
-
-def load_lsm_settings(dataset_path):
-    """The Longstaff-Schwartz settings the dataset's labels were generated with, as stored by `ML.surrogate.generate_dataset`."""
-    data = np.load(dataset_path)
-    missing = [key for key in ("reg_type", "max_degree", "sampling") if key not in data.files]
-    if missing:
-        raise ValueError(f"{dataset_path} has no stored LSM settings ({', '.join(missing)}): it predates them, "
-                         "regenerate it with `python -m ML.surrogate.generate_dataset`.")
-    return {"reg_type": str(data["reg_type"]), "max_degree": int(data["max_degree"]), "sampling": int(data["sampling"])}
+    parser.add_argument("--dataset_path", default="data/tree_put_dataset.npz", type=str,
+                        help="The tree put dataset the surrogate was trained on (its test split is scored).")
+    parser.add_argument("--checkpoint_path", default="checkpoints/put_surrogate.pth", type=str,
+                        help="The trained PutSurrogate checkpoint.")
+    parser.add_argument("--split_ratio", default=0.8, type=float, help="Train/test split of the training run.")
+    parser.add_argument("--seed", default=42, type=int, help="Seed of the training run's split.")
+    parser.add_argument("--ref_steps", default=REF_STEPS, type=int,
+                        help="Steps of the reference tree the grid is scored against (~48 ms per option at 4000; why 4000: tree_evaluation.REF_STEPS).")
+    parser.add_argument("--ref_method", default=REF_METHOD, choices=METHODS, help="Method of the reference tree.")
+    parser.add_argument("--n_z", default=GRID_N_Z, type=int, help="Grid points in z (evenly spaced over the domain; 27 = a step of 0.25).")
+    parser.add_argument("--n_sigma", default=GRID_N_SIGMA, type=int, help="Grid points in sigma (log-spaced).")
+    parser.add_argument("--n_T", default=GRID_N_T, type=int, help="Grid points in T (log-spaced).")
+    parser.add_argument("--rates", default=list(GRID_RATES), type=float, nargs="+", help="Grid rates.")
+    parser.add_argument("--violation_tol", default=VIOLATION_TOL, type=float,
+                        help="A scaled no-arbitrage violation counts above this.")
 
 def run(args):
-    # Checked before AmericanOptionDataset is built: otherwise a missing dataset
-    # surfaces as a bare np.load error, and a missing norm file only after the
-    # regression tests have already run.
-    for flag, path in [("--dataset_path", args.dataset_path),
-                       ("--features_norm_path", args.features_norm_path),
-                       ("--checkpoint_path", args.checkpoint_path)]:
+    # Checked up front: otherwise a missing file surfaces as a bare np.load/torch.load error
+    for flag, path in [("--dataset_path", args.dataset_path), ("--checkpoint_path", args.checkpoint_path)]:
         if not Path(path).is_file():
             raise FileNotFoundError(f"{flag}: no file at {path} (generate the dataset with "
-                                    "`python -m ML.surrogate.generate_dataset`, train with `train-ml`).")
-    lsm_settings = load_lsm_settings(args.dataset_path)
-    print(f"LSM benchmark settings (from the dataset): {lsm_settings}")
-    dataset_test = AmericanOptionDataset(args.dataset_path, is_train=False, split_ratio=args.split_ratio, seed=args.seed)
+                                    "`python -m ML.surrogate.GenerateTreeDataset`, then train the surrogate).")
+    # before any work: a reference with the teacher's settings would score how well the net copies it
+    teacher = teacher_settings(args.dataset_path)
+    check_reference(teacher, args.ref_method, args.ref_steps)
+    surrogate = PutSurrogate.load(args.checkpoint_path)
+    print(f"Teacher: {teacher[0]}, {teacher[1]} steps; reference: {args.ref_method}, {args.ref_steps} steps")
 
-    mlp = LegacyMLP()
-    mlp.load_state_dict(torch.load(args.checkpoint_path, map_location="cpu"))
-
-    dataloader_test = DataLoader(dataset_test)
-
-    print("Testing model...")
-    regression_tests(mlp, dataloader_test)
-
-    sigma_val = np.linspace(0.2, 0.4, 50)
-    r_val     = np.linspace(0.01, 0.05, 50)
-    T_val     = np.linspace(0.5, 1, 50)
-
-    norms = np.load(args.features_norm_path)
-    log_sigma_mean = norms["log_sigma_mean"]
-    log_sigma_std  = norms["log_sigma_std"]
-    r_mean         = norms["r_mean"]
-    r_std          = norms["r_std"]
-    log_T_mean     = norms["log_T_mean"]
-    log_T_std      = norms["log_T_std"]
-
-    # Normalize features with mean and std of dataset (Only for Z-scored features)
-    sigma_val_norm  = (np.log(sigma_val) - log_sigma_mean) / log_sigma_std
-    r_val_norm      = (r_val - r_mean) / r_std
-    T_val_norm      = (np.log(T_val) - log_T_mean) / log_T_std
-
-    # Sweeps the full range the model was trained on (moneyness_range=(0.4, 1.6)
-    # in ML/surrogate/generate_dataset.py), staying inside its edges, so this actually
-    # stress-tests deep ITM/OTM instead of the narrow band around ATM.
-    moneyness = np.linspace(0.5, 1.5, 50)
-    K_val     = np.linspace(90, 110, 50)
-
-    for option_type in ("put", "call"):
-        # Calls are benchmarked with the control variate, as the dataset labels them.
-        is_call    = option_type == "call"
-        errors     = np.zeros(50)
-        abs_errors = np.zeros(50)
-
-        for i in tqdm(range(50), desc=f"LSM benchmark ({option_type})", unit="sample"):
-            # A large, fixed-seed path count keeps the LSM "ground truth" itself from
-            # being a significant source of the reported error, especially near the
-            # ITM exercise boundary where the regression is most sensitive to noise.
-            # Both types are priced on the same paths.
-            gbm = GBM(sigma_val[i], moneyness[i] * K_val[i], r_val[i], seed=args.seed + i)
-            simulation = gbm.simulate_paths(20000, T_val[i], lsm_settings["sampling"])
-
-            errors[i], abs_errors[i] = test_option_price_lsm(
-                mlp, simulation, moneyness[i], K_val[i], r_val[i], r_val_norm[i], T_val[i], T_val_norm[i], sigma_val_norm[i],
-                option_type=option_type, reg_type=lsm_settings["reg_type"], max_degree=lsm_settings["max_degree"],
-                sigma=sigma_val[i] if is_call else None, control_variate=is_call,
-            )
-
-        # moneyness = S/K: a put is in the money below 1, a call above it.
-        itm = moneyness > 1.05 if is_call else moneyness < 0.95
-        otm = moneyness < 0.95 if is_call else moneyness > 1.05
-        atm = (moneyness >= 0.95) & (moneyness <= 1.05)
-
-        print(f"\n{option_type.capitalize()}:")
-        print(f"ITM avg error: {np.mean(errors[itm]):.2f}%")
-        print(f"ATM avg error: {np.mean(errors[atm]):.2f}%")
-        print(f"OTM avg error: {np.mean(errors[otm]):.2f}%")
-        print(f"OTM avg abs error: {np.mean(abs_errors[otm]):.4f}")
+    test = evaluate_test_split(surrogate, args.dataset_path, args.split_ratio, args.seed, args.violation_tol)
+    grid = evaluate_grid(surrogate, args.ref_steps, args.ref_method, args.n_z, args.n_sigma, args.n_T,
+                         args.rates, args.violation_tol)
+    print_report(grid, test, args.violation_tol)

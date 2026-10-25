@@ -183,6 +183,60 @@ def labeled_loss(model: MLP, batch, scales: LossScales, lambda_delta: float, cre
     loss = premium_mse / scales.premium + lambda_delta * delta_mse / scales.delta
     return loss, premium_mse.detach(), delta_mse.detach()
 
+class PriceDerivatives(NamedTuple):
+    """
+    The net's premium and the *full* American price's derivatives
+    (Black-Scholes put + premium) at some points, per unit of strike:
+    delta = dV/dm, gamma = d2V/dm2, dT = dV/dT, vega = dV/dsigma.
+    """
+    premium: torch.Tensor
+    delta: torch.Tensor
+    gamma: torch.Tensor
+    dT: torch.Tensor
+    vega: torch.Tensor
+
+def price_derivatives(model: MLP, stats: FeatureStats, points: ShapePoints,
+                      create_graph: bool = True) -> PriceDerivatives:
+    """
+    The full price's derivatives at `points` (PriceDerivatives): the
+    Black-Scholes part from the closed forms stored in ShapePoints, the
+    net's from autograd through build_features and the stats, in m, T and
+    sigma at once. One function for training (shape_violations) and the
+    evaluation (tree_evaluation), so the violations test-ml reports are the
+    ones the penalty acts on. create_graph keeps the second derivative
+    differentiable (needed to train on it); the first derivatives always
+    keep their graph, since gamma differentiates delta again.
+
+    Returns:
+        PriceDerivatives of (n,) tensors: premium in the model's dtype, the
+        derivatives float64.
+    """
+    param = next(model.parameters())
+    m, T, sigma = (v.detach().requires_grad_(True) for v in (points.m, points.T, points.sigma))
+    x = stats.apply(build_features(m, T, points.r, sigma))
+    premium = model(x.to(param)).squeeze(-1)
+
+    d_m, d_T, d_sigma = torch.autograd.grad(premium.sum(), (m, T, sigma), create_graph=True)
+    d2_m, = torch.autograd.grad(d_m.sum(), m, create_graph=create_graph)
+
+    return PriceDerivatives(premium, points.bs_delta + d_m, points.bs_gamma + d2_m,
+                            points.bs_dT + d_T, points.bs_vega + d_sigma)
+
+def scaled_violations(derivs: PriceDerivatives, points: ShapePoints) -> torch.Tensor:
+    """
+    How much the full price breaks each no-arbitrage condition, one column
+    per SHAPE_CONDITIONS: relu(w m dV/dm), relu(-w^2 m^2 d2V/dm2),
+    relu(-T dV/dT), relu(-sigma dV/dsigma), w = sigma sqrt(T), 0 where the
+    condition holds (see shape_violations for the scaling).
+
+    Returns:
+        (n, 4) tensor, float64.
+    """
+    m, T, sigma = points.m, points.T, points.sigma
+    w = sigma * torch.sqrt(T)  # the price's natural length scale in log m (a constant factor)
+    return torch.relu(torch.stack([w * m * derivs.delta, -(w * m) ** 2 * derivs.gamma,
+                                   -T * derivs.dT, -sigma * derivs.vega], dim=-1))
+
 def shape_violations(model: MLP, stats: FeatureStats, points: ShapePoints, create_graph: bool = True) -> torch.Tensor:
     """
     How much the *full* American price V = BS put + net premium breaks each
@@ -204,27 +258,12 @@ def shape_violations(model: MLP, stats: FeatureStats, points: ShapePoints, creat
 
     The full price, not the premium: the premium alone may fall with T,
     and the European put does (deep in the money, r > 0), while an American
-    put never does. The BS derivatives are closed forms (ShapePoints), the
-    net's come from autograd through build_features and the stats.
+    put never does. The derivatives come from price_derivatives.
 
     Returns:
         (n, 4) tensor, float64.
     """
-    param = next(model.parameters())
-    m, T, sigma = (v.detach().requires_grad_(True) for v in (points.m, points.T, points.sigma))
-    x = stats.apply(build_features(m, T, points.r, sigma))
-    premium = model(x.to(param)).squeeze(-1)
-
-    d_m, d_T, d_sigma = torch.autograd.grad(premium.sum(), (m, T, sigma), create_graph=True)
-    d2_m, = torch.autograd.grad(d_m.sum(), m, create_graph=create_graph)
-
-    delta = points.bs_delta + d_m
-    gamma = points.bs_gamma + d2_m
-    dT    = points.bs_dT + d_T
-    vega  = points.bs_vega + d_sigma
-
-    w = (sigma * torch.sqrt(T)).detach()  # the price's natural length scale in log m (a constant factor)
-    return torch.relu(torch.stack([w * m * delta, -(w * m) ** 2 * gamma, -T * dT, -sigma * vega], dim=-1))
+    return scaled_violations(price_derivatives(model, stats, points, create_graph), points)
 
 def shape_penalty(model: MLP, stats: FeatureStats, points: ShapePoints, scales: LossScales) -> torch.Tensor:
     """Mean over points of the summed squared violations, / var(premium)."""

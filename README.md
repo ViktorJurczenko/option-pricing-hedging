@@ -402,7 +402,7 @@ python main.py <command> --help        # list a command's flags
 |---|---|
 | `price` | Compare pricing models (`--option_class {EU,US,both}`, `--option_type {call,put}`, plus strike/vol/rate/maturity/sampling flags). |
 | `train-ml` | Train the MLP surrogate pricer against a generated dataset. |
-| `test-ml` | Evaluate the trained MLP: regression metrics + ITM/ATM/OTM error vs. a fresh LSM benchmark. |
+| `test-ml` | Evaluate the tree-trained put surrogate (`PutSurrogate`): test-split errors, plus a factorial grid against an independent finer binomial tree (per-bucket $, relative, implied-vol, delta/gamma errors, no-arbitrage violation rates, theta check, routing, timing). |
 | `train-hedge` | Train the SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
 | `test-hedge` | Evaluate a policy (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
 

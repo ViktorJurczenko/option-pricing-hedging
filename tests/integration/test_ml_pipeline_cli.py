@@ -1,10 +1,9 @@
 """
-generate_dataset -> train-ml -> test-ml on tiny inputs, in a temp dir, so a
-shape change (feature count, checkpoint format) between the three stages is
-caught without the ~1h default-size run.
+generate_dataset -> train-ml (the legacy LSM pipeline) on tiny inputs, in a
+temp dir, so a shape change (feature count, checkpoint format) between the
+stages is caught without the ~1h default-size run. test-ml now scores the
+tree-trained PutSurrogate instead (tests/integration/test_cli_smoke.py).
 """
-import re
-
 import numpy as np
 import pytest
 import torch
@@ -68,28 +67,12 @@ def test_train_ml_saves_a_checkpoint_that_loads_into_the_mlp(pipeline):
     LegacyMLP().load_state_dict(torch.load(ckpt, map_location="cpu"))  # strict: shapes must match
     assert f"Model was saved as : {ckpt}" in train.stdout
 
-def test_test_ml_reports_put_and_call_blocks(pipeline):
-    out, _, ckpt, train = pipeline
-    assert train.returncode == 0, train.stderr
-    result = run_cli("test-ml", "--dataset_path", str(out / "american_option_dataset.npz"),
-                  "--features_norm_path", str(out / "features_norm.npz"), "--checkpoint_path", str(ckpt),
-                  timeout=PIPELINE_TIMEOUT)
-    assert result.returncode == 0, result.stderr
-    # Parse the printed numbers: an untrained 2-epoch net is poor, so only finiteness and
-    # signs are asserted (MSE/MAE >= 0, R2 <= 1), not accuracy.
-    mse, mae, r2 = (float(re.search(rf"{name}:\s+(\S+)", result.stdout).group(1)) for name in ("MSE", "MAE", "R."))
-    assert np.isfinite([mse, mae, r2]).all() and mse >= 0 and mae >= 0 and r2 <= 1
-    block_errors = [float(x) for x in re.findall(r"(?:ITM|ATM|OTM) avg error: (\S+)%", result.stdout)]
-    assert len(block_errors) == 6 and np.isfinite(block_errors).all() and min(block_errors) >= 0
-    assert result.stdout.index("Put:") < result.stdout.index("Call:")
-    assert result.stdout.count("ITM avg error") == 2
-
-def test_features_norm_keys_and_values_match_what_test_ml_inverts(pipeline):
-    # CLAUDE.md requires generate_dataset, the dataset class and test-ml to share one
-    # normalization: sigma and T as z-scored logs, r as a raw z-score. scripts/test_ml.py applies
-    # (log(x) - mean) / std with these exact keys. The generator z-scores over the same rows it
+def test_features_norm_keys_and_values_invert_the_generators_columns(pipeline):
+    # CLAUDE.md requires generate_dataset and the dataset class to share one
+    # normalization: sigma and T as z-scored logs, r as a raw z-score, (log(x) - mean) / std with
+    # these exact keys. The generator z-scores over the same rows it
     # writes (each parameter set is repeated uniformly), so the stored columns must have mean 0 and
-    # std 1, and inverting them with the stats test-ml reads must land inside the generator's
+    # std 1, and inverting them with the stored stats must land inside the generator's
     # sampling ranges (sigma 0.05-0.6, T 0.25-5, r 0-0.08). A different log base, a missing log, or
     # swapped keys would break one of these.
     out, data, _, _ = pipeline
@@ -109,7 +92,7 @@ def test_features_norm_keys_and_values_match_what_test_ml_inverts(pipeline):
     assert T.min() >= 0.25 - eps and T.max() <= 5 + eps
     assert r.min() >= 0.0 - eps and r.max() <= 0.08 + eps
 
-    # And test-ml's forward formula reproduces the stored column.
+    # And the forward formula reproduces the stored column.
     np.testing.assert_allclose((np.log(sigma) - norms["log_sigma_mean"]) / norms["log_sigma_std"], sigma_norm, atol=1e-9)
     np.testing.assert_allclose((np.log(T) - norms["log_T_mean"]) / norms["log_T_std"], T_norm, atol=1e-9)
     np.testing.assert_allclose((r - norms["r_mean"]) / norms["r_std"], r_norm, atol=1e-9)

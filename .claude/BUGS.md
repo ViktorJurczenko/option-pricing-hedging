@@ -6,6 +6,23 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## test-ml report crashed printing to the Windows console (fixed)
+
+**Symptom:** the first run of the step-7 evaluation report died with
+`UnicodeEncodeError: 'charmap' codec can't encode character 'Γ'`
+at the first table.
+
+**Root cause:** column headers used `Γ` ("gamma MAE (K·Γ)") and the
+timing line `µs`; Python's stdout on this Windows console is cp1252,
+which has no `Γ`.
+
+**Impact:** none (caught on the first trial run, before any commit).
+
+**Fix:** ASCII-only labels (gamma now "gamma MAE 1/$", "us") in
+`ML/surrogate/tree_evaluation.py`; the `test-ml` CLI smoke test prints the
+whole report through a subprocess, so a non-cp1252 character there would
+fail it again.
+
 ## Shape penalty's convexity term ~3000x too big (fixed)
 
 **Symptom:** with `lambda_shape = 1` the step-6 training loop tripled the
@@ -36,7 +53,7 @@ move. With it, lambda 1 is within seed noise of lambda 0 (4.7e-4 vs
 time). `test_shape_violations_are_the_relu_of_the_full_price_derivatives`
 checks the scaled formula; dropping the `w` factors fails it.
 
-## Shape-violation rate inflated by exercised points (open, for step 7)
+## Shape-violation rate inflated by exercised points (fixed)
 
 **Symptom:** found while trying the step-6 training loop on a 4,096-row
 dataset. The rate of points breaking a no-arbitrage condition (any
@@ -53,11 +70,15 @@ of the exercised points were flagged even at a 1e-3 tolerance, against
 **Impact:** none yet (no metric is reported); it would have misled
 step 7's no-arbitrage column.
 
-**Status:** step 7 must report violation rates for the continuation and
-exercised regions separately, with a tolerance, on the `w`-scaled
-violations (see the convexity-scaling entry above). The independent
-study confirmed it: ~80% of exercised points flag for every model, a
-fit-noise number, not an arbitrage rate.
+**Fix:** `test-ml` (`ML/surrogate/tree_evaluation.py::violation_rates`)
+reports the rates for the continuation and exercised regions separately,
+counting a point only above a tolerance (`--violation_tol`, default
+1e-4) on the `w`-scaled violations (see the convexity-scaling entry
+above), computed by the same `price_derivatives` training penalizes
+with. The independent study confirmed the diagnosis: ~80% of exercised
+points flag for every model, a fit-noise number, not an arbitrage rate.
+`test_violation_rates_count_strictly_above_the_tolerance_per_region`
+checks the split and the strict tolerance.
 
 ## Training test: "always keep the L-BFGS finish" went undetected (fixed)
 

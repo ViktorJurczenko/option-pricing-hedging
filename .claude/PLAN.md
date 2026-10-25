@@ -46,33 +46,20 @@ every part is built the way it is".
 - [x] Smooth configurable MLP and the `PutSurrogate` price helper
 - [x] Training loop overhaul (`ML/surrogate/training.py`)
 - [x] Shape penalty study: `w`-scaled violations, payoff floor in `PutSurrogate`
-- [ ] Evaluation overhaul in `test-ml`
-  Factorial grid (z x sigma x T, r fixed and a second r; z on [-3.5, 3]
-  within the `m` cap and `T` from 1 week, like the training domain)
-  against an *independent*, finer tree reference (not the training
-  teacher's settings), BS for calls. Per |z| bucket (core |z| < 1, where
-  most quoted strikes sit; 1-2; 2-3.5; and the exercised rows on their own,
-  via the `exercised` flag) and per `T` bucket (< 1 month, 1-3 months,
-  >= 3 months: short-dated puts are cheap, so a fixed error is a larger
-  relative and implied-vol error there), so the score reflects where the
-  surrogate is used: mean abs error in $ (K = 100), relative
-  error only where the price is not tiny, implied-vol error; delta and gamma
-  errors; no-arbitrage violation rates; MLP vs tree time per price. One unit
-  per column, no mixed %/$ averages. Also check the out-of-domain routing
-  of the `price` helper (z outside [-3.5, 3], `m` outside the cap) against
-  the tree. Theta check, no label needed: the network's autograd theta
-  `-dV/dT` against the Black-Scholes PDE from its own outputs,
-  `r V - r m delta - 1/2 sigma^2 m^2 gamma` in the continuation region and
-  0 on exercised rows; on the tree itself the two agree to 1.8e-6 (median,
-  against |theta| ~ 7.8e-3), so a gap measures the network's
-  inconsistency between its time-dependence and its price, delta and
-  gamma.
+- [x] Evaluation overhaul in `test-ml`
 - [ ] Tests, CLI wiring, docs
-  Unit tests for the dataset features/target, the net's price/delta
-  reconstruction, the loss terms; CLI smoke tests for `train-ml`/`test-ml`
-  on a tiny tree dataset (the generator's own are in
-  `tests/integration/test_generate_tree_dataset_cli.py`). Update CLAUDE.md,
-  README.
+  Switch `train-ml` to `train_surrogate`, one flag per `TrainConfig`
+  field, saving to `checkpoints/put_surrogate.pth` (`test-ml`'s default,
+  already switched in step 7, which refuses the legacy checkpoint).
+  Decide the legacy LSM pipeline's fate (`LegacyMLP`,
+  `AmericanOptionDataset`, `generate_dataset.py`, `evaluation.py`, the
+  legacy pipeline test): with no CLI consumer left, remove or keep it as
+  a library. Unit tests for the dataset features/target, the net's
+  price/delta reconstruction, the loss terms; a `train-ml` -> `test-ml`
+  CLI test on a tiny tree dataset (the generator's own are in
+  `tests/integration/test_generate_tree_dataset_cli.py`, `test-ml`'s
+  in `test_cli_smoke.py`). Update CLAUDE.md, README (still describes the
+  LSM `test-ml`).
 - [ ] Smoke run, then full generation
   Only now: a tiny generation (a few hundred rows) through train-ml/test-ml
   end to end. Then size the full run with a learning curve rather than a

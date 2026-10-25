@@ -7,6 +7,7 @@ modules directly, would not notice.
 """
 import re
 
+import numpy as np
 import pytest
 import torch
 
@@ -143,3 +144,24 @@ def test_test_ml_with_missing_files_fails_naming_the_flag():
     result = run_cli("test-ml", "--dataset_path", "data/_does_not_exist.npz")
     assert result.returncode != 0
     assert "FileNotFoundError" in result.stderr and "--dataset_path" in result.stderr
+
+def test_test_ml_scores_a_saved_surrogate_on_the_test_split_and_the_grid(tmp_path):
+    from ML.surrogate.dataset import TreePutDataset
+    from ML.surrogate.model import MLP
+    from ML.surrogate.pricer import PutSurrogate
+    from tests.helpers import write_tree_dataset
+
+    dataset = write_tree_dataset(tmp_path)
+    data = TreePutDataset(dataset)
+    torch.manual_seed(0)  # an untrained net: this checks the wiring, not the accuracy
+    ckpt = tmp_path / "surrogate.pth"
+    PutSurrogate(MLP(depth=2, width=16), data.stats, data.domain).save(ckpt)
+    result = run_cli("test-ml", "--dataset_path", str(dataset), "--checkpoint_path", str(ckpt),
+                     "--ref_steps", "100", "--n_z", "5", "--n_sigma", "2", "--n_T", "3")
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert out.index("=== Test split") < out.index("=== Grid")
+    assert "Scaled no-arbitrage violations" in out and "Out-of-domain routing" in out and "Time per price" in out
+    # the all-rows price MAE of each table is a finite, non-negative $ figure
+    maes = [float(line.split()[2]) for line in out.splitlines() if line.startswith("all ")]
+    assert len(maes) == 5 and all(np.isfinite(maes)) and min(maes) >= 0

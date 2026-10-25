@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers_help = {
         "price": "Compare option pricing models (Black-Scholes, Monte-Carlo, Binomial tree, Longstaff-Schwartz).",
         "train-ml": "Train the MLP surrogate pricer for American options.",
-        "test-ml": "Evaluate the MLP surrogate pricer against Longstaff-Schwartz.",
+        "test-ml": "Evaluate the MLP put surrogate against an independent binomial tree.",
         "train-hedge": "Train the RL delta-hedging policy.",
         "test-hedge": "Evaluate the RL delta-hedging policy.",
     }
