@@ -20,9 +20,12 @@ How good a trained PutSurrogate is, as `test-ml` reports it (REMINDER.md,
   exercised rows), the routing outside the domain, and the time per price.
 - The held-out test split of the dataset, against the teacher's labels.
 """
+import json
 import math
+import os
 import time
-from typing import NamedTuple, Optional, Sequence
+from pathlib import Path
+from typing import NamedTuple, Optional, Sequence, Union
 
 import numpy as np
 from tqdm import tqdm
@@ -162,6 +165,15 @@ TIMING_SINGLE = 20
 # average out per-call overhead, too few to slow the report.
 TIMING_TREE = 256
 
+# ---------------------------------------------------------------------------
+# The reference cache
+# ---------------------------------------------------------------------------
+
+# Tag of a reference-grid cache file (grid_reference): the grid, its
+# reference tree and vega depend only on the settings stored with them,
+# never on the model, and cost ~2 min per evaluation.
+REFERENCE_FORMAT = "tree_reference_grid"
+
 
 class Grid(NamedTuple):
     """Flat (n,) arrays of the evaluation points, per unit of strike."""
@@ -170,6 +182,17 @@ class Grid(NamedTuple):
     r: np.ndarray
     sigma: np.ndarray
     z: np.ndarray
+
+class Reference(NamedTuple):
+    """
+    What a grid is scored against, the same for every model: the points,
+    the reference tree there, its vega, and the reference tree's time per
+    option when it was computed (for the timing line).
+    """
+    grid: Grid
+    tree: TreeResult
+    vega: np.ndarray
+    seconds_per_option: float
 
 class NetDiagnostics(NamedTuple):
     """
@@ -259,6 +282,60 @@ def tree_vega(m, T, r, sigma) -> np.ndarray:
 
     up, down = both[:len(m)], both[len(m):]
     return (up - down) / (2 * h)
+
+def reference_settings(domain: dict, ref_steps: int, ref_method: str, n_z: int, n_sigma: int, n_T: int,
+                       rates: Sequence[float]) -> dict:
+    """
+    Everything a Reference depends on, as plain JSON values: the grid's
+    domain and sizes, the reference tree, and the vega's trees and bump.
+    """
+    settings = {"format": REFERENCE_FORMAT, "ref_method": ref_method, "ref_steps": int(ref_steps),
+                "n_z": int(n_z), "n_sigma": int(n_sigma), "n_T": int(n_T), "rates": [float(r) for r in rates],
+                "vega": [TEACHER_METHOD, TEACHER_STEPS, VEGA_BUMP],
+                **{key: [float(v) for v in domain[key]] for key in DOMAIN_KEYS}}
+    return json.loads(json.dumps(settings))  # the form it takes once stored, so the two compare equal
+
+def grid_reference(domain: dict, ref_steps: int = REF_STEPS, ref_method: str = REF_METHOD, n_z: int = GRID_N_Z,
+                   n_sigma: int = GRID_N_SIGMA, n_T: int = GRID_N_T, rates: Sequence[float] = GRID_RATES,
+                   cache_path: Optional[Union[str, os.PathLike]] = None) -> Reference:
+    """
+    evaluation_grid(domain, ...) with its `ref_method` tree of `ref_steps`
+    steps and tree_vega. With `cache_path`, an existing cache file is loaded
+    instead of recomputing (~2 min for the default grid), and a missing one
+    is computed and written, with the settings it was built with.
+
+    Raises:
+        ValueError: if the cache file was built with other settings (another
+            domain, grid or reference), or is not a reference cache.
+    """
+    settings = reference_settings(domain, ref_steps, ref_method, n_z, n_sigma, n_T, rates)
+    if cache_path is not None and Path(cache_path).is_file():
+        with np.load(cache_path) as data:
+            stored = json.loads(str(data["settings"])) if "settings" in data.files else {}
+            if stored != settings:
+                diff = {k: (stored.get(k), settings.get(k)) for k in settings if stored.get(k) != settings[k]}
+                raise ValueError(f"{cache_path} is a reference for other settings ((stored, requested): {diff}); "
+                                 "pass another --reference_cache path or delete the file")
+            grid = Grid(*(data[k] for k in Grid._fields))
+            tree = TreeResult(data["price"], data["delta"], data["gamma"], data["exercised"])
+            return Reference(grid, tree, data["vega"], float(data["seconds_per_option"]))
+
+    grid = evaluation_grid(domain, n_z, n_sigma, n_T, rates)
+    # the reference tree, timed for the report's timing line, then its vega
+    start = time.perf_counter()
+    tree = tree_prices(grid.m, grid.T, grid.r, grid.sigma, ref_steps, ref_method, desc="Reference tree")
+    seconds = (time.perf_counter() - start) / max(len(grid.m), 1)
+    ref = Reference(grid, tree, tree_vega(grid.m, grid.T, grid.r, grid.sigma), seconds)
+
+    if cache_path is not None:
+        # written to a temporary file, then renamed: an interrupted write leaves no file a later run would trust
+        path = Path(cache_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.stem + ".tmp.npz")
+        np.savez(tmp, settings=json.dumps(settings), **grid._asdict(), price=tree.price, delta=tree.delta,
+                 gamma=tree.gamma, exercised=tree.exercised, vega=ref.vega, seconds_per_option=seconds)
+        os.replace(tmp, path)
+    return ref
 
 def net_diagnostics(surrogate: PutSurrogate, m, T, r, sigma) -> NetDiagnostics:
     """
@@ -370,6 +447,12 @@ def violation_rates(violations: np.ndarray, exercised: np.ndarray, tol: float = 
         out[region] = {"n": int(mask.sum()), **rates, "any": _mean(over.any(axis=1).astype(float))}
     return out
 
+def violation_rates_by_tol(violations: np.ndarray, exercised: np.ndarray, tols: Sequence[float]) -> dict:
+    """{tol: violation_rates(..., tol)} for each tolerance, in the given order."""
+    if len(tols) == 0:
+        raise ValueError("need at least one violation tolerance")
+    return {float(tol): violation_rates(violations, exercised, tol) for tol in tols}
+
 def routing_queries(domain: dict) -> Grid:
     """
     Queries outside the network's domain, a few per way out: z above and
@@ -455,24 +538,23 @@ def teacher_settings(dataset_path) -> tuple:
 
 def evaluate_grid(surrogate: PutSurrogate, ref_steps: int = REF_STEPS, ref_method: str = REF_METHOD,
                   n_z: int = GRID_N_Z, n_sigma: int = GRID_N_SIGMA, n_T: int = GRID_N_T,
-                  rates: Sequence[float] = GRID_RATES, tol: float = VIOLATION_TOL) -> dict:
+                  rates: Sequence[float] = GRID_RATES, tols: Sequence[float] = (VIOLATION_TOL,),
+                  reference_cache: Optional[Union[str, os.PathLike]] = None) -> dict:
     """
     Scores the surrogate on evaluation_grid(surrogate.domain, ...) against
-    a `ref_method` tree of `ref_steps` steps (see the module docstring).
+    a `ref_method` tree of `ref_steps` steps (see the module docstring),
+    loaded from / saved to `reference_cache` if given (grid_reference).
 
     Returns:
         dict: n (points), by_z, by_T, by_r (bucket_metrics rows),
-        violations (violation_rates), routes (route name -> count on the
-        grid), routing (one row per route of routing_queries: n, mae, max
-        against the reference), timing (time_pricers plus "reference_tree").
+        violations ({tol: violation_rates} for each of `tols`), routes
+        (route name -> count on the grid), routing (one row per route of
+        routing_queries: n, mae, max against the reference), timing
+        (time_pricers plus "reference_tree", measured when the reference
+        was computed).
     """
-    grid = evaluation_grid(surrogate.domain, n_z, n_sigma, n_T, rates)
-
-    # the reference: price, delta, gamma, exercised flag, then its vega (timed, for the timing line)
-    start = time.perf_counter()
-    ref = tree_prices(grid.m, grid.T, grid.r, grid.sigma, ref_steps, ref_method, desc="Reference tree")
-    ref_time = (time.perf_counter() - start) / max(len(grid.m), 1)
-    vega = tree_vega(grid.m, grid.T, grid.r, grid.sigma)
+    reference = grid_reference(surrogate.domain, ref_steps, ref_method, n_z, n_sigma, n_T, rates, reference_cache)
+    grid, ref, vega = reference.grid, reference.tree, reference.vega
 
     # the surrogate as a user gets it (routes and floor included), and the raw net's diagnostics
     res = surrogate.price(grid.m, grid.T, grid.r, grid.sigma)
@@ -489,13 +571,13 @@ def evaluate_grid(surrogate: PutSurrogate, ref_steps: int = REF_STEPS, ref_metho
     r_groups += [("exercised", exercised), ("all", np.ones_like(exercised))]
 
     routing = _routing_report(surrogate, ref_steps, ref_method)
-    timing = {**time_pricers(surrogate, grid), "reference_tree": ref_time}
+    timing = {**time_pricers(surrogate, grid), "reference_tree": reference.seconds_per_option}
 
     return {"n": len(grid.m),
             "by_z": bucket_metrics(bucket_masks(np.abs(grid.z), Z_BUCKETS, exercised), **metrics),
             "by_T": bucket_metrics(bucket_masks(grid.T, T_BUCKETS, exercised), **metrics),
             "by_r": bucket_metrics(r_groups, **metrics),
-            "violations": violation_rates(diag.violations, exercised, tol),
+            "violations": violation_rates_by_tol(diag.violations, exercised, tols),
             "routes": {name: int((res.route == name).sum()) for name in ROUTES},
             "routing": routing, "timing": timing}
 
@@ -514,13 +596,14 @@ def _routing_report(surrogate: PutSurrogate, ref_steps: int, ref_method: str) ->
     return rows
 
 def evaluate_test_split(surrogate: PutSurrogate, dataset_path, split_ratio: float = 0.8, seed: int = 42,
-                        tol: float = VIOLATION_TOL) -> dict:
+                        tols: Sequence[float] = (VIOLATION_TOL,)) -> dict:
     """
     Scores the surrogate on the dataset's test split (the split the training
     never read: same split_ratio and seed as the training run) against the
     teacher's labels: price and delta errors (no gamma or vega, which the
     dataset class does not load), bucketed by |z| and T with the labels'
-    exercised flag, violation rates and the theta gap.
+    exercised flag, violation rates ({tol: rates} for each of `tols`) and
+    the theta gap.
 
     Raises:
         ValueError: if the dataset's domain is not the surrogate's (a
@@ -551,7 +634,7 @@ def evaluate_test_split(surrogate: PutSurrogate, dataset_path, split_ratio: floa
     return {"n": len(m),
             "by_z": bucket_metrics(bucket_masks(np.abs(z), Z_BUCKETS, exercised), **metrics),
             "by_T": bucket_metrics(bucket_masks(T, T_BUCKETS, exercised), **metrics),
-            "violations": violation_rates(diag.violations, exercised, tol)}
+            "violations": violation_rates_by_tol(diag.violations, exercised, tols)}
 
 # ---------------------------------------------------------------------------
 # Printing
@@ -599,7 +682,7 @@ def format_violations(rates: dict, tol: float) -> str:
     rows = [{"region": region, **v} for region, v in rates.items()]
     return f"Scaled no-arbitrage violations > {tol:g} (% of points, raw net):\n" + format_table(rows, columns)
 
-def print_report(grid: Optional[dict] = None, test: Optional[dict] = None, tol: float = VIOLATION_TOL) -> None:
+def print_report(grid: Optional[dict] = None, test: Optional[dict] = None) -> None:
     """Prints evaluate_grid's and evaluate_test_split's results, one unit per column."""
     note = (f"$ at K = {STRIKE:g}; rel. err only where the price >= ${MIN_RELATIVE_PRICE * STRIKE:g}; "
             f"IV err = |error| / vega, where vega >= ${MIN_IV_VEGA * STRIKE:g} per unit of vol, exercised rows excluded; "
@@ -611,16 +694,18 @@ def print_report(grid: Optional[dict] = None, test: Optional[dict] = None, tol: 
         for key, title in (("by_z", "|z|"), ("by_T", "T")):
             print(f"\nBy {title} (continuation rows; exercised = the teacher's flag):")
             print(format_table(test[key], TEST_COLUMNS))
-        print()
-        print(format_violations(test["violations"], tol))
+        for tol, rates in test["violations"].items():
+            print()
+            print(format_violations(rates, tol))
 
     if grid is not None:
         print(f"\n=== Grid ({grid['n']} points, against the reference tree) ===")
         for key, title in (("by_z", "|z|"), ("by_T", "T"), ("by_r", "r")):
             print(f"\nBy {title} (continuation rows; exercised = the reference's flag):")
             print(format_table(grid[key], BUCKET_COLUMNS))
-        print()
-        print(format_violations(grid["violations"], tol))
+        for tol, rates in grid["violations"].items():
+            print()
+            print(format_violations(rates, tol))
 
         print("\nRoutes on the grid: " + ", ".join(f"{k} {v}" for k, v in grid["routes"].items()))
         print("\nOut-of-domain routing against the reference tree:")

@@ -19,3 +19,6 @@ REMINDER.md
 .venv/
 
 course/
+
+# Experiment outputs (ablation runs, reference caches)
+runs/

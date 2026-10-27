@@ -165,6 +165,19 @@ def test_violation_rates_count_strictly_above_the_tolerance_per_region():
     assert cont["convex_in_m"] == pytest.approx(1 / 3) and cont["any"] == pytest.approx(1 / 3)
     assert ex["increasing_in_T"] == 1.0 and ex["increasing_in_sigma"] == 1.0 and ex["any"] == 1.0
 
+def test_violation_rates_by_tol_gives_one_table_per_tolerance_in_order():
+    violations = np.array([[0, 0, 0, 0], [5e-5, 0, 0, 0], [2e-4, 0, 0, 0]], dtype=float)
+    exercised = np.zeros(3, dtype=bool)
+    rates = te.violation_rates_by_tol(violations, exercised, (1e-4, 1e-5))
+    assert list(rates) == [1e-4, 1e-5]
+    for tol in (1e-4, 1e-5):
+        assert rates[tol] == te.violation_rates(violations, exercised, tol)
+    # 5e-5 counts only at the stricter tolerance
+    assert rates[1e-4]["continuation"]["any"] == pytest.approx(1 / 3)
+    assert rates[1e-5]["continuation"]["any"] == pytest.approx(2 / 3)
+    with pytest.raises(ValueError, match="tolerance"):
+        te.violation_rates_by_tol(violations, exercised, ())
+
 # --- routing, reference checks ---
 
 def test_routing_queries_leave_the_net_and_reach_every_other_route():
@@ -212,7 +225,7 @@ def test_test_split_scores_against_the_files_labels(tmp_path):
     # the labels are rebuilt from float32 premiums: ~1e-9 off the file's prices
     assert all_row["price_mae"] == pytest.approx(np.mean(np.abs(pred - cols["price"][idx])), abs=1e-8)
     assert out["by_z"][-2]["n"] == cols["exercised"][idx].sum()
-    assert out["violations"]["exercised"]["n"] == cols["exercised"][idx].sum()
+    assert out["violations"][te.VIOLATION_TOL]["exercised"]["n"] == cols["exercised"][idx].sum()
 
 def test_test_split_refuses_a_surrogate_trained_on_another_domain(tmp_path):
     path = write_tree_dataset(tmp_path)
@@ -254,7 +267,7 @@ def test_grid_evaluation_with_rates_separates_exercised_rows_and_prices_them_exa
     assert ex["n"] == exercised.sum()
     assert ex["price_max"] == 0.0 and ex["floor_rate"] == 1.0
     assert ex["n_iv"] == 0  # no implied volatility on exercised rows
-    assert out["violations"]["exercised"]["n"] == exercised.sum()
+    assert out["violations"][te.VIOLATION_TOL]["exercised"]["n"] == exercised.sum()
     for table in ("by_z", "by_T", "by_r"):
         assert sum(row["n"] for row in out[table][:-1]) == out["n"]
 
@@ -281,3 +294,58 @@ def test_print_report_prints_only_the_sections_it_is_given(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "=== Test split" in out and "=== Grid" not in out and "Time per price" not in out
     assert "IV err bp" not in out  # the test split's tables have no implied-vol column (the footnote still defines it)
+
+def test_print_report_prints_one_violation_table_per_tolerance(tmp_path, capsys):
+    path = write_tree_dataset(tmp_path)
+    data = TreePutDataset(path)
+    sur = _surrogate(stats=data.stats, domain=data.domain)
+    grid = te.evaluate_grid(sur, ref_steps=100, ref_method="bbsr", n_z=3, n_sigma=1, n_T=1, rates=(0.04,),
+                            tols=(1e-4, 1e-5))
+    test = te.evaluate_test_split(sur, path, tols=(1e-4, 1e-5))
+    capsys.readouterr()
+    te.print_report(grid, test)
+    out = capsys.readouterr().out
+    # once for the test split, once for the grid, each tolerance
+    assert out.count("violations > 0.0001 ") == 2 and out.count("violations > 1e-05 ") == 2
+
+
+# --- the reference cache ---
+
+SMALL = dict(ref_steps=100, ref_method="bbsr", n_z=3, n_sigma=1, n_T=2, rates=(0.04,))
+
+def test_grid_reference_cache_is_written_then_loaded_without_recomputing(tmp_path, monkeypatch):
+    cache = tmp_path / "sub" / "ref.npz"
+    first = te.grid_reference(DOMAIN, cache_path=cache, **SMALL)
+    assert cache.is_file() and not list(cache.parent.glob("*.tmp.npz"))
+
+    def no_trees(*args, **kwargs):
+        raise AssertionError("a cached reference must not price any tree")
+    monkeypatch.setattr(te, "tree_prices", no_trees)
+    again = te.grid_reference(DOMAIN, cache_path=cache, **SMALL)
+    for a, b in zip((*first.grid, *first.tree, first.vega), (*again.grid, *again.tree, again.vega)):
+        np.testing.assert_array_equal(a, b)
+    assert again.tree.exercised.dtype == bool and again.seconds_per_option == first.seconds_per_option
+
+@pytest.mark.parametrize("change, named", [({"ref_steps": 200}, "ref_steps"), ({"n_z": 4}, "n_z"),
+                                           ({"rates": (0.05,)}, "rates"), ("domain", "T_range")])
+def test_grid_reference_cache_refuses_other_settings(tmp_path, change, named):
+    # a reference for another grid or tree would silently score every model against the wrong prices
+    cache = tmp_path / "ref.npz"
+    te.grid_reference(DOMAIN, cache_path=cache, **SMALL)
+    domain, kw = DOMAIN, dict(SMALL)
+    if change == "domain":
+        domain = {**DOMAIN, "T_range": (0.25, 5.0)}
+    else:
+        kw.update(change)
+    with pytest.raises(ValueError, match=named):
+        te.grid_reference(domain, cache_path=cache, **kw)
+
+def test_evaluate_grid_scores_the_same_with_a_cached_reference(tmp_path):
+    sur = _surrogate()
+    kw = dict(SMALL, tols=(1e-4, 1e-5))
+    plain = te.evaluate_grid(sur, **kw)
+    cache = tmp_path / "ref.npz"
+    te.evaluate_grid(sur, reference_cache=cache, **kw)  # writes the cache
+    cached = te.evaluate_grid(sur, reference_cache=cache, **kw)  # reads it
+    for key in ("n", "by_z", "by_T", "by_r", "violations", "routes"):
+        assert cached[key] == plain[key], key

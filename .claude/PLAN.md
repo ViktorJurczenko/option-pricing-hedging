@@ -89,17 +89,7 @@ every part is built the way it is".
   floors (490 grid points vs 179). Single seed each. The loss still
   picks the checkpoint, but its two halves are now reported apart
   (history, progress bar, `train-ml` summary).
-- [ ] Ablation runner
-  A script (not a CLI command; `experiments/run_ablations.py`) that
-  trains variants x seeds on `data/tree_put_dataset.npz` with `train-ml`
-  and scores each with `test-ml` (at `--violation_tol` 1e-4 and 1e-5),
-  4 runs at a time with `OMP_NUM_THREADS=2` each (one 8-thread run uses
-  the cores poorly: 4 x 2 threads is ~2.8x the throughput, measured),
-  and collects one table: mean and spread over seeds of the grid's
-  `|z| < 1` and all-points price MAE, IV error, delta and gamma MAE,
-  exercised max, violation rates, plus the validation premium and delta
-  terms. Resumable: a variant x seed with its report already written is
-  skipped. Each run ~28 min at 2 threads, + ~2 min per `test-ml`.
+- [x] Ablation runner (`experiments/run_ablations.py`, reference-grid cache, several tolerances)
 - [ ] CLI-only ablations, 3 seeds each (42, 43, 44)
   Every variant is the default config with one change, so it needs only
   `train-ml` flags:

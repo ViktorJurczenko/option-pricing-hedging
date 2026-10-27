@@ -20,8 +20,13 @@ def add_arguments(parser):
     parser.add_argument("--n_sigma", default=GRID_N_SIGMA, type=int, help="Grid points in sigma (log-spaced).")
     parser.add_argument("--n_T", default=GRID_N_T, type=int, help="Grid points in T (log-spaced).")
     parser.add_argument("--rates", default=list(GRID_RATES), type=float, nargs="+", help="Grid rates.")
-    parser.add_argument("--violation_tol", default=VIOLATION_TOL, type=float,
-                        help="A scaled no-arbitrage violation counts above this.")
+    parser.add_argument("--violation_tol", default=[VIOLATION_TOL], type=float, nargs="+",
+                        help="A scaled no-arbitrage violation counts above this; several values give one table each "
+                             "(e.g. 1e-4 1e-5).")
+    parser.add_argument("--reference_cache", default=None, type=str,
+                        help="A .npz file caching the grid's reference tree and vega (the same for every model, "
+                             "~2 min to compute): loaded if it exists, else computed and written. Refused if built "
+                             "for other grid/reference settings.")
 
 def run(args):
     # Checked up front: otherwise a missing file surfaces as a bare np.load/torch.load error
@@ -38,5 +43,5 @@ def run(args):
 
     test = evaluate_test_split(surrogate, args.dataset_path, args.split_ratio, args.seed, args.violation_tol)
     grid = evaluate_grid(surrogate, args.ref_steps, args.ref_method, args.n_z, args.n_sigma, args.n_T,
-                         args.rates, args.violation_tol)
-    print_report(grid, test, args.violation_tol)
+                         args.rates, args.violation_tol, args.reference_cache)
+    print_report(grid, test)
