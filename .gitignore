@@ -15,6 +15,7 @@ checkpoints/**/*.pth
 
 # Personal notes, not meant to be shared/tracked
 REMINDER.md
+AUDIT.md
 
 .venv/
 
