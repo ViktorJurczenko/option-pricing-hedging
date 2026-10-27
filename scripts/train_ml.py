@@ -63,7 +63,9 @@ def run(args):
     result = train_surrogate(args.dataset_path, config, checkpoint_path=args.checkpoint_path, device=device)
     # the checkpoint holds the entry with the lowest validation loss (an L-BFGS finish only if it was kept)
     best = min(result.history, key=lambda h: h["valid_loss"])
-    print(f"Best validation loss {best['valid_loss']:.4e} (epoch {best['epoch']}): premium RMSE "
-          f"{best['valid_premium_rmse']:.3e}, delta RMSE {best['valid_delta_rmse']:.3e} per unit of strike")
+    # the combined loss chose it; its two halves apart, since one can improve while the other worsens
+    print(f"Best validation loss {best['valid_loss']:.4e} (epoch {best['epoch']}) = premium term "
+          f"{best['valid_premium_term']:.4e} + delta term {best['valid_delta_term']:.4e}")
+    print(f"  premium RMSE {best['valid_premium_rmse']:.3e}, delta RMSE {best['valid_delta_rmse']:.3e} per unit of strike")
     print(f"Model was trained in : {(time.time() - start_time):.2f}s")
     print(f"Model was saved as : {args.checkpoint_path}")

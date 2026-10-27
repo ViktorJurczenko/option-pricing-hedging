@@ -75,13 +75,58 @@ every part is built the way it is".
   default), grid continuation: 2.50% -> 1.53% (mostly increasing_in_T);
   exercised ~71-76% at 1e-5 is wobble around exactly-zero derivatives,
   answered by the payoff floor.
-- [ ] Seeded ablations
-  Three seeds each: old architecture vs new on the same data; with/without
-  the delta loss; with/without shape penalties; linear vs softplus output;
+- [x] Training length: 400 epochs (`TrainConfig.epochs` default)
+  2^19 rows, seed 42, grid vs BBSR-4000, $ at K = 100; valid terms are
+  the loss's two halves (premium term + delta term), reported apart:
+  epochs  |z|<1 MAE  all MAE  test MAE  valid premium RMSE  delta RMSE
+  200     0.0022     0.0014   0.0013    2.62e-5             8.10e-4
+  400     0.0012     0.0011   0.0009    1.71e-5             5.38e-4
+  800     0.0019     0.0017   0.0015    2.35e-5             3.86e-4
+  800 (early-stopped at 665, best 645, ~33 min) halved the combined
+  loss but priced worse: past 400 the delta error kept falling (-28%)
+  while the premium error rose (+38%), and the sum picks the checkpoint.
+  800 also had fewer violations (0.06% > 1e-4 vs 0.61%) and more payoff
+  floors (490 grid points vs 179). Single seed each. The loss still
+  picks the checkpoint, but its two halves are now reported apart
+  (history, progress bar, `train-ml` summary).
+- [ ] Ablation runner
+  A script (not a CLI command; `experiments/run_ablations.py`) that
+  trains variants x seeds on `data/tree_put_dataset.npz` with `train-ml`
+  and scores each with `test-ml` (at `--violation_tol` 1e-4 and 1e-5),
+  4 runs at a time with `OMP_NUM_THREADS=2` each (one 8-thread run uses
+  the cores poorly: 4 x 2 threads is ~2.8x the throughput, measured),
+  and collects one table: mean and spread over seeds of the grid's
+  `|z| < 1` and all-points price MAE, IV error, delta and gamma MAE,
+  exercised max, violation rates, plus the validation premium and delta
+  terms. Resumable: a variant x seed with its report already written is
+  skipped. Each run ~28 min at 2 threads, + ~2 min per `test-ml`.
+- [ ] CLI-only ablations, 3 seeds each (42, 43, 44)
+  Every variant is the default config with one change, so it needs only
+  `train-ml` flags:
+  1. Baseline (defaults): the seed-to-seed spread every other row is
+     compared against.
+  2. `--lambda_delta` 0, 0.3, 3 (1 = baseline): the price/delta trade-off
+     the 800-epoch run showed, scored on price and delta separately.
+  3. `--output softplus`: the labels' slightly negative premiums
+     (-2.7e-6) may cost it.
+  4. `--activation relu`: the old net's activation on the new layout
+     (the full `LegacyMLP` cannot train on the tree dataset: 5 inputs,
+     time-value target), so the staircase delta/zero gamma cost.
+  5. `--lbfgs_steps 200`: whether the full-batch finish pays its cost.
+  6. `--lambda_shape 0.1`: one value only, ~3.4x the step time (~95 min
+     a run); on the trial it hurt every region, but the trial was 4k rows.
+  18 runs + 3 slow ones: ~3 h of training in batches of 4, plus scoring.
+- [ ] Dataset ablations (need code first)
   `T` from 1 week vs from 0.25 (rows scaled to the same density), both
-  scored on the `T` >= 0.25 grid, to confirm the longer range costs the
-  old region nothing; all exercised rows vs a thinned share.
-  Record the numbers here and in `REMINDER.md`.
+  scored on the `T >= 0.25` grid, to confirm the longer range costs the
+  old region nothing: needs a `--T_min` (domain) flag on the generator
+  and a grid restricted to `T >= 0.25`. All exercised rows vs a thinned
+  share (e.g. keep 1/4): needs a training-time row filter. Plan each
+  when the CLI-only results are in.
+- [ ] Final model and write-up
+  Retrain the winning config (3 seeds, keep the median one) as
+  `checkpoints/put_surrogate.pth`. Record the numbers here and in
+  `REMINDER.md`; README results section for the tree surrogate.
 
 Step 2 convergence study (120 seeded random draws over the domain plus a
 21-point hard corner, `m` 0.95-1.05, `T = 0.25`, `sigma = 0.05`; reference

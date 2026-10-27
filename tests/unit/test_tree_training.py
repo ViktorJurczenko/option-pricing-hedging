@@ -50,7 +50,7 @@ def test_train_config_rejects_bad_settings(kwargs):
 def test_train_config_defaults_follow_the_plan():
     c = TrainConfig()
     assert (c.depth, c.width, c.activation, c.output) == (4, 128, "silu", "linear")
-    assert (c.lr, c.lr_min, c.batch_size) == (1e-3, 1e-5, 1024)
+    assert (c.lr, c.lr_min, c.batch_size, c.epochs) == (1e-3, 1e-5, 1024, 400)
     assert (c.lambda_delta, c.lambda_shape, c.lbfgs_steps) == (1.0, 0.0, 0)
 
 
@@ -86,6 +86,17 @@ def test_labeled_loss_is_the_variance_scaled_sum_of_the_two_mses(data):
     assert (float(p_mse), float(d_mse)) == pytest.approx((premium_mse, delta_mse), rel=1e-5)
     loss0, _, d0 = labeled_loss(model, batch, scales, lambda_delta=0.0)
     assert float(loss0.detach()) == pytest.approx(premium_mse / 2e-4, rel=1e-5) and math.isnan(float(d0))
+
+def test_evaluate_labeled_reports_the_two_terms_of_the_loss_apart(data):
+    # the checkpoint goes by their sum, but one term can improve while the other worsens, so both are reported
+    model = _net().float()
+    rows = (data.features, data.features_dm, data.premium, data.premium_dm)
+    scales = LossScales(premium=2e-4, delta=3e-2)
+    m = evaluate_labeled(model, rows, scales, lambda_delta=2.5)
+    assert m["premium_term"] == pytest.approx(m["premium_rmse"] ** 2 / 2e-4, rel=1e-6)
+    assert m["delta_term"] == pytest.approx(2.5 * m["delta_rmse"] ** 2 / 3e-2, rel=1e-6)
+    assert m["loss"] == pytest.approx(m["premium_term"] + m["delta_term"], rel=1e-12)
+    assert evaluate_labeled(model, rows, scales, lambda_delta=0.0)["delta_term"] == 0.0
 
 def test_delta_term_trains_the_weights_through_the_input_gradient(data):
     # create_graph=True must let the delta loss reach the parameters
@@ -234,7 +245,7 @@ def test_too_few_rows_to_validate_raises(tree_file):
         train_surrogate(tree_file, TrainConfig(**{**TINY, "valid_ratio": 1e-4}))
 
 def test_a_validation_loss_that_is_never_finite_raises(tree_file, monkeypatch):
-    nan = {"loss": float("nan"), "premium_rmse": float("nan"), "delta_rmse": float("nan")}
+    nan = dict.fromkeys(("loss", "premium_term", "delta_term", "premium_rmse", "delta_rmse"), float("nan"))
     monkeypatch.setattr(training, "evaluate_labeled", lambda *a, **k: nan)
     with pytest.raises(ValueError, match="diverged"):
         train_surrogate(tree_file, TrainConfig(**TINY))

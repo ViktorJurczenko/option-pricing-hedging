@@ -69,7 +69,7 @@ class TrainConfig:
     split_ratio: float = 0.8    # the same 80/20 train/test split as every dataset class here
     valid_ratio: float = 0.2    # of the training split: ~84k validation rows at 2^19, plenty for a stable score
     batch_size: int = 1024      # the plan's 512-1024: low-noise gradients, few large ops (fast on CPU)
-    epochs: int = 200           # the cosine schedule's length; ~11 min for 2^19 rows with the delta loss
+    epochs: int = 400           # the cosine's length, ~20 min at 2^19 rows; 400 beat 200 and 800 on price (PLAN.md)
     lr: float = 1e-3            # Adam's standard start
     lr_min: float = 1e-5        # 100x smaller: steps fine enough to settle at the end (the plan's value)
     patience: int = 20          # counted in the low-rate tail only: the cosine ends a normal run
@@ -281,9 +281,14 @@ def evaluate_labeled(model: MLP, rows, scales: LossScales, lambda_delta: float) 
     Labeled loss and RMSEs over all of `rows`, in chunks of EVAL_CHUNK.
 
     Returns:
-        dict with loss (premium term + lambda_delta * delta term, as trained),
-        premium_rmse and delta_rmse (per unit of strike; delta_rmse is
-        computed even when lambda_delta is 0, as a diagnostic).
+        dict with loss (premium_term + delta_term, as trained, what the
+        checkpoint and early stopping go by), its two halves premium_term
+        (premium MSE / its scale) and delta_term (lambda_delta * delta MSE /
+        its scale), reported apart because one can improve while the other
+        gets worse (an 800-epoch run lowered the loss by trading price for
+        delta accuracy, PLAN.md), and premium_rmse and delta_rmse (per unit
+        of strike; delta_rmse is computed even when lambda_delta is 0, as a
+        diagnostic).
     """
     n = len(rows[0])
     premium_se = delta_se = 0.0
@@ -294,7 +299,8 @@ def evaluate_labeled(model: MLP, rows, scales: LossScales, lambda_delta: float) 
         premium_se += float(premium_mse) * len(chunk[0])
         delta_se += float(delta_mse) * len(chunk[0])
     premium_mse, delta_mse = premium_se / n, delta_se / n
-    return {"loss": premium_mse / scales.premium + lambda_delta * delta_mse / scales.delta,
+    premium_term, delta_term = premium_mse / scales.premium, lambda_delta * delta_mse / scales.delta
+    return {"loss": premium_term + delta_term, "premium_term": premium_term, "delta_term": delta_term,
             "premium_rmse": math.sqrt(premium_mse), "delta_rmse": math.sqrt(delta_mse)}
 
 def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig = TrainConfig(),
@@ -397,18 +403,21 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
         history.append({"epoch": epoch + 1, "train_loss": sums["loss"] / steps_per_epoch,
                         "shape_penalty": sums["shape"] / steps_per_epoch, "lr": optimizer.param_groups[0]["lr"],
                         **{f"valid_{k}": v for k, v in metrics.items()}})
+        # the combined loss decides, its two halves are shown apart (one can improve as the other worsens)
+        shown = {"valid": f"{metrics['loss']:.3e}", "price": f"{metrics['premium_term']:.2e}",
+                 "delta": f"{metrics['delta_term']:.2e}"}
         # keep (and save) the weights only on a strict improvement; else count towards early
         # stopping, once the rate is low enough that a stalled loss is not just high-rate jitter
         if metrics["loss"] < best_loss:
             best_loss, epochs_no_improve = metrics["loss"], 0
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
             save(model)
-            epoch_bar.set_postfix(valid=f"{metrics['loss']:.3e}", best="saved")
+            epoch_bar.set_postfix(**shown, best="saved")
         elif optimizer.param_groups[0]["lr"] > patience_lr:
-            epoch_bar.set_postfix(valid=f"{metrics['loss']:.3e}", no_improve="not counted (rate high)")
+            epoch_bar.set_postfix(**shown, no_improve="not counted (rate high)")
         else:
             epochs_no_improve += 1
-            epoch_bar.set_postfix(valid=f"{metrics['loss']:.3e}", no_improve=f"{epochs_no_improve}/{config.patience}")
+            epoch_bar.set_postfix(**shown, no_improve=f"{epochs_no_improve}/{config.patience}")
             if epochs_no_improve >= config.patience:
                 tqdm.write(f"Early stopping at epoch {epoch + 1}")
                 break

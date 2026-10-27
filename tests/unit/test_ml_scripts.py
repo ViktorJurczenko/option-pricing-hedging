@@ -71,7 +71,8 @@ def test_train_ml_reports_the_checkpointed_entry_an_lbfgs_finish_included(tmp_pa
     calls = []
     def fake_train(dataset_path, config, checkpoint_path, device):
         calls.append((dataset_path, config, checkpoint_path))
-        entry = lambda epoch, loss: {"epoch": epoch, "valid_loss": loss, "valid_premium_rmse": 2 * loss,
+        entry = lambda epoch, loss: {"epoch": epoch, "valid_loss": loss, "valid_premium_term": 0.25 * loss,
+                                     "valid_delta_term": 0.75 * loss, "valid_premium_rmse": 2 * loss,
                                      "valid_delta_rmse": 3 * loss}
         # epoch 2 is Adam's best, the kept L-BFGS finish beats it
         return TrainResult(None, [entry(1, 0.5), entry(2, 0.2), entry(3, 0.3), entry("lbfgs", 0.1)])
@@ -82,6 +83,7 @@ def test_train_ml_reports_the_checkpointed_entry_an_lbfgs_finish_included(tmp_pa
     assert calls == [(dataset, TrainConfig(epochs=3), ckpt)]
     out = capsys.readouterr().out
     assert "Best validation loss 1.0000e-01 (epoch lbfgs)" in out and "premium RMSE 2.000e-01" in out
+    assert "premium term 2.5000e-02 + delta term 7.5000e-02" in out
     assert f"Model was saved as : {ckpt}" in out
 
 @pytest.mark.parametrize("missing_flag", ["dataset_path", "checkpoint_path"])
