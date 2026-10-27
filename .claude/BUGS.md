@@ -6,6 +6,29 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## Early stopping cut longer cosine schedules short (open)
+
+**Symptom:** in step 9's data-vs-steps check, `train-ml --epochs 400`
+(default `--patience 20`) stopped at epoch 278 on 2^18 rows and at
+epoch 175 on 2^19 rows, and both nets came out *worse* than the
+200-epoch runs on the same data (grid `|z| < 1` price MAE $0.0053 vs
+$0.0037 at 2^18, $0.0033 vs $0.0022 at 2^19).
+
+**Root cause:** the cosine schedule spans all `epochs`, so with 400 the
+learning rate decays half as fast: at epoch 175 it is still ~6e-4,
+where the validation loss jitters from epoch to epoch. 20 epochs
+without a new best are then likely, and the run stops before the
+low-rate tail where the final gains come from. With 200 epochs the
+rate is already small when the jitter would run out, which is why no
+default run ever stopped (best epochs 192-200).
+
+**Impact:** any run longer than the default schedule silently loses its
+end; the first data-vs-steps comparison was invalid.
+
+**Status:** rerun with `--patience 400` (early stopping off) for the
+comparison. A code fix (e.g. counting patience only once the rate is
+near `lr_min`, or scaling it with `epochs`) is pending a decision.
+
 ## bucket_metrics crashed on vega without exercised flags (fixed)
 
 **Symptom:** found in the step-7 review: `bucket_metrics(..., vega=v)`

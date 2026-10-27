@@ -109,7 +109,7 @@ For this repo, candidates beyond what's already in `tests/integration/`:
 
 - **Pipeline-level checks**: dataset generation → training → evaluation on a
   tiny synthetic dataset (a handful of samples, few epochs) to verify the
-  full `generate_tree_dataset.py` → `train_ml.py` → `test_tree_model.py` path stays wired
+  full `generate_tree_dataset.py` → `train_ml.py` → `test_ml.py` path stays wired
   correctly end-to-end when any one of the three changes shape (feature
   count, normalization keys, checkpoint format).
   `test_cli_smoke.py`'s `train-ml` → `test-ml` run is a starting point for this.

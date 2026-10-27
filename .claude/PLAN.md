@@ -48,14 +48,33 @@ every part is built the way it is".
 - [x] Shape penalty study: `w`-scaled violations, payoff floor in `PutSurrogate`
 - [x] Evaluation overhaul in `test-ml`
 - [x] Tests, CLI wiring, docs
-- [ ] Smoke run, then full generation
-  Only now: a tiny generation (a few hundred rows) through train-ml/test-ml
-  end to end. Then size the full run with a learning curve rather than a
-  guess: seeded trainings on 25k, 50k, 100k, 200k and 400k rows of one
-  generation, error of the core `|z| < 1` bucket against the row count. If
-  it still falls at 400k, generate more (the teacher costs ~9 min per 200k
-  rows on one core); if it has flattened, the network, not the data, is
-  the limit. Record the curve here.
+- [x] Smoke run, then full generation
+  Full dataset: 2^19 rows (`data/tree_put_dataset.npz`, a copy of the
+  learning curve's 2^19 run). Measured results, kept for the ablations:
+  Curve (2026-10-27, default TrainConfig, seed 42, 200 epochs each;
+  test-ml grid vs BBSR-4000, $ at K = 100):
+  rows     |z|<1 MAE  all MAE  IV err bp  exercised max  train time
+  2^15     0.0331     0.0236   33.5       0.894          ~0.6 min
+  2^16     0.0174     0.0125   19.4       0.634          1.3 min
+  2^17     0.0094     0.0053    7.7       0.099          2.5 min
+  2^18     0.0037     0.0028    5.0       0.027          5.0 min
+  2^19     0.0022     0.0014    2.5       0.022          9.9 min
+  Still ~halving per doubling. Confounded: epochs are fixed, so a bigger
+  set also gets proportionally more Adam steps, and every run's best
+  epoch is 192-200 (still improving). Then data and steps separated:
+  Data vs steps (400 epochs, --patience 400: the default patience cut
+  400-epoch runs short, BUGS.md):
+  run                 |z|<1 MAE  all MAE  IV err bp  valid loss  time
+  2^19, 200 epochs    0.0022     0.0014   2.46       6.90e-5     9.9 min
+  2^18, 400 (= steps) 0.0018     0.0014   2.30       6.65e-5     9.9 min
+  2^19, 400 epochs    0.0012     0.0011   1.75       3.04e-5    19.6 min
+  Same steps, half the data: as good. Same data, twice the steps: ~45%
+  less error near the money, best epoch 394/400 (still improving). The
+  curve was driven by training steps: 2^19 rows is enough data, the
+  limit is the optimization. Violations > 1e-5 (stricter than the 1e-4
+  default), grid continuation: 2.50% -> 1.53% (mostly increasing_in_T);
+  exercised ~71-76% at 1e-5 is wobble around exactly-zero derivatives,
+  answered by the payoff floor.
 - [ ] Seeded ablations
   Three seeds each: old architecture vs new on the same data; with/without
   the delta loss; with/without shape penalties; linear vs softplus output;
