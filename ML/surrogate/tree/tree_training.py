@@ -23,6 +23,12 @@ SHAPE_CONDITIONS = ("decreasing_in_m", "convex_in_m", "increasing_in_T", "increa
 # against 300k+ rows. A memory bound, not a tuned value: results don't
 # depend on it (losses are summed exactly over chunks).
 EVAL_CHUNK = 8192
+# Early stopping counts an epoch without improvement only once the rate is
+# within this fraction of the way from lr_min to lr, i.e. in the last ~20%
+# of the cosine, whatever `epochs` is. At a higher rate the validation loss
+# jitters from epoch to epoch, and a fixed patience cut 400-epoch runs
+# short before their low-rate tail (BUGS.md).
+PATIENCE_LR_FRACTION = 0.1
 
 @dataclass(frozen=True)
 class TrainConfig:
@@ -36,8 +42,9 @@ class TrainConfig:
         out for early stopping and the checkpoint choice).
     Optimization: batch_size; epochs (also the cosine schedule's length);
         lr, decayed to lr_min by a per-step cosine schedule; patience
-        (epochs without a validation improvement before stopping, a safety
-        net: the schedule is what ends a normal run); lbfgs_steps (L-BFGS
+        (epochs without a validation improvement before stopping, counted
+        only once the rate is near lr_min, see PATIENCE_LR_FRACTION: a
+        safety net, the schedule is what ends a normal run); lbfgs_steps (L-BFGS
         iterations after Adam, full batch, 0 = none).
     Loss: lambda_delta (weight of the delta term), lambda_shape (of the
         shape penalties), shape_points (fresh random points per step for
@@ -65,7 +72,7 @@ class TrainConfig:
     epochs: int = 200           # the cosine schedule's length; ~11 min for 2^19 rows with the delta loss
     lr: float = 1e-3            # Adam's standard start
     lr_min: float = 1e-5        # 100x smaller: steps fine enough to settle at the end (the plan's value)
-    patience: int = 20          # long: the cosine ends a normal run, the small-step tail must not be cut
+    patience: int = 20          # counted in the low-rate tail only: the cosine ends a normal run
     lbfgs_steps: int = 0        # off until the ablation shows the finish is worth its cost
     lambda_delta: float = 1.0   # equal weight to the premium term (both normalized by their variance)
     lambda_shape: float = 0.0   # off: hurt every region on the first trial (see above)
@@ -358,6 +365,8 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
             PutSurrogate(_cpu_copy(surrogate_model), data.stats, data.domain).save(checkpoint_path)
 
     best_loss, best_state, epochs_no_improve, history = math.inf, None, 0, []
+    # epochs without improvement count towards early stopping only at or below this rate
+    patience_lr = config.lr_min + PATIENCE_LR_FRACTION * (config.lr - config.lr_min)
     epoch_bar = tqdm(range(config.epochs), desc="Training", unit="epoch")
     for epoch in epoch_bar:
         model.train()
@@ -388,12 +397,15 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
         history.append({"epoch": epoch + 1, "train_loss": sums["loss"] / steps_per_epoch,
                         "shape_penalty": sums["shape"] / steps_per_epoch, "lr": optimizer.param_groups[0]["lr"],
                         **{f"valid_{k}": v for k, v in metrics.items()}})
-        # keep (and save) the weights only on a strict improvement; else count towards early stopping
+        # keep (and save) the weights only on a strict improvement; else count towards early
+        # stopping, once the rate is low enough that a stalled loss is not just high-rate jitter
         if metrics["loss"] < best_loss:
             best_loss, epochs_no_improve = metrics["loss"], 0
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
             save(model)
             epoch_bar.set_postfix(valid=f"{metrics['loss']:.3e}", best="saved")
+        elif optimizer.param_groups[0]["lr"] > patience_lr:
+            epoch_bar.set_postfix(valid=f"{metrics['loss']:.3e}", no_improve="not counted (rate high)")
         else:
             epochs_no_improve += 1
             epoch_bar.set_postfix(valid=f"{metrics['loss']:.3e}", no_improve=f"{epochs_no_improve}/{config.patience}")

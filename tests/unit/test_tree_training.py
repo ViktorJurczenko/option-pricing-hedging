@@ -189,9 +189,23 @@ def test_learning_rate_follows_the_cosine_down_to_lr_min(tree_file):
     assert lrs[-1] == pytest.approx(1e-4)
 
 def test_early_stopping_ends_a_run_that_stops_improving(tree_file):
-    # lr ~0: the weights never move, so epoch 2 does not beat epoch 1
-    res = train_surrogate(tree_file, TrainConfig(**{**TINY, "epochs": 50, "lr": 1e-30, "lr_min": 0.0, "patience": 1}))
+    # lr = lr_min ~0: the weights never move, so epoch 2 does not beat epoch 1, and the rate is at
+    # its minimum from the start, so that epoch already counts
+    res = train_surrogate(tree_file, TrainConfig(**{**TINY, "epochs": 50, "lr": 1e-30, "lr_min": 1e-30,
+                                                   "patience": 1}))
     assert len(res.history) == 2
+
+def test_early_stopping_does_not_count_epochs_while_the_rate_is_high(tree_file):
+    # Regression: a fixed patience cut 400-epoch runs short while the cosine was still high and the
+    # validation loss jittered (BUGS.md). Here no epoch after the first improves (lr ~0), yet the
+    # run must go on until the first epoch at or below the patience rate, then stop (patience 1).
+    config = TrainConfig(**{**TINY, "epochs": 50, "lr": 1e-30, "lr_min": 0.0, "patience": 1})
+    res = train_surrogate(tree_file, config)
+    patience_lr = config.lr_min + training.PATIENCE_LR_FRACTION * (config.lr - config.lr_min)
+    lrs = [h["lr"] for h in res.history]
+    first_counted = next(i for i, lr in enumerate(lrs) if lr <= patience_lr)
+    assert len(res.history) == first_counted + 1 < config.epochs
+    assert first_counted > 1  # the high-rate epochs before it did not count
 
 def test_shape_penalty_is_trained_on_when_enabled(tree_file):
     off = train_surrogate(tree_file, TrainConfig(**TINY))

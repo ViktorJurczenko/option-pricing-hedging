@@ -6,7 +6,7 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
-## Early stopping cut longer cosine schedules short (open)
+## Early stopping cut longer cosine schedules short (fixed)
 
 **Symptom:** in step 9's data-vs-steps check, `train-ml --epochs 400`
 (default `--patience 20`) stopped at epoch 278 on 2^18 rows and at
@@ -25,9 +25,13 @@ default run ever stopped (best epochs 192-200).
 **Impact:** any run longer than the default schedule silently loses its
 end; the first data-vs-steps comparison was invalid.
 
-**Status:** rerun with `--patience 400` (early stopping off) for the
-comparison. A code fix (e.g. counting patience only once the rate is
-near `lr_min`, or scaling it with `epochs`) is pending a decision.
+**Fix:** the comparison was rerun with `--patience 400` (early stopping
+off). In `train_surrogate`, an epoch without improvement now counts only
+once the rate is within `PATIENCE_LR_FRACTION` (10%) of the way from
+`lr_min` to `lr`, the last ~20% of the cosine whatever `epochs` is
+(`ML/surrogate/tree/tree_training.py`); pinned by
+`test_early_stopping_does_not_count_epochs_while_the_rate_is_high`,
+which fails if the condition is removed.
 
 ## bucket_metrics crashed on vega without exercised flags (fixed)
 

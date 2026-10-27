@@ -3,7 +3,10 @@ __pycache__/
 .pytest_cache/
 
 # Generated dataset artifacts and model checkpoints
-data/*.npz
+data/**/*.npz
+
+# Run outputs (test-ml reports, progress-bar logs)
+logs/
 checkpoints/**/*.pth
 
 # Editor and Claude Code session-local state (machine-specific, not project content)

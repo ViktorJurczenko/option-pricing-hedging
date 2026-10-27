@@ -33,7 +33,7 @@ def add_arguments(parser):
     parser.add_argument("--lr_min", default=TrainConfig.lr_min, type=float,
                         help="Learning rate the cosine schedule ends at.")
     parser.add_argument("--patience", default=TrainConfig.patience, type=int,
-                        help="Epochs without a validation improvement before stopping early.")
+                        help="Epochs without a validation improvement before stopping early, counted only once the learning rate is near --lr_min (the last ~20%% of the schedule).")
     parser.add_argument("--lbfgs_steps", default=TrainConfig.lbfgs_steps, type=int,
                         help="Full-batch L-BFGS iterations after Adam, kept only if validation improves (0 = off).")
     # loss
