@@ -184,8 +184,8 @@ region is intrinsically harder to model" when it's actually self-inflicted by
 the label definition.
 
 This is exactly what happened with `smooth_intrinsic_value` in `ML/surrogate/legacy/lsm_model.py` —
-see `docs/decisions/softplus-reparameterization.md` for the full incident
-(symptom, ablation, root cause).
+see `.claude/BUGS.md`, "ML surrogate pricer's target had a self-inflicted
+kink at ATM" for the full incident (symptom, root cause, evidence, fix).
 
 **Fix pattern**: replace the exact analytic component with a *smooth*
 approximation that converges to it away from the kink but rounds off the

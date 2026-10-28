@@ -6,7 +6,7 @@ Sources:
 - **[R]** REMINDER.md, its trusted parts;
 - **[RD]** README.md;
 - **[C]** course/CRITIQUE.md §2 and §5, the author's own writing rules;
-- **[D]** docs/decisions/softplus-reparameterization.md;
+- **[D]** the softplus decision record, formerly `docs/decisions/softplus-reparameterization.md` (removed; its incident is now in `.claude/BUGS.md`, "ML surrogate pricer's target had a self-inflicted kink at ATM");
 - **[DS]** docstrings in `AmericanOptionPricing/BatchBinomialTree.py`, `ML/surrogate/tree/tree_pricer.py`, `Hedging/env.py` and `core/gbm.py`;
 - **[B]** the BUGS.md entry format.
 

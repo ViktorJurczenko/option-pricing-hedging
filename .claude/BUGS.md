@@ -1138,12 +1138,23 @@ price *before* expiry is smooth there. Subtracting the exact intrinsic
 value re-introduced a kink into the training target exactly at the money
 that the true price does not have, and the model's error spiked there as
 an artifact of the label definition, not because ATM is intrinsically
-harder to price.
+harder to price. (The real early-exercise kink sits at the exercise
+boundary, a variable level below `K`, not at `K` itself.)
+
+**How this was confirmed (not undertraining):** training on the raw price
+(no intrinsic-value subtraction) removed the ATM spike but hurt accuracy
+elsewhere, the dynamic-range problem the subtraction was meant to solve;
+and more training epochs narrowed the ITM/OTM error but barely touched the
+ATM error. More epochs fixing everything *except* the kink region rules
+out "just needs more training".
 
 **Fix:** replaced the exact intrinsic value with `smooth_intrinsic_value`,
 a softplus approximation that converges to it away from the kink but
-rounds off the corner over a small window (`beta_frac`, fixed at `0.06`).
-Used consistently everywhere the component is added back to reconstruct
-the true price. Full incident writeup (symptom, ablation, root cause) is
-in `docs/decisions/softplus-reparameterization.md`; the general pattern
-this generalizes to is documented in `.claude/CLAUDE.md`.
+rounds off the corner over a small window (`beta_frac`, fixed at `0.06` in
+code rather than a CLI flag, so it can't drift out of sync between label
+generation and reconstruction). Used consistently everywhere the component
+is added back to reconstruct the true price. The width was picked by
+sweeping a few values against a fixed benchmark, with training runs fully
+seeded (model init, data split, batch shuffling). The general pattern this
+generalizes to is documented in `.claude/CLAUDE.md`, "Softplus
+reparameterization".

@@ -12,7 +12,7 @@ Each item below was seen in this repo's docs during the audit (`AUDIT.md`). The 
 | A status that went stale | README L159 "no results here yet"; REMINDER "Nothing has been trained … yet" after the training was done | Don't write status in a doc that lasts. If unavoidable, date it and link the PLAN.md entry |
 | A path that no longer exists | BUGS.md naming `AmericanOptionPricing/ML.py` | Acceptable in a dated log only. In current-state docs, use the current path |
 | A metric name that changed meaning | Old BUGS.md "CVaR" values that are really VaRs | Define the metric where it is used, and keep the definition in `notation.md` |
-| A code or test comment pointing to `REMINDER.md` | "(REMINDER.md, step 6)" in `tree_evaluation.py`, since removed | REMINDER.md is gitignored, so other users don't have it. State the fact in the comment, or cite a tracked file (a `.claude/BUGS.md` entry title, `docs/decisions/`) |
+| A code or test comment pointing to `REMINDER.md` | "(REMINDER.md, step 6)" in `tree_evaluation.py`, since removed | REMINDER.md is gitignored, so other users don't have it. State the fact in the comment, or cite a tracked file (e.g. a `.claude/BUGS.md` entry title) |
 | Copying facts from `.claude/CLAUDE.md` unchecked | Wrong `moneyness_range` default | Use CLAUDE.md as a pointer to where to look, never as proof |
 
 ## Planning voice inside explanation docs

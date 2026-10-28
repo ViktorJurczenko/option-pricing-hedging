@@ -56,7 +56,8 @@ def smooth_intrinsic_value(S, K, option_type: str = "put", beta_frac: float = 0.
     Used by the legacy LSM pipeline (LegacyMLP) only: the tree-trained MLP
     subtracts the Black-Scholes European price instead, which bends exactly
     like the American price at every sigma sqrt(T), so there is no width to
-    tune (see docs/decisions/softplus-reparameterization.md for the history).
+    tune (see .claude/BUGS.md, "ML surrogate pricer's target had a
+    self-inflicted kink at ATM", for the history).
 
     beta_frac is a fixed constant here, not a CLI flag: it must be identical
     between whatever generated the training labels (generate_lsm_dataset.py)
