@@ -1,4 +1,5 @@
 """SAC update math in train(): Bellman target, done mask, Polyak averaging."""
+
 import copy
 
 import numpy as np
@@ -6,12 +7,12 @@ import pytest
 import torch
 
 import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.sac import train
 from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.sac import train
 from tests.unit.hedge_fakes import make_nets
 
-
 # --- SAC update math: Bellman target, done mask, Polyak averaging -------------
+
 
 class SequenceEnv:
     """Deterministic episodes over states k*ones(5) (k = step index): step k
@@ -44,25 +45,44 @@ def _single_update_train(monkeypatch, tmp_path, tau, gamma=0.9, alpha=0.3, log_p
     targets = []
     real_deepcopy = copy.deepcopy
     monkeypatch.setattr(hedge_module.copy, "deepcopy", lambda m: targets.append(real_deepcopy(m)) or targets[-1])
-    monkeypatch.setattr(hedge_module, "_squash",
-                        lambda dist: (torch.tanh(dist.mean), torch.full(dist.mean.shape[:-1] + (1,), log_pi_value)))
+    monkeypatch.setattr(
+        hedge_module,
+        "_squash",
+        lambda dist: (torch.tanh(dist.mean), torch.full(dist.mean.shape[:-1] + (1,), log_pi_value)),
+    )
     monkeypatch.setattr("optionpricing.ml.rl.replay_buffer.random.sample", lambda pop, k: list(pop)[:k])
     captured_targets = []
     real_mse = hedge_module.F.mse_loss
-    monkeypatch.setattr(hedge_module.F, "mse_loss",
-                        lambda pred, target, *a, **k: captured_targets.append(target.clone()) or real_mse(pred, target, *a, **k))
+    monkeypatch.setattr(
+        hedge_module.F,
+        "mse_loss",
+        lambda pred, target, *a, **k: captured_targets.append(target.clone()) or real_mse(pred, target, *a, **k),
+    )
 
     buffer = ReplayBuffer(max_size=10)
-    train(policy, SequenceEnv([0.5, -1.0]), buffer, critic1, critic2,
-          n_episodes=1, warmup_steps=0, update_every=1, batch_size=2, gamma=gamma, tau=tau, alpha=alpha,
-          checkpoint_path=str(tmp_path / "policy.pth"))
+    train(
+        policy,
+        SequenceEnv([0.5, -1.0]),
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
+        gamma=gamma,
+        tau=tau,
+        alpha=alpha,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
     return init, targets, captured_targets, buffer, critic1, critic2
 
 
 def test_critic_bellman_target_uses_reward_gamma_done_mask_min_target_and_entropy(monkeypatch, tmp_path):
     gamma, alpha, c = 0.9, 0.3, 2.0
-    init, targets, captured, buffer, _, _ = _single_update_train(monkeypatch, tmp_path, tau=0.01,
-                                                                  gamma=gamma, alpha=alpha, log_pi_value=c)
+    init, targets, captured, buffer, _, _ = _single_update_train(
+        monkeypatch, tmp_path, tau=0.01, gamma=gamma, alpha=alpha, log_pi_value=c
+    )
     assert len(captured) == 2  # one update -> critic1 and critic2 losses
     s, a, r, s2, d = buffer.sample(2)
     assert d.flatten().tolist() == [0.0, 1.0]  # a non-terminal and a terminal row
@@ -105,9 +125,22 @@ def test_critic_q_converges_to_reward_when_every_step_is_terminal(tmp_path):
     np.random.seed(0)
     reward = 1.0
     policy, critic1, critic2 = make_nets()
-    train(policy, SequenceEnv([reward]), ReplayBuffer(max_size=1000), critic1, critic2,
-          n_episodes=600, warmup_steps=50, update_every=1, batch_size=32, lr=1e-2, tau=0.1,
-          gamma=0.99, alpha=1e-6, checkpoint_path=str(tmp_path / "policy.pth"))
+    train(
+        policy,
+        SequenceEnv([reward]),
+        ReplayBuffer(max_size=1000),
+        critic1,
+        critic2,
+        n_episodes=600,
+        warmup_steps=50,
+        update_every=1,
+        batch_size=32,
+        lr=1e-2,
+        tau=0.1,
+        gamma=0.99,
+        alpha=1e-6,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
     state = torch.zeros(1, 5)
     for a in (-0.5, 0.0, 0.5):
         for critic in (critic1, critic2):

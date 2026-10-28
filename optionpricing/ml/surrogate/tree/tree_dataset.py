@@ -1,9 +1,8 @@
-import numpy as np
-import torch
-
 import os
 from dataclasses import dataclass
-from typing import Optional, Union
+
+import numpy as np
+import torch
 from numpy.typing import ArrayLike
 from torch.utils.data import Dataset
 
@@ -14,8 +13,13 @@ FEATURES = ("log_m", "log_T", "log_sigma", "r", "total_vol", "z")
 # Columns TreePutDataset reads from a `generate_tree_dataset` file.
 TREE_COLUMNS = ("m", "T", "r", "sigma", "price", "european_price", "delta", "exercised")
 
-def build_features(m: Union[ArrayLike, torch.Tensor], T: Union[ArrayLike, torch.Tensor],
-                   r: Union[ArrayLike, torch.Tensor], sigma: Union[ArrayLike, torch.Tensor]) -> torch.Tensor:
+
+def build_features(
+    m: ArrayLike | torch.Tensor,
+    T: ArrayLike | torch.Tensor,
+    r: ArrayLike | torch.Tensor,
+    sigma: ArrayLike | torch.Tensor,
+) -> torch.Tensor:
     """
     The MLP's raw (unstandardized) inputs for puts per unit of strike, one
     column per entry of FEATURES: log m, log T, log sigma, r, the total
@@ -30,11 +34,13 @@ def build_features(m: Union[ArrayLike, torch.Tensor], T: Union[ArrayLike, torch.
     Returns:
         (*broadcast shape, len(FEATURES)) tensor, e.g. (n, 6) for (n,) inputs.
     """
-    m, T, r, sigma = torch.broadcast_tensors(*(torch.as_tensor(x, dtype=torch.float64) if not torch.is_tensor(x)
-                                               else x for x in (m, T, r, sigma)))
+    m, T, r, sigma = torch.broadcast_tensors(
+        *(torch.as_tensor(x, dtype=torch.float64) if not torch.is_tensor(x) else x for x in (m, T, r, sigma))
+    )
     log_m = torch.log(m)
     total_vol = sigma * torch.sqrt(T)
     return torch.stack([log_m, torch.log(T), torch.log(sigma), r, total_vol, log_m / total_vol], dim=-1)
+
 
 # eq=False: the generated __eq__ would compare tensors and raise "Boolean
 # value of Tensor is ambiguous"; compare the fields with torch instead
@@ -45,6 +51,7 @@ class FeatureStats:
     Fitted on the training split only, and stored with the model (to_dict)
     so every consumer applies the same transformation.
     """
+
     mean: torch.Tensor
     std: torch.Tensor
 
@@ -113,6 +120,7 @@ class FeatureStats:
             raise ValueError(f"feature statistics are for {list(d['names'])}, expected {list(FEATURES)}")
         return cls(torch.tensor(d["mean"], dtype=torch.float64), torch.tensor(d["std"], dtype=torch.float64))
 
+
 class TreePutDataset(Dataset):
     """
     The tree-labelled put dataset (`python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`),
@@ -147,8 +155,15 @@ class TreePutDataset(Dataset):
         ValueError: if `split_ratio` is outside [0, 1], the file is not a
             tree dataset, or `stats` is None and the training split is empty.
     """
-    def __init__(self, data_path: Union[str, os.PathLike], is_train: bool = True, split_ratio: float = 0.8,
-                 seed: int = 42, stats: Optional[FeatureStats] = None):
+
+    def __init__(
+        self,
+        data_path: str | os.PathLike,
+        is_train: bool = True,
+        split_ratio: float = 0.8,
+        seed: int = 42,
+        stats: FeatureStats | None = None,
+    ):
         # slicing would silently accept others: -0.1 acts as 0.9, and above 1 empties the test split
         if not 0 <= split_ratio <= 1:
             raise ValueError(f"split_ratio must be in [0, 1], got {split_ratio}")
@@ -182,11 +197,13 @@ class TreePutDataset(Dataset):
         else:
             # each row's features depend on its own m only, so the gradient
             # of a column's sum is that column's derivative, row by row
-            x_dm = torch.stack([torch.autograd.grad(x[:, j].sum(), m, retain_graph=True)[0]
-                                for j in range(len(FEATURES))], dim=-1)
+            x_dm = torch.stack(
+                [torch.autograd.grad(x[:, j].sum(), m, retain_graph=True)[0] for j in range(len(FEATURES))], dim=-1
+            )
 
-        european_delta = black_scholes_delta(self.params["m"], 1.0, self.params["T"], self.params["r"],
-                                             self.params["sigma"], "put")
+        european_delta = black_scholes_delta(
+            self.params["m"], 1.0, self.params["T"], self.params["r"], self.params["sigma"], "put"
+        )
         self.features = x.detach().float()
         self.features_dm = x_dm.float()
         self.premium = torch.tensor(cols["price"][idx] - cols["european_price"][idx], dtype=torch.float32)

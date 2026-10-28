@@ -1,10 +1,11 @@
 import numpy as np
 import pytest
 
+from optionpricing.core.gbm import GBM
 from optionpricing.hedging.option_value import binomial_value_fn
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz, least_squares
-from optionpricing.core.gbm import GBM
 from optionpricing.pricing.european.black_scholes import BlackScholes
+
 
 def test_calculate_option_price_is_mean_of_time_zero_payoff():
     simulation = np.ones((3, 5)) * 100.0
@@ -14,34 +15,46 @@ def test_calculate_option_price_is_mean_of_time_zero_payoff():
 
     assert lsm.calculate_option_price() == pytest.approx(3.0)
 
+
 def test_terminal_payoff_matches_vanilla_put_payoff():
     rng = np.random.default_rng(0)
     simulation = rng.uniform(80, 120, size=(4, 20))
-    lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2)
+    lsm = LongstaffSchwartz(
+        simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2
+    )
     lsm.predict_payoff()
 
     expected_terminal = np.maximum(100.0 - simulation[-1], 0)
     np.testing.assert_allclose(lsm.payoff[-1], expected_terminal)
 
+
 def test_path_that_is_always_out_of_the_money_never_exercises_early():
     # Put, strike 100, price constant at 200 the whole time -> always OTM
     simulation = np.full((4, 3), 200.0)
-    lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2)
+    lsm = LongstaffSchwartz(
+        simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2
+    )
     lsm.predict_payoff()
 
     assert np.all(lsm.exercise_time == simulation.shape[0] - 1)
     assert np.all(lsm.payoff[0] == 0)
 
-@pytest.mark.parametrize("option_type,reg_type,max_degree", [
-    ("invalid", "simple", 2),
-])
+
+@pytest.mark.parametrize(
+    "option_type,reg_type,max_degree",
+    [
+        ("invalid", "simple", 2),
+    ],
+)
 def test_invalid_option_type_raises(option_type, reg_type, max_degree):
     with pytest.raises(ValueError):
         LongstaffSchwartz(np.ones((2, 2)), option_type=option_type, reg_type=reg_type, max_degree=max_degree)
 
+
 def test_invalid_reg_type_raises():
     with pytest.raises(ValueError):
         LongstaffSchwartz(np.ones((2, 2)), option_type="put", reg_type="invalid")
+
 
 def test_negative_max_degree_raises():
     with pytest.raises(ValueError):
@@ -176,6 +189,7 @@ def test_price_matches_known_value_independent_of_delta_change():
 # an American call near expiry because regression noise exceeds the tiny gap
 # between continuation and intrinsic value) ---
 
+
 def _lsm(option_type, **kwargs):
     sim = GBM(sigma=SIGMA, start_price=100.0, risk_free_rate=R, seed=42).simulate_paths(N_PATHS, T, N_STEPS)
     lsm = LongstaffSchwartz(sim, K, R, T, option_type, "simple", 3, **kwargs)
@@ -249,6 +263,7 @@ def test_put_with_control_variate_runs_and_prices_near_tree_price():
 
 # --- Grid/horizon: the last simulation row is expiry at exactly `maturity` ---
 
+
 def test_dt_is_maturity_over_number_of_intervals():
     # Regression: dt used to be maturity / rows, so the last row sat at
     # (rows-1)/rows of the maturity and the option was priced too short.
@@ -281,6 +296,7 @@ def test_constant_itm_put_exercises_immediately_on_five_row_grid():
 
 
 # --- Laguerre basis Greeks, and pricing before the simulation is walked ---
+
 
 @pytest.fixture(scope="module")
 def laguerre_call_lsm():
@@ -321,7 +337,7 @@ def _paths(sigma=0.3, n_paths=2000):
 def test_least_squares_matches_lstsq_on_the_polynomial_basis():
     rng = np.random.default_rng(0)
     x = rng.uniform(0.5, 1.8, 5000)
-    features = np.column_stack([x ** i for i in range(4)])
+    features = np.column_stack([x**i for i in range(4)])
     target = np.sin(3 * x) + 0.1 * rng.standard_normal(5000)
 
     expected = np.linalg.lstsq(features, target, rcond=None)[0]
@@ -344,8 +360,14 @@ def test_least_squares_is_minimum_norm_when_every_path_shares_the_spot():
 @pytest.mark.parametrize("option_type,control_variate", [("put", False), ("call", True), ("call", False)])
 def test_compute_greeks_off_leaves_price_and_exercise_rule_unchanged(option_type, control_variate):
     simulation = _paths()
-    kwargs = dict(strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type=option_type,
-                  sigma=0.3 if option_type == "call" else None, control_variate=control_variate)
+    kwargs = dict(
+        strike=100.0,
+        risk_free_rate=0.05,
+        maturity=1.0,
+        option_type=option_type,
+        sigma=0.3 if option_type == "call" else None,
+        control_variate=control_variate,
+    )
     with_greeks = LongstaffSchwartz(simulation, **kwargs)
     without = LongstaffSchwartz(simulation, compute_greeks=False, **kwargs)
     with_greeks.predict_payoff()

@@ -1,10 +1,12 @@
 import matplotlib
+
 matplotlib.use("Agg")  # headless backend so plot_paths() never opens a window during tests
 
 import numpy as np
 import pytest
 
 from optionpricing.core.gbm import GBM
+
 
 def test_simulate_paths_shape_and_start_price():
     gbm = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=1)
@@ -14,11 +16,13 @@ def test_simulate_paths_shape_and_start_price():
     assert np.all(simulation[0] == 100.0)
     assert np.all(simulation > 0)  # GBM paths can never go negative
 
+
 def test_same_seed_is_reproducible():
     sim1 = GBM(sigma=0.3, start_price=100.0, risk_free_rate=0.02, seed=7).simulate_paths(100, 1, 50)
     sim2 = GBM(sigma=0.3, start_price=100.0, risk_free_rate=0.02, seed=7).simulate_paths(100, 1, 50)
 
     np.testing.assert_array_equal(sim1, sim2)
+
 
 def test_different_seeds_diverge():
     sim1 = GBM(sigma=0.3, start_price=100.0, risk_free_rate=0.02, seed=1).simulate_paths(100, 1, 50)
@@ -26,8 +30,10 @@ def test_different_seeds_diverge():
 
     assert not np.array_equal(sim1, sim2)
 
+
 def test_plot_paths_simulates_automatically_when_not_run_yet(monkeypatch):
     import matplotlib.pyplot as plt
+
     monkeypatch.setattr(plt, "show", lambda: None)
 
     gbm = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=1)
@@ -58,7 +64,9 @@ def test_non_integer_interval_count_uses_truncated_intervals_and_matching_dt():
 def test_log_return_variance_scales_with_full_maturity():
     # Var[log(S_T/S0)] = sigma^2 * T only if the last row is at T.
     # 20000 paths -> sample variance rel. std ~ sqrt(2/n) = 1%; 5% tolerance.
-    sim = GBM(sigma=0.3, start_price=100.0, risk_free_rate=0.02, seed=3).simulate_paths(20000, maturity=0.25, sampling=8)
+    sim = GBM(sigma=0.3, start_price=100.0, risk_free_rate=0.02, seed=3).simulate_paths(
+        20000, maturity=0.25, sampling=8
+    )
     assert np.var(np.log(sim[-1] / 100.0)) == pytest.approx(0.3**2 * 0.25, rel=0.05)
 
 

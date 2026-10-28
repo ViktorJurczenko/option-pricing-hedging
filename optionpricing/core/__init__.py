@@ -1,2 +1,2 @@
-from .gbm import GBM
 from .base import OptionPricing
+from .gbm import GBM

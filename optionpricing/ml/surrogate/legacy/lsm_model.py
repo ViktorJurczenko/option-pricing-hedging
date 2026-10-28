@@ -6,10 +6,11 @@ tree-trained `optionpricing.ml.surrogate.tree.tree_model.MLP` replaced it; it is
 library for the ablation against the old architecture and for rerunning
 the LSM comparison. No CLI command uses it.
 """
+
 import numpy as np
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 
 def intrinsic_value(S, K, option_type: str = "put"):
     """
@@ -24,6 +25,7 @@ def intrinsic_value(S, K, option_type: str = "put"):
     if option_type == "put":
         return np.maximum(K - S, 0.0)
     return np.maximum(S - K, 0.0)
+
 
 def smooth_intrinsic_value(S, K, option_type: str = "put", beta_frac: float = 0.06):
     """
@@ -71,11 +73,13 @@ def smooth_intrinsic_value(S, K, option_type: str = "put", beta_frac: float = 0.
     softplus_z = np.maximum(z, 0.0) + np.log1p(np.exp(-np.abs(z)))  # numerically stable softplus(z)
     return beta * softplus_z
 
+
 def option_type_feature(option_type: str) -> float:
     """The MLP's 5th input, `is_call`: 1.0 for a call, 0.0 for a put."""
     if option_type not in ("call", "put"):
         raise ValueError("option_type must be 'call' or 'put'")
     return 1.0 if option_type == "call" else 0.0
+
 
 class LegacyMLP(nn.Module):
     """
@@ -89,15 +93,15 @@ class LegacyMLP(nn.Module):
     """
 
     def __init__(self):
-        super(LegacyMLP, self).__init__()
+        super().__init__()
 
         self.layer1 = nn.Linear(5, 64)
-        self.bn1    = nn.BatchNorm1d(64)
-        self.drop1  = nn.Dropout(0.1)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.drop1 = nn.Dropout(0.1)
 
         self.layer2 = nn.Linear(64, 64)
-        self.bn2    = nn.BatchNorm1d(64)
-        self.drop2  = nn.Dropout(0.1)
+        self.bn2 = nn.BatchNorm1d(64)
+        self.drop2 = nn.Dropout(0.1)
 
         self.layer3 = nn.Linear(64, 32)
         self.layer4 = nn.Linear(32, 1)

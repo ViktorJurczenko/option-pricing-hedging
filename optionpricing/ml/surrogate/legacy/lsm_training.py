@@ -3,10 +3,10 @@ Training of the legacy LSM surrogate (lsm_model.LegacyMLP), what `train-ml`
 ran before the tree surrogate replaced it: Adam with ReduceLROnPlateau and
 early stopping on the validation MSE (fit_legacy_mlp).
 """
+
 import os
 import time
 from pathlib import Path
-from typing import Union
 
 import numpy as np
 import torch
@@ -14,13 +14,20 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
+from optionpricing.core.metrics import mse_fn
 from optionpricing.ml.surrogate.legacy.lsm_dataset import AmericanOptionDataset
 from optionpricing.ml.surrogate.legacy.lsm_model import LegacyMLP
-from optionpricing.core.metrics import mse_fn
 
-def train_legacy_mlp(dataset_path: Union[str, os.PathLike], split_ratio: float = 0.8, batch_size: int = 32,
-                     epochs: int = 100, patience: int = 10, seed: int = 42,
-                     checkpoint_path: Union[str, os.PathLike] = "artifacts/checkpoints/best_model.pth") -> LegacyMLP:
+
+def train_legacy_mlp(
+    dataset_path: str | os.PathLike,
+    split_ratio: float = 0.8,
+    batch_size: int = 32,
+    epochs: int = 100,
+    patience: int = 10,
+    seed: int = 42,
+    checkpoint_path: str | os.PathLike = "artifacts/checkpoints/best_model.pth",
+) -> LegacyMLP:
     """
     Trains a LegacyMLP on the training split of an LSM dataset
     (`python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset`), 20% of it held
@@ -45,8 +52,10 @@ def train_legacy_mlp(dataset_path: Union[str, os.PathLike], split_ratio: float =
         FileNotFoundError: if `dataset_path` is not a file.
     """
     if not os.path.isfile(dataset_path):
-        raise FileNotFoundError(f"Dataset not found at {dataset_path}; generate it with "
-                                "`python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset`.")
+        raise FileNotFoundError(
+            f"Dataset not found at {dataset_path}; generate it with "
+            "`python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset`."
+        )
     dataset_train = AmericanOptionDataset(dataset_path, is_train=True, split_ratio=split_ratio, seed=seed)
 
     mlp = LegacyMLP()
@@ -61,29 +70,46 @@ def train_legacy_mlp(dataset_path: Union[str, os.PathLike], split_ratio: float =
     dataset_train, dataset_valid = random_split(
         dataset_train,
         [n_train, n_valid],
-        generator=torch.Generator().manual_seed(seed)  # For reproducability
+        generator=torch.Generator().manual_seed(seed),  # For reproducability
     )
 
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     dataloader_valid = DataLoader(dataset_valid, batch_size=batch_size, shuffle=False)
 
     optimizer = torch.optim.Adam(mlp.parameters(), lr=1e-3)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
     print("Training model...")
     start_time = time.time()
 
     fit_legacy_mlp(
-        mlp, optimizer, scheduler, patience, dataloader_train, dataloader_valid, device,
-        epochs=epochs, checkpoint_path=checkpoint_path,
+        mlp,
+        optimizer,
+        scheduler,
+        patience,
+        dataloader_train,
+        dataloader_valid,
+        device,
+        epochs=epochs,
+        checkpoint_path=checkpoint_path,
     )
 
     print(f"Model was trained in : {(time.time() - start_time):.2f}s")
     print(f"Model was saved as : {checkpoint_path}")
     return mlp
 
-def fit_legacy_mlp(model: LegacyMLP, optimizer, scheduler, patience, dataloader_train, dataloader_valid, device,
-                   epochs, checkpoint_path="artifacts/checkpoints/best_model.pth"):
+
+def fit_legacy_mlp(
+    model: LegacyMLP,
+    optimizer,
+    scheduler,
+    patience,
+    dataloader_train,
+    dataloader_valid,
+    device,
+    epochs,
+    checkpoint_path="artifacts/checkpoints/best_model.pth",
+):
     """Trains `model` for up to `epochs` epochs, saving its state_dict to
     `checkpoint_path` on every validation-MSE improvement and stopping
     after `patience` epochs without one.
@@ -128,7 +154,7 @@ def fit_legacy_mlp(model: LegacyMLP, optimizer, scheduler, patience, dataloader_
         model.eval()
         with torch.no_grad():
             mse_run = 0
-            for it, batch in enumerate(dataloader_valid):
+            for batch in dataloader_valid:
                 x, y = batch
                 x = x.to(device)
                 true = y.unsqueeze(1).to(device)

@@ -1,3 +1,3 @@
-from .longstaff_schwartz import LongstaffSchwartz
+from .batch_binomial_tree import TreeResult, binomial_put_batch
 from .binomial_tree import BinomialTree
-from .batch_binomial_tree import binomial_put_batch, TreeResult
+from .longstaff_schwartz import LongstaffSchwartz

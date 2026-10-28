@@ -4,11 +4,13 @@ import torch
 
 from optionpricing.ml.surrogate.legacy.lsm_dataset import AmericanOptionDataset
 
+
 def _write_toy_dataset(path, n=100, n_features=5):
     features = np.random.default_rng(0).random((n, n_features)).astype(np.float32)
     labels = np.random.default_rng(1).random(n).astype(np.float32)
     np.savez(path, features=features, label=labels)
     return features, labels
+
 
 def test_train_test_split_is_disjoint_and_complete(tmp_path):
     path = tmp_path / "toy_dataset.npz"
@@ -24,6 +26,7 @@ def test_train_test_split_is_disjoint_and_complete(tmp_path):
     test_rows = {tuple(row) for row in test_ds.features}
     assert train_rows.isdisjoint(test_rows)
 
+
 def test_same_seed_gives_same_split(tmp_path):
     path = tmp_path / "toy_dataset.npz"
     _write_toy_dataset(path, n=50)
@@ -32,6 +35,7 @@ def test_same_seed_gives_same_split(tmp_path):
     ds2 = AmericanOptionDataset(str(path), is_train=True, split_ratio=0.8, seed=7)
 
     np.testing.assert_array_equal(ds1.features, ds2.features)
+
 
 def test_getitem_returns_float32_tensors(tmp_path):
     path = tmp_path / "toy_dataset.npz"
@@ -43,6 +47,7 @@ def test_getitem_returns_float32_tensors(tmp_path):
     assert isinstance(features, torch.Tensor) and features.dtype == torch.float32
     assert isinstance(label, torch.Tensor) and label.dtype == torch.float32
     assert features.shape == (5,)
+
 
 def test_split_ratio_one_gives_empty_test_split_and_zero_gives_empty_train_split(tmp_path):
     path = tmp_path / "toy_dataset.npz"
@@ -57,6 +62,7 @@ def test_split_ratio_one_gives_empty_test_split_and_zero_gives_empty_train_split
     with pytest.raises(IndexError):
         empty_test[0]
 
+
 def test_split_sizes_truncate_toward_zero_and_the_split_is_a_permutation(tmp_path):
     path = tmp_path / "toy_dataset.npz"
     features, labels = _write_toy_dataset(path, n=7)
@@ -67,6 +73,7 @@ def test_split_sizes_truncate_toward_zero_and_the_split_is_a_permutation(tmp_pat
     assert (len(train), len(test)) == (3, 4)  # int(7 * 0.5) == 3
     got = np.concatenate([train.label, test.label])
     np.testing.assert_array_equal(np.sort(got), np.sort(labels))
+
 
 def test_features_and_labels_stay_aligned_after_shuffling(tmp_path):
     path = tmp_path / "toy_dataset.npz"
@@ -79,12 +86,14 @@ def test_features_and_labels_stay_aligned_after_shuffling(tmp_path):
         x, y = ds[i]
         assert y.item() == pytest.approx(x[0].item() * 10)
 
+
 def test_transforms_are_applied_to_features_and_labels_separately(tmp_path):
     path = tmp_path / "toy_dataset.npz"
     _write_toy_dataset(path, n=10)
     plain = AmericanOptionDataset(str(path), split_ratio=1.0, seed=0)
-    ds = AmericanOptionDataset(str(path), transform=lambda f: f + 1.0, label_transform=lambda l: l * 3.0,
-                               split_ratio=1.0, seed=0)
+    ds = AmericanOptionDataset(
+        str(path), transform=lambda f: f + 1.0, label_transform=lambda label: label * 3.0, split_ratio=1.0, seed=0
+    )
 
     (fp, lp), (ft, lt) = plain[2], ds[2]
 

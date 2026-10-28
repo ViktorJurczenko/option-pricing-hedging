@@ -1,6 +1,6 @@
 import argparse
 
-from scripts import price, train_ml, test_ml, train_hedge, test_hedge
+from scripts import price, test_hedge, test_ml, train_hedge, train_ml
 
 COMMANDS = {
     "price": price,
@@ -9,6 +9,7 @@ COMMANDS = {
     "train-hedge": train_hedge,
     "test-hedge": test_hedge,
 }
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Option Pricing")
@@ -27,10 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
     COMMANDS[args.command].run(args)
+
 
 if __name__ == "__main__":
     main()

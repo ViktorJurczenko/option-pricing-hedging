@@ -1,10 +1,11 @@
 """optionpricing.hedging.evaluation.evaluate() and cvar()."""
+
 import numpy as np
 import pytest
 
+from optionpricing.hedging.baselines import delta_hedge, no_hedge
 from optionpricing.hedging.env import HedgingEnv
 from optionpricing.hedging.evaluation import cvar, evaluate
-from optionpricing.hedging.baselines import delta_hedge, no_hedge
 from tests.helpers import two_path_call_lsm
 
 
@@ -71,10 +72,12 @@ def test_evaluate_with_delta_hedge_baseline_hand_calculated_reward(monkeypatch):
     compose correctly under the new action_fn interface, with a non-zero,
     time-varying delta driving the hedge position."""
     monkeypatch.setattr(np.random, "randint", lambda n: 0)
-    delta = np.array([
-        [0.5, -0.3],
-        [0.4, 0.2],
-    ])
+    delta = np.array(
+        [
+            [0.5, -0.3],
+            [0.4, 0.2],
+        ]
+    )
     env = HedgingEnv(two_path_call_lsm(delta=delta))
 
     mean_pnl, std_pnl, cvar_95 = evaluate(delta_hedge, env, n_episodes=1)
@@ -116,8 +119,8 @@ def test_evaluate_prints_var_above_cvar_and_cvar_is_tail_mean_not_percentile(mon
     assert np.percentile(pnls, 5) == pytest.approx(-0.055)
     assert mean_pnl == pytest.approx(-0.01)
     out = capsys.readouterr().out.splitlines()
-    var_lines = [l for l in out if l.startswith("VaR  95%:")]
-    cvar_lines = [l for l in out if l.startswith("CVaR 95%:")]
+    var_lines = [line for line in out if line.startswith("VaR  95%:")]
+    cvar_lines = [line for line in out if line.startswith("CVaR 95%:")]
     assert len(var_lines) == 1 and len(cvar_lines) == 1
     assert float(var_lines[0].split(":")[1]) == pytest.approx(-0.055, abs=1e-4)
     assert float(cvar_lines[0].split(":")[1]) == pytest.approx(-0.1, abs=1e-4)
@@ -151,8 +154,8 @@ def test_cvar_single_sample_returns_it():
 
 def test_cvar_custom_level():
     pnls = np.arange(10, dtype=float)
-    assert cvar(pnls, level=0.5) == pytest.approx(2.0)   # worst 5: 0..4
-    assert cvar(pnls, level=0.8) == pytest.approx(0.5)   # worst 2: 0, 1
+    assert cvar(pnls, level=0.5) == pytest.approx(2.0)  # worst 5: 0..4
+    assert cvar(pnls, level=0.8) == pytest.approx(0.5)  # worst 2: 0, 1
 
 
 def test_cvar_does_not_mutate_input_and_handles_unsorted_lists():

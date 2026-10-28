@@ -1,5 +1,6 @@
 """Factories and helpers shared across test files (fixtures would go in a
 conftest.py; none are shared yet)."""
+
 import argparse
 import subprocess
 import sys
@@ -66,9 +67,15 @@ def parse_script_args(script, **overrides):
 def run_python(*args, timeout=120):
     """Run `python <args>` from the project root, capturing output. The
     timeout catches a hang; slower callers (the ML pipeline) pass a larger one."""
-    return subprocess.run([sys.executable, *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace",  # tqdm's partial-block characters are not decodable as cp1252
-                          timeout=timeout, cwd=ROOT)
+    return subprocess.run(
+        [sys.executable, *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",  # tqdm's partial-block characters are not decodable as cp1252
+        timeout=timeout,
+        cwd=ROOT,
+    )
 
 
 def run_cli(*args, timeout=120):
@@ -81,6 +88,21 @@ def write_tree_dataset(out_dir, n_rows=128, seed=3):
     its path. 50-step trees keep it fast; the labels' accuracy is the
     pricer's tests' job."""
     import optionpricing.ml.surrogate.tree.generate_tree_dataset as gen  # imported here: most test files never need it
-    gen.main(["--n_rows", str(n_rows), "--chunk_size", str(min(n_rows, 64)), "--nb_steps", "50",
-              "--nb_jobs", "1", "--seed", str(seed), "--output_dir", str(out_dir)])
+
+    gen.main(
+        [
+            "--n_rows",
+            str(n_rows),
+            "--chunk_size",
+            str(min(n_rows, 64)),
+            "--nb_steps",
+            "50",
+            "--nb_jobs",
+            "1",
+            "--seed",
+            str(seed),
+            "--output_dir",
+            str(out_dir),
+        ]
+    )
     return Path(out_dir) / "tree_put_dataset.npz"

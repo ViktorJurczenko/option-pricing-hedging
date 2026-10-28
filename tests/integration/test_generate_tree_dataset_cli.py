@@ -3,14 +3,27 @@
 processes (the unit tests run in-process with one job), so an import that
 only works in the parent, or chunks written out of order, shows up here.
 """
+
 import numpy as np
 
 from tests.helpers import run_python
 
 
 def _generate(out_dir, *extra):
-    result = run_python("-m", "optionpricing.ml.surrogate.tree.generate_tree_dataset", "--n_rows", "128", "--nb_steps", "100",
-                        "--nb_jobs", "2", "--output_dir", str(out_dir), *extra, timeout=300)
+    result = run_python(
+        "-m",
+        "optionpricing.ml.surrogate.tree.generate_tree_dataset",
+        "--n_rows",
+        "128",
+        "--nb_steps",
+        "100",
+        "--nb_jobs",
+        "2",
+        "--output_dir",
+        str(out_dir),
+        *extra,
+        timeout=300,
+    )
     assert result.returncode == 0, result.stderr
     return np.load(out_dir / "tree_put_dataset.npz")
 

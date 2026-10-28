@@ -10,12 +10,13 @@ at the same reduced tau, binomial_value_fn against a directly-built
 BinomialTree at the equivalent scaled maturity/step count, and the
 call-never-exercised-early / American->=European invariants.
 """
+
 import numpy as np
 import pytest
 
 from optionpricing.hedging.option_value import (
-    black_scholes_value_fn,
     binomial_value_fn,
+    black_scholes_value_fn,
     make_option_value_fn,
 )
 from optionpricing.pricing.american.binomial_tree import BinomialTree
@@ -29,6 +30,7 @@ N_STEPS = 20  # small grid so binomial_value_fn's tree build stays fast
 
 
 # --- black_scholes_value_fn --------------------------------------------------
+
 
 def test_black_scholes_value_fn_raises_on_invalid_option_type():
     with pytest.raises(ValueError, match="option_type"):
@@ -90,6 +92,7 @@ def test_black_scholes_value_fn_t_zero_uses_full_maturity():
 
 # --- binomial_value_fn -------------------------------------------------------
 
+
 def test_binomial_value_fn_raises_on_invalid_option_type():
     with pytest.raises(ValueError, match="option_type"):
         binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="straddle")
@@ -123,8 +126,13 @@ def test_binomial_value_fn_at_t_zero_matches_binomial_tree_at_full_maturity():
     nb_steps=(n_steps-1)*substeps."""
     substeps = 4
     tree = BinomialTree(
-        sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R,
-        maturity=MATURITY, nb_steps=(N_STEPS - 1) * substeps, option_type="put",
+        sigma=SIGMA,
+        start_price=STRIKE,
+        strike=STRIKE,
+        risk_free_rate=R,
+        maturity=MATURITY,
+        nb_steps=(N_STEPS - 1) * substeps,
+        option_type="put",
     )
     tree.predict_payoff()
     expected = tree.calculate_option_price()
@@ -193,6 +201,7 @@ def test_binomial_value_fn_accepts_vectorized_spot_input():
 
 # --- make_option_value_fn ----------------------------------------------------
 
+
 def test_make_option_value_fn_raises_on_invalid_option_type():
     with pytest.raises(ValueError, match="option_type"):
         make_option_value_fn("straddle", STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS)
@@ -203,8 +212,9 @@ def test_make_option_value_fn_call_is_black_scholes():
     direct = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call")
     S = np.array([90.0, 100.0, 110.0])
     tau = (N_STEPS - 1 - 2) * MATURITY / (N_STEPS - 1)
-    bs = BlackScholes(sigma=SIGMA, start_price=S, strike=STRIKE, risk_free_rate=R,
-                      option_type="call").calculate_option_price(T=tau)
+    bs = BlackScholes(
+        sigma=SIGMA, start_price=S, strike=STRIKE, risk_free_rate=R, option_type="call"
+    ).calculate_option_price(T=tau)
 
     np.testing.assert_allclose(combined(2, S), direct(2, S))
     np.testing.assert_allclose(combined(2, S), bs)
@@ -218,16 +228,25 @@ def test_make_option_value_fn_put_is_the_american_binomial_tree():
 
     # Same tree as BinomialTree at t=0 (the default substeps=4 grid), and
     # strictly above the European put, which BS would give for a put.
-    tree = BinomialTree(sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R,
-                        maturity=MATURITY, nb_steps=(N_STEPS - 1) * 4, option_type="put")
+    tree = BinomialTree(
+        sigma=SIGMA,
+        start_price=STRIKE,
+        strike=STRIKE,
+        risk_free_rate=R,
+        maturity=MATURITY,
+        nb_steps=(N_STEPS - 1) * 4,
+        option_type="put",
+    )
     tree.predict_payoff()
     assert combined(0, np.array([STRIKE]))[0] == pytest.approx(tree.calculate_option_price(), rel=1e-9)
-    european = BlackScholes(sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R,
-                            option_type="put").calculate_option_price(T=MATURITY)
+    european = BlackScholes(
+        sigma=SIGMA, start_price=STRIKE, strike=STRIKE, risk_free_rate=R, option_type="put"
+    ).calculate_option_price(T=MATURITY)
     assert combined(0, np.array([STRIKE]))[0] > european + 0.3
 
 
 # --- n_steps (simulation row count) must leave at least one interval ---------
+
 
 @pytest.mark.parametrize("n_steps", [0, 1])
 def test_black_scholes_value_fn_raises_when_fewer_than_two_rows(n_steps):

@@ -1,13 +1,14 @@
 import copy
+from collections import deque
+from pathlib import Path
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
-
-from pathlib import Path
-from collections import deque
 from tqdm import tqdm
 
 from optionpricing.hedging.evaluation import cvar
+
 
 def _squash(dist: torch.distributions.Distribution, eps: float = 1e-6) -> tuple[torch.Tensor, torch.Tensor]:
     """Reparameterized sample from `dist`, squashed into (-1, 1) via tanh,
@@ -24,13 +25,11 @@ def _squash(dist: torch.distributions.Distribution, eps: float = 1e-6) -> tuple[
     sample further out has a real, increasing entropy cost instead of a free
     one. This is the standard SAC fix for bounded continuous actions.
     """
-    raw      = dist.rsample()
+    raw = dist.rsample()
     squashed = torch.tanh(raw)
-    log_prob = (
-        dist.log_prob(raw).sum(-1, keepdim=True)
-        - torch.log(1 - squashed.pow(2) + eps).sum(-1, keepdim=True)
-    )
+    log_prob = dist.log_prob(raw).sum(-1, keepdim=True) - torch.log(1 - squashed.pow(2) + eps).sum(-1, keepdim=True)
     return squashed, log_prob
+
 
 def deterministic_hedge(policy, states: np.ndarray) -> np.ndarray:
     """The policy's deterministic hedge ratio(s) for state(s) of shape (5,) or
@@ -43,13 +42,33 @@ def deterministic_hedge(policy, states: np.ndarray) -> np.ndarray:
         x = torch.as_tensor(states, dtype=torch.float32, device=device)
         return policy.hedge_ratio(x, torch.tanh(policy(x).mean)).reshape(-1).cpu().numpy()
 
-def train(policy, env, replay_buffer, critic1, critic2,
-          gamma=0.99, tau=0.01, alpha=0.2, lr=1e-4,
-          n_episodes=1000, update_every=10, warmup_steps=1000, batch_size=256,
-          grad_steps_per_update=1, risk_lambda=0.0, reward_scale=1.0,
-          auto_alpha=False, target_entropy=None, alpha_lr=None,
-          val_env=None, val_paths=1000, val_every=50, val_metric="std",
-          checkpoint_path="artifacts/checkpoints/best_policy_model.pth"):
+
+def train(
+    policy,
+    env,
+    replay_buffer,
+    critic1,
+    critic2,
+    gamma=0.99,
+    tau=0.01,
+    alpha=0.2,
+    lr=1e-4,
+    n_episodes=1000,
+    update_every=10,
+    warmup_steps=1000,
+    batch_size=256,
+    grad_steps_per_update=1,
+    risk_lambda=0.0,
+    reward_scale=1.0,
+    auto_alpha=False,
+    target_entropy=None,
+    alpha_lr=None,
+    val_env=None,
+    val_paths=1000,
+    val_every=50,
+    val_metric="std",
+    checkpoint_path="artifacts/checkpoints/best_policy_model.pth",
+):
     """
     val_env: a HedgingEnv on held-out paths. When given, the checkpoint is the
         policy with the best `val_metric` over the terminal-mode P&L of its
@@ -99,7 +118,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
     if target_entropy is None:
         target_entropy = -float(action_dim)
 
-    policy  = policy.to(device)
+    policy = policy.to(device)
     critic1 = critic1.to(device)
     critic2 = critic2.to(device)
 
@@ -112,10 +131,8 @@ def train(policy, env, replay_buffer, critic1, critic2,
     for p in target2.parameters():
         p.requires_grad = False
 
-    actor_opt = torch.optim.Adam(policy.parameters(),  lr=lr)
-    critic_opt = torch.optim.Adam(
-        list(critic1.parameters()) + list(critic2.parameters()), lr=lr
-    )
+    actor_opt = torch.optim.Adam(policy.parameters(), lr=lr)
+    critic_opt = torch.optim.Adam(list(critic1.parameters()) + list(critic2.parameters()), lr=lr)
     if auto_alpha:
         log_alpha = torch.tensor(np.log(alpha), dtype=torch.float32, device=device, requires_grad=True)
         alpha_opt = torch.optim.Adam([log_alpha], lr=lr if alpha_lr is None else alpha_lr)
@@ -147,7 +164,7 @@ def train(policy, env, replay_buffer, critic1, critic2,
     episode_bar = tqdm(range(n_episodes), desc="Training hedge policy", unit="episode")
     for ep in episode_bar:
         state = env.reset()
-        done  = False
+        done = False
         episode_reward = 0.0
 
         while not done:
@@ -167,16 +184,14 @@ def train(policy, env, replay_buffer, critic1, critic2,
                     # and skipping the unused log-prob term are both fine.
                     action = torch.tanh(policy(state_t).sample()).cpu().numpy()
             with torch.no_grad():
-                hedge = policy.hedge_ratio(
-                    state_t, torch.as_tensor(action, dtype=torch.float32, device=device)
-                ).item()
+                hedge = policy.hedge_ratio(state_t, torch.as_tensor(action, dtype=torch.float32, device=device)).item()
 
             next_state, reward, done = env.step(hedge)
             # Critic/actor train on a scaled, risk-shaped reward (mean-variance
             # style); episode_reward (and thus the checkpoint criterion) stays
             # on the raw env reward so it remains comparable to test-hedge's P&L.
             scaled_reward = reward_scale * reward
-            shaped_reward = scaled_reward - risk_lambda * scaled_reward ** 2
+            shaped_reward = scaled_reward - risk_lambda * scaled_reward**2
             replay_buffer.push(state, action, shaped_reward, next_state, done)
             state = next_state
             episode_reward += reward
@@ -191,18 +206,15 @@ def train(policy, env, replay_buffer, critic1, critic2,
 
                 # --- Critic update (Bellman) ---
                 with torch.no_grad():
-                    dist2      = policy(s2)
+                    dist2 = policy(s2)
                     a2, log_pi2 = _squash(dist2)
-                    q_target   = r + gamma * (1 - d) * (
-                        torch.min(target1(s2, a2), target2(s2, a2)) - alpha * log_pi2
-                    )
+                    q_target = r + gamma * (1 - d) * (torch.min(target1(s2, a2), target2(s2, a2)) - alpha * log_pi2)
 
-                critic_loss = (
-                    F.mse_loss(critic1(s, a), q_target) +
-                    F.mse_loss(critic2(s, a), q_target)
-                )
+                critic_loss = F.mse_loss(critic1(s, a), q_target) + F.mse_loss(critic2(s, a), q_target)
 
-                critic_opt.zero_grad(); critic_loss.backward(); critic_opt.step()
+                critic_opt.zero_grad()
+                critic_loss.backward()
+                critic_opt.step()
 
                 with torch.no_grad():
                     for p, tp in zip(critic1.parameters(), target1.parameters()):
@@ -211,17 +223,19 @@ def train(policy, env, replay_buffer, critic1, critic2,
                         tp.data.mul_(1 - tau).add_(tau * p.data)
 
                 # --- Actor update ---
-                dist_new  = policy(s)
+                dist_new = policy(s)
                 a_new, log_pi = _squash(dist_new)
-                actor_loss = (alpha * log_pi - torch.min(
-                    critic1(s, a_new), critic2(s, a_new)
-                )).mean()
+                actor_loss = (alpha * log_pi - torch.min(critic1(s, a_new), critic2(s, a_new))).mean()
 
-                actor_opt.zero_grad(); actor_loss.backward(); actor_opt.step()
+                actor_opt.zero_grad()
+                actor_loss.backward()
+                actor_opt.step()
 
                 if auto_alpha:
                     alpha_loss = -(log_alpha * (log_pi.detach() + target_entropy)).mean()
-                    alpha_opt.zero_grad(); alpha_loss.backward(); alpha_opt.step()
+                    alpha_opt.zero_grad()
+                    alpha_loss.backward()
+                    alpha_opt.step()
                     alpha = log_alpha.exp().item()
 
         recent_rewards.append(episode_reward)
@@ -232,7 +246,9 @@ def train(policy, env, replay_buffer, critic1, critic2,
             if val_last > best_val:
                 best_val = val_last
                 torch.save(policy.state_dict(), checkpoint_path)
-                tqdm.write(f"Saved new best policy at episode {ep + 1} (validation {val_metric}={_metric(best_val):.4f})")
+                tqdm.write(
+                    f"Saved new best policy at episode {ep + 1} (validation {val_metric}={_metric(best_val):.4f})"
+                )
 
         postfix = {"reward": f"{episode_reward:.4f}", "mean_reward_50": f"{mean_reward:.4f}"}
         if val_env is not None:

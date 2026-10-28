@@ -10,6 +10,7 @@ METHODS = ("crr", "bbs", "bbsr")
 # so it can differ from 1 - m by rounding (~1e-16)
 _EXERCISE_TOL = 1e-12
 
+
 class TreeResult(NamedTuple):
     """Per-option outputs of `binomial_put_batch`, all per unit of strike.
 
@@ -19,21 +20,23 @@ class TreeResult(NamedTuple):
     1 - m, with m < 1), which fixes price, delta and gamma to 1 - m, -1 and
     0 exactly; always False for a European put.
     """
+
     price: np.ndarray
     delta: np.ndarray
     gamma: np.ndarray
     exercised: np.ndarray
 
+
 def binomial_put_batch(
-        moneyness,
-        maturity,
-        risk_free_rate,
-        sigma,
-        nb_steps: int = 1000,
-        method: str = "bbsr",
-        american: bool = True,
-        chunk_size: int | None = None
-    ) -> TreeResult:
+    moneyness,
+    maturity,
+    risk_free_rate,
+    sigma,
+    nb_steps: int = 1000,
+    method: str = "bbsr",
+    american: bool = True,
+    chunk_size: int | None = None,
+) -> TreeResult:
     """
     Price a batch of puts with Cox-Ross-Rubinstein trees, all options stepped
     together. Every option gets its own tree (its own u, d, p, discount),
@@ -116,8 +119,9 @@ def binomial_put_batch(
     coarsest = nb_steps // 2 if method == "bbsr" else nb_steps
     min_steps = 2 if method == "crr" else 3
     if coarsest < min_steps:
-        raise ValueError(f"method {method!r} needs nb_steps >= "
-                         f"{min_steps * (2 if method == 'bbsr' else 1)}, got {nb_steps}")
+        raise ValueError(
+            f"method {method!r} needs nb_steps >= {min_steps * (2 if method == 'bbsr' else 1)}, got {nb_steps}"
+        )
 
     batch_shape = params.shape[1:]
     params = params.reshape(4, -1)  # flat batch: column k is option k
@@ -125,12 +129,13 @@ def binomial_put_batch(
     step = chunk_size or max(n_options, 1)
     out = np.empty((3, n_options))  # rows: price, delta, gamma
     for start in range(0, n_options, step):
-        part = params[:, start:start + step]
+        part = params[:, start : start + step]
         if method == "bbsr":
-            out[:, start:start + step] = (2 * _induct(part, nb_steps, bbs=True, american=american)
-                                          - _induct(part, nb_steps // 2, bbs=True, american=american))
+            out[:, start : start + step] = 2 * _induct(part, nb_steps, bbs=True, american=american) - _induct(
+                part, nb_steps // 2, bbs=True, american=american
+            )
         else:
-            out[:, start:start + step] = _induct(part, nb_steps, bbs=method == "bbs", american=american)
+            out[:, start : start + step] = _induct(part, nb_steps, bbs=method == "bbs", american=american)
     # If the put is exercised today, it is worth exactly 1 - m around today's
     # spot: delta -1, gamma 0. The finite differences can't see that when
     # m is just inside the exercise region, since their outer nodes reach
@@ -148,6 +153,7 @@ def binomial_put_batch(
         out[1, exercised] = -1.0
         out[2, exercised] = 0.0
     return TreeResult(*out.reshape(3, *batch_shape), exercised.reshape(batch_shape))
+
 
 def _induct(params, n, bbs, american):
     """Backward induction over n-step trees for a (4, n_options) parameter

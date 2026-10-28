@@ -50,6 +50,7 @@ def test_no_hedge_return_type_is_python_float():
 
 # --- delta_band ---------------------------------------------------------------
 
+
 def test_delta_band_holds_inside_band():
     fn = delta_band(0.1)
     assert fn(make_state(0.50, 0.55)) == pytest.approx(0.55)

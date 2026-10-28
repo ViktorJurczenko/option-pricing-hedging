@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
+from optionpricing.core.gbm import GBM
 from optionpricing.hedging.option_value import binomial_value_fn
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
-from optionpricing.core.gbm import GBM
 
 S0, K, R, SIGMA, T = 100.0, 100.0, 0.05, 0.2, 1.0
 SAMPLING, N_PATHS = 52, 5000

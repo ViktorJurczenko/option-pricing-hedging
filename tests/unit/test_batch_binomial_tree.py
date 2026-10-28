@@ -15,18 +15,35 @@ SIGMA = np.array([0.6, 0.1, 0.2, 0.3, 0.15, 0.4, 0.05])
 # tree generator's cap: m in (0.4, 2.5), T in (0.25, 5), r in (0, 0.08),
 # sigma in (0.05, 0.6). m above 1.6 covers deep out-of-the-money puts,
 # whose ~0 price must not be mistaken for an exercised payoff.
-DOMAIN_GRID = np.meshgrid(np.exp(np.linspace(np.log(0.4), np.log(2.5), 25)), [0.25, 1.0, 5.0],
-                          [0.0, 0.04, 0.08], [0.05, 0.2, 0.6], indexing="ij")
+DOMAIN_GRID = np.meshgrid(
+    np.exp(np.linspace(np.log(0.4), np.log(2.5), 25)),
+    [0.25, 1.0, 5.0],
+    [0.0, 0.04, 0.08],
+    [0.05, 0.2, 0.6],
+    indexing="ij",
+)
 
 
 def test_crr_matches_binomial_tree_option_by_option():
     rng = np.random.default_rng(1)
-    m, t, r, s = rng.uniform(0.6, 1.4, 20), rng.uniform(0.25, 3, 20), rng.uniform(0, 0.08, 20), rng.uniform(0.1, 0.5, 20)
+    m, t, r, s = (
+        rng.uniform(0.6, 1.4, 20),
+        rng.uniform(0.25, 3, 20),
+        rng.uniform(0, 0.08, 20),
+        rng.uniform(0.1, 0.5, 20),
+    )
     batch = binomial_put_batch(m, t, r, s, nb_steps=200, method="crr").price
     single = []
     for k in range(20):
-        tree = BinomialTree(sigma=s[k], start_price=100 * m[k], strike=100.0, risk_free_rate=r[k],
-                            maturity=t[k], nb_steps=200, option_type="put")
+        tree = BinomialTree(
+            sigma=s[k],
+            start_price=100 * m[k],
+            strike=100.0,
+            risk_free_rate=r[k],
+            maturity=t[k],
+            nb_steps=200,
+            option_type="put",
+        )
         tree.predict_payoff()
         single.append(tree.calculate_option_price() / 100)
     # Same recursion, so only rounding differs: measured 3.4e-15.
@@ -66,8 +83,10 @@ def test_european_bbsr_error_falls_fourfold_per_doubling_at_the_money():
     # only: off the money the strike moves relative to the grid as N changes,
     # and the (much smaller, ~1e-8) remainder's ratios scatter from 0.3 to 19.
     bs = black_scholes_price(1.0, 1.0, 1.0, 0.05, 0.2, "put")
-    errors = [abs(binomial_put_batch(1.0, 1.0, 0.05, 0.2, nb_steps=n, american=False).price - bs)
-              for n in (100, 200, 400, 800)]
+    errors = [
+        abs(binomial_put_batch(1.0, 1.0, 0.05, 0.2, nb_steps=n, american=False).price - bs)
+        for n in (100, 200, 400, 800)
+    ]
     ratios = np.array(errors[:-1]) / np.array(errors[1:])
     assert np.all((ratios > 3.5) & (ratios < 4.5)), ratios
 
@@ -75,8 +94,10 @@ def test_european_bbsr_error_falls_fourfold_per_doubling_at_the_money():
 def test_european_bbs_error_halves_per_doubling():
     # Without Richardson the error is first order: measured ratios 1.99, 2.00, 2.00.
     bs = black_scholes_price(1.0, 1.0, 1.0, 0.05, 0.2, "put")
-    errors = [abs(binomial_put_batch(1.0, 1.0, 0.05, 0.2, nb_steps=n, method="bbs", american=False).price - bs)
-              for n in (100, 200, 400, 800)]
+    errors = [
+        abs(binomial_put_batch(1.0, 1.0, 0.05, 0.2, nb_steps=n, method="bbs", american=False).price - bs)
+        for n in (100, 200, 400, 800)
+    ]
     ratios = np.array(errors[:-1]) / np.array(errors[1:])
     assert np.all((ratios > 1.8) & (ratios < 2.2)), ratios
 

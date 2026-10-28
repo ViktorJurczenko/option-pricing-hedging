@@ -14,6 +14,7 @@ reference tree is computed once into `<out_dir>/reference_grid.npz`.
 At the end, `<out_dir>/summary.md` holds mean +- standard deviation over
 the seeds of each variant's key numbers.
 """
+
 import argparse
 import contextlib
 import json
@@ -30,8 +31,8 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-from optionpricing.pricing.american.batch_binomial_tree import METHODS
 from optionpricing.ml.surrogate.tree.tree_training import TrainConfig
+from optionpricing.pricing.american.batch_binomial_tree import METHODS
 
 # name -> the TrainConfig fields it changes; the baseline changes none, so
 # every other row differs from it in exactly one setting (PLAN.md, step 10)
@@ -50,6 +51,7 @@ SEEDS = (42, 43, 44)
 # the default threshold and a 10x stricter one (the 2^19 net's error is ~1.4e-5 K)
 TOLS = (1e-4, 1e-5)
 
+
 def run_config(variant: str, seed: int, epochs=None) -> dict:
     """The variant's TrainConfig fields, as a dict, with `seed` (and `epochs` if given) set."""
     if variant not in VARIANTS:
@@ -59,12 +61,15 @@ def run_config(variant: str, seed: int, epochs=None) -> dict:
         overrides["epochs"] = epochs
     return asdict(TrainConfig(**overrides))  # validated here, before any run starts
 
+
 def run_cost(config: dict) -> int:
     """Relative cost rank: the shape penalty triples a step, the L-BFGS finish adds a tail."""
     return 2 * (config["lambda_shape"] > 0) + (config["lbfgs_steps"] > 0)
 
+
 def run_dir(out_dir, variant: str, seed: int) -> Path:
     return Path(out_dir) / variant / f"seed_{seed}"
+
 
 def is_done(directory: Path, config: dict, evaluation: dict) -> bool:
     """
@@ -83,11 +88,13 @@ def is_done(directory: Path, config: dict, evaluation: dict) -> bool:
         raise ValueError(f"{directory} holds a run with other settings; use another --out_dir or delete it")
     return True
 
+
 def _json_default(x):
     """numpy scalars as Python numbers, for json.dump."""
     if isinstance(x, np.generic):
         return x.item()
     raise TypeError(f"not JSON serializable: {type(x)}")
+
 
 def _write_json(path: Path, obj) -> None:
     """Writes `obj` atomically: an interrupted write leaves no file a rerun would trust."""
@@ -95,9 +102,12 @@ def _write_json(path: Path, obj) -> None:
     tmp.write_text(json.dumps(obj, indent=1, default=_json_default))
     os.replace(tmp, path)
 
+
 def _init_worker(threads: int) -> None:
     import torch
+
     torch.set_num_threads(threads)
+
 
 def train_and_score(job: dict) -> dict:
     """
@@ -110,8 +120,11 @@ def train_and_score(job: dict) -> dict:
 
     directory, config, ev = Path(job["dir"]), job["config"], job["evaluation"]
     directory.mkdir(parents=True, exist_ok=True)
-    with open(directory / "log.txt", "w", encoding="utf-8") as log, \
-            contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+    with (
+        open(directory / "log.txt", "w", encoding="utf-8") as log,
+        contextlib.redirect_stdout(log),
+        contextlib.redirect_stderr(log),
+    ):
         start = time.perf_counter()
         result = train_surrogate(job["dataset_path"], TrainConfig(**config), checkpoint_path=directory / "model.pth")
         train_seconds = time.perf_counter() - start
@@ -119,30 +132,51 @@ def train_and_score(job: dict) -> dict:
 
         tols = ev["tols"]
         test = evaluate_test_split(result.surrogate, job["dataset_path"], config["split_ratio"], config["seed"], tols)
-        grid = evaluate_grid(result.surrogate, ev["ref_steps"], ev["ref_method"], ev["n_z"], ev["n_sigma"],
-                             ev["n_T"], ev["rates"], tols, job["reference_cache"])
+        grid = evaluate_grid(
+            result.surrogate,
+            ev["ref_steps"],
+            ev["ref_method"],
+            ev["n_z"],
+            ev["n_sigma"],
+            ev["n_T"],
+            ev["rates"],
+            tols,
+            job["reference_cache"],
+        )
     with open(directory / "report.txt", "w", encoding="utf-8") as report, contextlib.redirect_stdout(report):
         print_report(grid, test)
 
     # the entry the checkpoint holds: the lowest validation loss (an L-BFGS finish only if kept)
     best = min(result.history, key=lambda h: h["valid_loss"])
-    metrics = {"variant": job["variant"], "seed": config["seed"], "config": config, "evaluation": ev,
-               "train_seconds": train_seconds, "best": best, "test": test, "grid": grid}
+    metrics = {
+        "variant": job["variant"],
+        "seed": config["seed"],
+        "config": config,
+        "evaluation": ev,
+        "train_seconds": train_seconds,
+        "best": best,
+        "test": test,
+        "grid": grid,
+    }
     _write_json(directory / "metrics.json", metrics)
     return {"variant": job["variant"], "seed": config["seed"], "train_seconds": train_seconds}
+
 
 # ---------------------------------------------------------------------------
 # The summary
 # ---------------------------------------------------------------------------
 
+
 def _row(rows: list, name: str) -> dict:
     return next(r for r in rows if r["name"] == name)
+
 
 def _violations(result: dict, tol: float) -> dict:
     """The violation rates at `tol` (NaN if the run was scored at other tolerances)."""
     # json turned the float keys into strings
     by_tol = {float(k): v for k, v in result["violations"].items()}
     return by_tol.get(tol, {"continuation": {"any": math.nan}})
+
 
 # (header, value of one run's metrics); figures in the report's units: $ at K = 100, bp of vol, %, 1/$
 SUMMARY_COLUMNS = (
@@ -154,12 +188,15 @@ SUMMARY_COLUMNS = (
     ("gamma MAE 1/$", lambda m: _row(m["grid"]["by_z"], "all")["gamma_mae"] / 100, ".2e"),
     ("exercised max $", lambda m: 100 * _row(m["grid"]["by_z"], "exercised")["price_max"], ".4f"),
     ("test all MAE $", lambda m: 100 * _row(m["test"]["by_z"], "all")["price_mae"], ".4f"),
-    *((f"viol. > {tol:g} %", lambda m, tol=tol: 100 * _violations(m["grid"], tol)["continuation"]["any"], ".2f")
-      for tol in TOLS),
+    *(
+        (f"viol. > {tol:g} %", lambda m, tol=tol: 100 * _violations(m["grid"], tol)["continuation"]["any"], ".2f")
+        for tol in TOLS
+    ),
     ("valid premium term", lambda m: m["best"]["valid_premium_term"], ".2e"),
     ("valid delta term", lambda m: m["best"]["valid_delta_term"], ".2e"),
     ("train min", lambda m: m["train_seconds"] / 60, ".1f"),
 )
+
 
 def _mean_sd(values: list, spec: str) -> str:
     """'mean +- sd' (sample sd over the seeds), the mean alone for one value."""
@@ -170,6 +207,7 @@ def _mean_sd(values: list, spec: str) -> str:
     if len(values) == 1:
         return format(mean, spec)
     return f"{format(mean, spec)} +- {format(statistics.stdev(values), spec)}"
+
 
 def summarize(results: dict) -> str:
     """
@@ -184,14 +222,18 @@ def summarize(results: dict) -> str:
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
+
 # SetThreadExecutionState flags (winbase.h): keep the setting until changed,
 # keep the system running, keep the display on
 ES_CONTINUOUS, ES_SYSTEM_REQUIRED, ES_DISPLAY_REQUIRED = 0x80000000, 0x00000001, 0x00000002
 
+
 def _set_execution_state(flags: int) -> None:
     """The Win32 call, apart so tests can replace it."""
     import ctypes
+
     ctypes.windll.kernel32.SetThreadExecutionState(flags)
+
 
 @contextlib.contextmanager
 def keep_awake():
@@ -212,6 +254,7 @@ def keep_awake():
     finally:
         _set_execution_state(ES_CONTINUOUS)  # back to the normal power settings
 
+
 def run_jobs(jobs: list, args) -> list:
     """
     Computes the shared reference grid, then runs `jobs` in `args.jobs`
@@ -225,8 +268,16 @@ def run_jobs(jobs: list, args) -> list:
     check_reference(teacher_settings(args.dataset_path), args.ref_method, args.ref_steps)
     with np.load(args.dataset_path) as data:
         domain = {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
-    grid_reference(domain, args.ref_steps, args.ref_method, args.n_z, args.n_sigma, args.n_T, args.rates,
-                   cache_path=Path(args.out_dir) / "reference_grid.npz")
+    grid_reference(
+        domain,
+        args.ref_steps,
+        args.ref_method,
+        args.n_z,
+        args.n_sigma,
+        args.n_T,
+        args.rates,
+        cache_path=Path(args.out_dir) / "reference_grid.npz",
+    )
 
     with ProcessPoolExecutor(max_workers=args.jobs, initializer=_init_worker, initargs=(args.threads,)) as pool:
         futures = {pool.submit(train_and_score, job): job for job in jobs}
@@ -244,22 +295,39 @@ def run_jobs(jobs: list, args) -> list:
                 tqdm.write(f"FAILED: {name} (see {Path(job['dir']) / 'error.txt'})")
     return failed
 
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
+
 def make_parser() -> argparse.ArgumentParser:
-    from optionpricing.ml.surrogate.tree.tree_evaluation import GRID_N_SIGMA, GRID_N_T, GRID_N_Z, GRID_RATES, REF_METHOD, REF_STEPS
+    from optionpricing.ml.surrogate.tree.tree_evaluation import (
+        GRID_N_SIGMA,
+        GRID_N_T,
+        GRID_N_Z,
+        GRID_RATES,
+        REF_METHOD,
+        REF_STEPS,
+    )
 
     parser = argparse.ArgumentParser(description="Seeded ablations of the tree surrogate (PLAN.md, step 10).")
     parser.add_argument("--dataset_path", default="artifacts/data/tree_put_dataset.npz", type=str)
-    parser.add_argument("--out_dir", default="artifacts/runs/ablations", type=str,
-                        help="Where the runs, the reference cache and summary.md go.")
+    parser.add_argument(
+        "--out_dir",
+        default="artifacts/runs/ablations",
+        type=str,
+        help="Where the runs, the reference cache and summary.md go.",
+    )
     parser.add_argument("--variants", default=list(VARIANTS), nargs="+", choices=list(VARIANTS))
     parser.add_argument("--seeds", default=list(SEEDS), nargs="+", type=int)
     parser.add_argument("--jobs", default=4, type=int, help="Runs at a time, one process each.")
-    parser.add_argument("--threads", default=2, type=int,
-                        help="Torch/BLAS threads per run (4 runs x 2 threads: ~2.8x one 8-thread run).")
+    parser.add_argument(
+        "--threads",
+        default=2,
+        type=int,
+        help="Torch/BLAS threads per run (4 runs x 2 threads: ~2.8x one 8-thread run).",
+    )
     parser.add_argument("--epochs", default=None, type=int, help="Override TrainConfig's epochs (smoke runs).")
     parser.add_argument("--ref_steps", default=REF_STEPS, type=int)
     parser.add_argument("--ref_method", default=REF_METHOD, choices=METHODS)
@@ -267,19 +335,34 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n_sigma", default=GRID_N_SIGMA, type=int)
     parser.add_argument("--n_T", default=GRID_N_T, type=int)
     parser.add_argument("--rates", default=list(GRID_RATES), nargs="+", type=float)
-    parser.add_argument("--tols", default=list(TOLS), nargs="+", type=float,
-                        help="Violation tolerances; the summary shows the default two.")
+    parser.add_argument(
+        "--tols",
+        default=list(TOLS),
+        nargs="+",
+        type=float,
+        help="Violation tolerances; the summary shows the default two.",
+    )
     return parser
+
 
 def main(argv=None) -> int:
     args = make_parser().parse_args(argv)
     if not Path(args.dataset_path).is_file():
-        raise FileNotFoundError(f"no dataset at {args.dataset_path} (python -m optionpricing.ml.surrogate.tree.generate_tree_dataset)")
+        raise FileNotFoundError(
+            f"no dataset at {args.dataset_path} (python -m optionpricing.ml.surrogate.tree.generate_tree_dataset)"
+        )
     # the threads of the worker processes' BLAS (the tree pricer's numpy); set before they start
     os.environ["OMP_NUM_THREADS"] = os.environ["MKL_NUM_THREADS"] = str(args.threads)
 
-    evaluation = {"ref_steps": args.ref_steps, "ref_method": args.ref_method, "n_z": args.n_z,
-                  "n_sigma": args.n_sigma, "n_T": args.n_T, "rates": args.rates, "tols": args.tols}
+    evaluation = {
+        "ref_steps": args.ref_steps,
+        "ref_method": args.ref_method,
+        "n_z": args.n_z,
+        "n_sigma": args.n_sigma,
+        "n_T": args.n_T,
+        "rates": args.rates,
+        "tols": args.tols,
+    }
     # every config validated and every finished run checked before any work
     jobs, skipped = [], 0
     for variant in args.variants:
@@ -289,9 +372,16 @@ def main(argv=None) -> int:
             if is_done(directory, config, evaluation):
                 skipped += 1
                 continue
-            jobs.append({"variant": variant, "dir": str(directory), "config": config, "evaluation": evaluation,
-                         "dataset_path": args.dataset_path,
-                         "reference_cache": str(Path(args.out_dir) / "reference_grid.npz")})
+            jobs.append(
+                {
+                    "variant": variant,
+                    "dir": str(directory),
+                    "config": config,
+                    "evaluation": evaluation,
+                    "dataset_path": args.dataset_path,
+                    "reference_cache": str(Path(args.out_dir) / "reference_grid.npz"),
+                }
+            )
     # the slow runs first, so they don't end up alone at the end of the night
     jobs.sort(key=lambda j: -run_cost(j["config"]))
     print(f"{len(jobs)} runs to do, {skipped} already done; {args.jobs} at a time, {args.threads} threads each")
@@ -305,8 +395,11 @@ def main(argv=None) -> int:
     # the summary of every finished run of the requested variants and seeds
     results = {}
     for variant in args.variants:
-        runs = [json.loads((run_dir(args.out_dir, variant, s) / "metrics.json").read_text())
-                for s in args.seeds if (run_dir(args.out_dir, variant, s) / "metrics.json").is_file()]
+        runs = [
+            json.loads((run_dir(args.out_dir, variant, s) / "metrics.json").read_text())
+            for s in args.seeds
+            if (run_dir(args.out_dir, variant, s) / "metrics.json").is_file()
+        ]
         if runs:
             results[variant] = runs
     table = summarize(results)
@@ -315,6 +408,7 @@ def main(argv=None) -> int:
     if failed:
         print(f"\n{len(failed)} run(s) failed: {', '.join(failed)}")
     return 1 if failed else 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

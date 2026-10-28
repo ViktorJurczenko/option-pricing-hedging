@@ -1,5 +1,6 @@
 """optionpricing.ml.rl.sac.train(): the training loop wiring, its argument
 checks, the entropy coefficient, action squashing and each action mode."""
+
 import math
 
 import numpy as np
@@ -8,11 +9,11 @@ import torch
 import tqdm as tqdm_pkg
 
 import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.sac import _squash, train
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.policy import RLPolicy
 from optionpricing.ml.rl.critic import Critic
-from tests.unit.hedge_fakes import FakeEnv, make_nets, ActionSpyBuffer, PositionEnv, BanditEnv, train_bandit
+from optionpricing.ml.rl.policy import RLPolicy
+from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.sac import _squash, train
+from tests.unit.hedge_fakes import ActionSpyBuffer, BanditEnv, FakeEnv, PositionEnv, make_nets, train_bandit
 
 
 class CountingReplayBuffer(ReplayBuffer):
@@ -34,8 +35,15 @@ def _run_and_count_sample_calls(tmp_path, grad_steps_per_update):
     policy, critic1, critic2 = make_nets()
 
     train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
         grad_steps_per_update=grad_steps_per_update,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
@@ -85,9 +93,19 @@ def test_auto_alpha_moves_in_the_direction_the_entropy_gap_implies(monkeypatch, 
     policy, critic1, critic2 = make_nets()
 
     hedge_module.train(
-        policy, FakeEnv(raw_rewards=[1.0] * 6), ReplayBuffer(max_size=1000), critic1, critic2,
-        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
-        alpha=initial_alpha, auto_alpha=True, alpha_lr=0.05, target_entropy=target_entropy,
+        policy,
+        FakeEnv(raw_rewards=[1.0] * 6),
+        ReplayBuffer(max_size=1000),
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
+        alpha=initial_alpha,
+        auto_alpha=True,
+        alpha_lr=0.05,
+        target_entropy=target_entropy,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
@@ -113,8 +131,15 @@ def test_without_auto_alpha_postfix_omits_alpha_key(monkeypatch, tmp_path):
     monkeypatch.setattr(hedge_module, "tqdm", RecordingTqdm)
 
     hedge_module.train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
         auto_alpha=False,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
@@ -145,9 +170,18 @@ def test_alpha_lr_none_reuses_lr_for_log_alpha_optimizer(monkeypatch, tmp_path):
     policy, critic1, critic2 = make_nets()
 
     hedge_module.train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
-        lr=7e-3, auto_alpha=True, alpha_lr=None,
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
+        lr=7e-3,
+        auto_alpha=True,
+        alpha_lr=None,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
@@ -174,9 +208,18 @@ def test_alpha_lr_explicit_value_used_only_for_log_alpha_optimizer(monkeypatch, 
     policy, critic1, critic2 = make_nets()
 
     hedge_module.train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
-        lr=7e-3, auto_alpha=True, alpha_lr=0.5,
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
+        lr=7e-3,
+        auto_alpha=True,
+        alpha_lr=0.5,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
@@ -198,7 +241,11 @@ def test_train_raises_on_non_positive_grad_steps_per_update(grad_steps_per_updat
     other args can be trivial/None, since the ValueError must fire first."""
     with pytest.raises(ValueError, match="grad_steps_per_update"):
         train(
-            None, None, None, None, None,
+            None,
+            None,
+            None,
+            None,
+            None,
             grad_steps_per_update=grad_steps_per_update,
         )
 
@@ -212,6 +259,7 @@ def test_train_raises_on_non_positive_grad_steps_per_update(grad_steps_per_updat
 # outputs and drive `mean` to the tens of thousands / `log_std` to its
 # clamp ceiling. `_squash` fixes this with a tanh-squashed reparameterized
 # sample plus the matching log-prob Jacobian correction.
+
 
 def test_squash_output_always_within_bounds_for_extreme_distribution():
     """Core invariant _squash must provide: its returned action always lies
@@ -300,8 +348,15 @@ def test_train_feeds_only_bounded_actions_to_critics(tmp_path):
     buffer = ReplayBuffer(max_size=1000)
 
     train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=0, update_every=1, batch_size=2,
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
@@ -314,6 +369,7 @@ def test_train_feeds_only_bounded_actions_to_critics(tmp_path):
 
 
 # --- residual-on-delta hedge mapping in train() ---------------------------
+
 
 class DeltaEnv:
     """Env stand-in whose states carry a known, varying delta (state index 2),
@@ -343,14 +399,20 @@ def _run_delta_env(tmp_path, residual_scale, warmup_steps):
     buffer = ActionSpyBuffer(max_size=100)
     policy = RLPolicy(5, 1, residual_scale=residual_scale)
     train(
-        policy, env, buffer, Critic(5, 1), Critic(5, 1),
-        n_episodes=1, warmup_steps=warmup_steps, batch_size=10 ** 6,
+        policy,
+        env,
+        buffer,
+        Critic(5, 1),
+        Critic(5, 1),
+        n_episodes=1,
+        warmup_steps=warmup_steps,
+        batch_size=10**6,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
     return env, buffer
 
 
-@pytest.mark.parametrize("warmup_steps", [10 ** 6, 0], ids=["warmup_random", "policy_sampled"])
+@pytest.mark.parametrize("warmup_steps", [10**6, 0], ids=["warmup_random", "policy_sampled"])
 def test_train_sends_residual_hedge_to_env_but_stores_squashed_action(tmp_path, warmup_steps):
     """The env must see clip(delta + c*action, -1, 1) while the replay buffer
     (what the critics train on) keeps the raw squashed action. Deltas 0.95 and
@@ -374,20 +436,28 @@ def test_train_sends_residual_hedge_to_env_but_stores_squashed_action(tmp_path, 
 def test_train_with_zero_residual_scale_sends_squashed_action_unchanged(tmp_path):
     torch.manual_seed(0)
     np.random.seed(0)
-    env, buffer = _run_delta_env(tmp_path, 0.0, warmup_steps=10 ** 6)
+    env, buffer = _run_delta_env(tmp_path, 0.0, warmup_steps=10**6)
     for sent, (_, pushed_action) in zip(env.step_actions, buffer.pushed):
         assert sent == pytest.approx(pushed_action, abs=1e-6)  # float32 rounding only
 
 
-@pytest.mark.parametrize("warmup_steps", [10 ** 6, 0], ids=["warmup_random", "policy_sampled"])
+@pytest.mark.parametrize("warmup_steps", [10**6, 0], ids=["warmup_random", "policy_sampled"])
 def test_train_gap_fraction_sends_interpolated_hedge_but_stores_squashed_action(tmp_path, warmup_steps):
     torch.manual_seed(0)
     np.random.seed(0)
     env, buffer = PositionEnv(), ActionSpyBuffer(max_size=100)
     policy = RLPolicy(5, 1, action_mode="gap_fraction")
-    train(policy, env, buffer, Critic(5, 1), Critic(5, 1),
-          n_episodes=1, warmup_steps=warmup_steps, batch_size=10 ** 6,
-          checkpoint_path=str(tmp_path / "policy.pth"))
+    train(
+        policy,
+        env,
+        buffer,
+        Critic(5, 1),
+        Critic(5, 1),
+        n_episodes=1,
+        warmup_steps=warmup_steps,
+        batch_size=10**6,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
 
     assert len(env.step_actions) == len(buffer.pushed) == 3
     for sent, (state, pushed_action) in zip(env.step_actions, buffer.pushed):
@@ -422,13 +492,13 @@ def test_deterministic_hedge_gap_fraction_fresh_policy_closes_90_percent_of_gap(
     policy = RLPolicy(5, 1, action_mode="gap_fraction")
     with torch.no_grad():
         policy.layer3.weight.zero_()
-    states = np.array([[1.0, 0.1, 0.8, 0.2, 0.0],
-                       [1.0, 0.1, -0.5, 0.2, 0.5]])
+    states = np.array([[1.0, 0.1, 0.8, 0.2, 0.0], [1.0, 0.1, -0.5, 0.2, 0.5]])
     out = hedge_module.deterministic_hedge(policy, states)
     np.testing.assert_allclose(out, [0.9 * 0.8, 0.5 + 0.9 * (-1.0)], atol=1e-6)
 
 
 # --- deterministic_hedge ----------------------------------------------------
+
 
 def test_deterministic_hedge_matches_hedge_ratio_of_tanh_mean_for_batch_and_single():
     torch.manual_seed(0)
@@ -458,6 +528,7 @@ def test_deterministic_hedge_with_zero_residual_scale_is_tanh_of_mean():
 
 # --- vector actions: ReplayBuffer and target_entropy ------------------------
 
+
 @pytest.mark.parametrize("action_dim,mode,expected", [(1, "residual", -1.0), (2, "band", -2.0)])
 def test_train_target_entropy_defaults_to_minus_action_dim(monkeypatch, tmp_path, action_dim, mode, expected):
     """The alpha loss is -(log_alpha * (log_pi + target_entropy)).mean(); with
@@ -473,26 +544,45 @@ def test_train_target_entropy_defaults_to_minus_action_dim(monkeypatch, tmp_path
         return real_step(self, *a, **k)
 
     monkeypatch.setattr(torch.optim.Adam, "step", spy_step)
-    monkeypatch.setattr(hedge_module, "_squash",
-                        lambda dist: (torch.tanh(dist.mean), torch.zeros(dist.mean.shape[:-1] + (1,))))
-    train(RLPolicy(5, action_dim, action_mode=mode), PositionEnv(), ReplayBuffer(max_size=100),
-          Critic(5, action_dim), Critic(5, action_dim),
-          n_episodes=1, warmup_steps=0, update_every=1, batch_size=2, auto_alpha=True,
-          checkpoint_path=str(tmp_path / "policy.pth"))
+    monkeypatch.setattr(
+        hedge_module, "_squash", lambda dist: (torch.tanh(dist.mean), torch.zeros(dist.mean.shape[:-1] + (1,)))
+    )
+    train(
+        RLPolicy(5, action_dim, action_mode=mode),
+        PositionEnv(),
+        ReplayBuffer(max_size=100),
+        Critic(5, action_dim),
+        Critic(5, action_dim),
+        n_episodes=1,
+        warmup_steps=0,
+        update_every=1,
+        batch_size=2,
+        auto_alpha=True,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
     assert grads and all(g == pytest.approx(-expected) for g in grads)
 
 
 # --- band mode: 2-D actions in train() ---------------------------------------
 
-@pytest.mark.parametrize("warmup_steps", [10 ** 6, 0], ids=["warmup_random", "policy_sampled"])
+
+@pytest.mark.parametrize("warmup_steps", [10**6, 0], ids=["warmup_random", "policy_sampled"])
 def test_train_band_stores_2d_action_and_sends_band_hedge(tmp_path, warmup_steps):
     torch.manual_seed(0)
     np.random.seed(0)
     env, buffer = PositionEnv(), ActionSpyBuffer(max_size=100)
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
-    train(policy, env, buffer, Critic(5, 2), Critic(5, 2),
-          n_episodes=1, warmup_steps=warmup_steps, batch_size=10 ** 6,
-          checkpoint_path=str(tmp_path / "policy.pth"))
+    train(
+        policy,
+        env,
+        buffer,
+        Critic(5, 2),
+        Critic(5, 2),
+        n_episodes=1,
+        warmup_steps=warmup_steps,
+        batch_size=10**6,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
 
     assert len(env.step_actions) == len(buffer.pushed) == 3
     for sent, (state, pushed_action) in zip(env.step_actions, buffer.pushed):
@@ -526,13 +616,21 @@ def test_train_band_hold_resends_the_envs_position_exactly(tmp_path):
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
     with torch.no_grad():
         policy.layer3.weight.zero_()
-        policy.layer3.bias[0] = 0.0     # b = 0.1
-        policy.layer3.bias[1] = 20.0    # rebalance to delta
+        policy.layer3.bias[0] = 0.0  # b = 0.1
+        policy.layer3.bias[1] = 20.0  # rebalance to delta
         policy.layer3.bias[2:] = -20.0  # tiny std: sampled ~ mean
     env = TrackingEnv()
-    train(policy, env, ReplayBuffer(max_size=100), Critic(5, 2), Critic(5, 2),
-          n_episodes=1, warmup_steps=0, batch_size=10 ** 6,
-          checkpoint_path=str(tmp_path / "policy.pth"))
+    train(
+        policy,
+        env,
+        ReplayBuffer(max_size=100),
+        Critic(5, 2),
+        Critic(5, 2),
+        n_episodes=1,
+        warmup_steps=0,
+        batch_size=10**6,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+    )
     first, *holds = env.step_actions
     assert first == pytest.approx(0.5, abs=1e-6)
     assert holds == [first, first]  # exact, not approx

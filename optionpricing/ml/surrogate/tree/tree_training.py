@@ -1,18 +1,22 @@
 import math
 import os
 from dataclasses import dataclass
-from typing import NamedTuple, Optional, Union
+from typing import NamedTuple
 
 import numpy as np
 import torch
 from tqdm import tqdm
 
-from optionpricing.pricing.european.black_scholes import (black_scholes_delta, black_scholes_dT, black_scholes_gamma,
-                                                black_scholes_vega)
-from optionpricing.ml.surrogate.tree.tree_dataset import FEATURES, FeatureStats, TreePutDataset, build_features
 from optionpricing.ml.surrogate.tree.generate_tree_dataset import SAMPLED, map_to_domain
+from optionpricing.ml.surrogate.tree.tree_dataset import FEATURES, FeatureStats, TreePutDataset, build_features
 from optionpricing.ml.surrogate.tree.tree_model import MLP
 from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
+from optionpricing.pricing.european.black_scholes import (
+    black_scholes_delta,
+    black_scholes_dT,
+    black_scholes_gamma,
+    black_scholes_vega,
+)
 
 # The no-arbitrage conditions of shape_violations, in its column order.
 SHAPE_CONDITIONS = ("decreasing_in_m", "convex_in_m", "increasing_in_T", "increasing_in_sigma")
@@ -29,6 +33,7 @@ EVAL_CHUNK = 8192
 # jitters from epoch to epoch, and a fixed patience cut 400-epoch runs
 # short before their low-rate tail (BUGS.md).
 PATIENCE_LR_FRACTION = 0.1
+
 
 @dataclass(frozen=True)
 class TrainConfig:
@@ -62,23 +67,24 @@ class TrainConfig:
             outside [0, lr], valid_ratio outside (0, 1), negative lambdas
             or lbfgs_steps.
     """
+
     # ~50k weights: enough for a smooth function of 6 inputs, microseconds to evaluate
     depth: int = 4
     width: int = 128
-    activation: str = "silu"    # smooth, so the autograd delta and gamma are meaningful (ReLU's gamma is 0)
-    output: str = "linear"      # softplus can't fit the labels' slightly negative premiums (-2.7e-6)
-    split_ratio: float = 0.8    # the same 80/20 train/test split as every dataset class here
-    valid_ratio: float = 0.2    # of the training split: ~84k validation rows at 2^19, plenty for a stable score
-    batch_size: int = 1024      # the plan's 512-1024: low-noise gradients, few large ops (fast on CPU)
-    epochs: int = 400           # the cosine's length, ~20 min at 2^19 rows; 400 beat 200 and 800 on price (PLAN.md)
-    lr: float = 1e-3            # Adam's standard start
-    lr_min: float = 1e-5        # 100x smaller: steps fine enough to settle at the end (the plan's value)
-    patience: int = 20          # counted in the low-rate tail only: the cosine ends a normal run
-    lbfgs_steps: int = 0        # off until the ablation shows the finish is worth its cost
-    lambda_delta: float = 1.0   # equal weight to the premium term (both normalized by their variance)
-    lambda_shape: float = 0.0   # off: hurt every region on the first trial (see above)
-    shape_points: int = 1024    # one batch's worth: as many unlabeled points as labeled ones per step
-    seed: int = 42              # the repo's usual seed
+    activation: str = "silu"  # smooth, so the autograd delta and gamma are meaningful (ReLU's gamma is 0)
+    output: str = "linear"  # softplus can't fit the labels' slightly negative premiums (-2.7e-6)
+    split_ratio: float = 0.8  # the same 80/20 train/test split as every dataset class here
+    valid_ratio: float = 0.2  # of the training split: ~84k validation rows at 2^19, plenty for a stable score
+    batch_size: int = 1024  # the plan's 512-1024: low-noise gradients, few large ops (fast on CPU)
+    epochs: int = 400  # the cosine's length, ~20 min at 2^19 rows; 400 beat 200 and 800 on price (PLAN.md)
+    lr: float = 1e-3  # Adam's standard start
+    lr_min: float = 1e-5  # 100x smaller: steps fine enough to settle at the end (the plan's value)
+    patience: int = 20  # counted in the low-rate tail only: the cosine ends a normal run
+    lbfgs_steps: int = 0  # off until the ablation shows the finish is worth its cost
+    lambda_delta: float = 1.0  # equal weight to the premium term (both normalized by their variance)
+    lambda_shape: float = 0.0  # off: hurt every region on the first trial (see above)
+    shape_points: int = 1024  # one batch's worth: as many unlabeled points as labeled ones per step
+    seed: int = 42  # the repo's usual seed
 
     def __post_init__(self):
         for name in ("batch_size", "epochs", "patience", "shape_points"):
@@ -92,6 +98,7 @@ class TrainConfig:
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0, got {getattr(self, name)}")
 
+
 class LossScales(NamedTuple):
     """
     Variances of the targets over the training rows. Each loss term is
@@ -99,6 +106,7 @@ class LossScales(NamedTuple):
     weighs it like the premium term, whatever the targets' sizes (the
     premium is ~1e-2 K, its delta ~1e-1).
     """
+
     premium: float
     delta: float
 
@@ -109,12 +117,14 @@ class LossScales(NamedTuple):
         # 1.0: leaves that term unscaled rather than dividing by zero
         return cls(*(v if v > 0 else 1.0 for v in var))
 
+
 class ShapePoints(NamedTuple):
     """
     Unlabeled points for the shape penalties: raw float64 parameters and
     the Black-Scholes put's derivatives there, which the full price's
     derivatives need (the net only adds the premium's).
     """
+
     m: torch.Tensor
     T: torch.Tensor
     r: torch.Tensor
@@ -138,18 +148,29 @@ class ShapePoints(NamedTuple):
     def from_params(cls, m, T, r, sigma, device=None) -> "ShapePoints":
         """Points at given (n,) parameter arrays, with their BS derivatives."""
         args = (m, 1.0, T, r, sigma)  # strike 1: everything is per unit of strike
-        cols = [m, T, r, sigma, black_scholes_delta(*args, "put"), black_scholes_gamma(*args),
-                black_scholes_dT(*args, "put"), black_scholes_vega(*args)]
+        cols = [
+            m,
+            T,
+            r,
+            sigma,
+            black_scholes_delta(*args, "put"),
+            black_scholes_gamma(*args),
+            black_scholes_dT(*args, "put"),
+            black_scholes_vega(*args),
+        ]
         return cls(*(torch.as_tensor(c, dtype=torch.float64, device=device) for c in cols))
 
     def take(self, idx) -> "ShapePoints":
         """The points at `idx` (a slice or an index tensor)."""
         return ShapePoints(*(t[idx] for t in self))
 
+
 class TrainResult(NamedTuple):
     """The surrogate with the best validation weights, and one dict of metrics per epoch."""
+
     surrogate: PutSurrogate
     history: list
+
 
 def premium_and_delta(model: MLP, x: torch.Tensor, x_dm: torch.Tensor, create_graph: bool = True):
     """
@@ -164,8 +185,9 @@ def premium_and_delta(model: MLP, x: torch.Tensor, x_dm: torch.Tensor, create_gr
     """
     x = x.detach().requires_grad_(True)
     premium = model(x).squeeze(-1)
-    grad, = torch.autograd.grad(premium.sum(), x, create_graph=create_graph)
+    (grad,) = torch.autograd.grad(premium.sum(), x, create_graph=create_graph)
     return premium, (grad * x_dm).sum(-1)
+
 
 def labeled_loss(model: MLP, batch, scales: LossScales, lambda_delta: float, create_graph: bool = True):
     """
@@ -191,20 +213,24 @@ def labeled_loss(model: MLP, batch, scales: LossScales, lambda_delta: float, cre
     loss = premium_mse / scales.premium + lambda_delta * delta_mse / scales.delta
     return loss, premium_mse.detach(), delta_mse.detach()
 
+
 class PriceDerivatives(NamedTuple):
     """
     The net's premium and the *full* American price's derivatives
     (Black-Scholes put + premium) at some points, per unit of strike:
     delta = dV/dm, gamma = d2V/dm2, dT = dV/dT, vega = dV/dsigma.
     """
+
     premium: torch.Tensor
     delta: torch.Tensor
     gamma: torch.Tensor
     dT: torch.Tensor
     vega: torch.Tensor
 
-def price_derivatives(model: MLP, stats: FeatureStats, points: ShapePoints,
-                      create_graph: bool = True) -> PriceDerivatives:
+
+def price_derivatives(
+    model: MLP, stats: FeatureStats, points: ShapePoints, create_graph: bool = True
+) -> PriceDerivatives:
     """
     The full price's derivatives at `points` (PriceDerivatives): the
     Black-Scholes part from the closed forms stored in ShapePoints, the
@@ -225,10 +251,12 @@ def price_derivatives(model: MLP, stats: FeatureStats, points: ShapePoints,
     premium = model(x.to(param)).squeeze(-1)
 
     d_m, d_T, d_sigma = torch.autograd.grad(premium.sum(), (m, T, sigma), create_graph=True)
-    d2_m, = torch.autograd.grad(d_m.sum(), m, create_graph=create_graph)
+    (d2_m,) = torch.autograd.grad(d_m.sum(), m, create_graph=create_graph)
 
-    return PriceDerivatives(premium, points.bs_delta + d_m, points.bs_gamma + d2_m,
-                            points.bs_dT + d_T, points.bs_vega + d_sigma)
+    return PriceDerivatives(
+        premium, points.bs_delta + d_m, points.bs_gamma + d2_m, points.bs_dT + d_T, points.bs_vega + d_sigma
+    )
+
 
 def scaled_violations(derivs: PriceDerivatives, points: ShapePoints) -> torch.Tensor:
     """
@@ -242,8 +270,12 @@ def scaled_violations(derivs: PriceDerivatives, points: ShapePoints) -> torch.Te
     """
     m, T, sigma = points.m, points.T, points.sigma
     w = sigma * torch.sqrt(T)  # the price's natural length scale in log m (a constant factor)
-    return torch.relu(torch.stack([w * m * derivs.delta, -(w * m) ** 2 * derivs.gamma,
-                                   -T * derivs.dT, -sigma * derivs.vega], dim=-1))
+    return torch.relu(
+        torch.stack(
+            [w * m * derivs.delta, -((w * m) ** 2) * derivs.gamma, -T * derivs.dT, -sigma * derivs.vega], dim=-1
+        )
+    )
+
 
 def shape_violations(model: MLP, stats: FeatureStats, points: ShapePoints, create_graph: bool = True) -> torch.Tensor:
     """
@@ -273,9 +305,11 @@ def shape_violations(model: MLP, stats: FeatureStats, points: ShapePoints, creat
     """
     return scaled_violations(price_derivatives(model, stats, points, create_graph), points)
 
+
 def shape_penalty(model: MLP, stats: FeatureStats, points: ShapePoints, scales: LossScales) -> torch.Tensor:
     """Mean over points of the summed squared violations, / var(premium)."""
     return shape_violations(model, stats, points).pow(2).sum(-1).mean() / scales.premium
+
 
 def evaluate_labeled(model: MLP, rows, scales: LossScales, lambda_delta: float) -> dict:
     """
@@ -294,18 +328,28 @@ def evaluate_labeled(model: MLP, rows, scales: LossScales, lambda_delta: float) 
     n = len(rows[0])
     premium_se = delta_se = 0.0
     for start in range(0, n, EVAL_CHUNK):
-        chunk = tuple(t[start:start + EVAL_CHUNK] for t in rows)
+        chunk = tuple(t[start : start + EVAL_CHUNK] for t in rows)
         # lambda_delta=1.0 (any non-zero value): forces the delta MSE to be computed, the weighting is applied below
         _, premium_mse, delta_mse = labeled_loss(model, chunk, scales, lambda_delta=1.0, create_graph=False)
         premium_se += float(premium_mse) * len(chunk[0])
         delta_se += float(delta_mse) * len(chunk[0])
     premium_mse, delta_mse = premium_se / n, delta_se / n
     premium_term, delta_term = premium_mse / scales.premium, lambda_delta * delta_mse / scales.delta
-    return {"loss": premium_term + delta_term, "premium_term": premium_term, "delta_term": delta_term,
-            "premium_rmse": math.sqrt(premium_mse), "delta_rmse": math.sqrt(delta_mse)}
+    return {
+        "loss": premium_term + delta_term,
+        "premium_term": premium_term,
+        "delta_term": delta_term,
+        "premium_rmse": math.sqrt(premium_mse),
+        "delta_rmse": math.sqrt(delta_mse),
+    }
 
-def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig = TrainConfig(),
-                    checkpoint_path: Optional[Union[str, os.PathLike]] = None, device=None) -> TrainResult:
+
+def train_surrogate(
+    dataset_path: str | os.PathLike,
+    config: TrainConfig = TrainConfig(),  # noqa: B008 (frozen dataclass, immutable)
+    checkpoint_path: str | os.PathLike | None = None,
+    device=None,
+) -> TrainResult:
     """
     Trains an MLP on the training split of a tree put dataset
     (`python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`) and returns it as a
@@ -344,8 +388,10 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
     # hold out valid_ratio of it, seeded, to choose the checkpoint and stop early
     n_valid = int(len(data) * config.valid_ratio)
     if n_valid == 0 or n_valid == len(data):
-        raise ValueError(f"{len(data)} training rows leave no rows to train on or to validate with "
-                         f"(valid_ratio={config.valid_ratio})")
+        raise ValueError(
+            f"{len(data)} training rows leave no rows to train on or to validate with "
+            f"(valid_ratio={config.valid_ratio})"
+        )
     perm = torch.randperm(len(data), generator=torch.Generator().manual_seed(config.seed))
     tensors = (data.features, data.features_dm, data.premium, data.premium_dm)
     valid = tuple(t[perm[:n_valid]].to(device) for t in tensors)
@@ -355,13 +401,19 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
     scales = LossScales.fit(train[2], train[3])
 
     torch.manual_seed(config.seed)  # the weights' initialization
-    model = MLP(n_inputs=len(FEATURES), depth=config.depth, width=config.width,
-                activation=config.activation, output=config.output).to(device)
+    model = MLP(
+        n_inputs=len(FEATURES),
+        depth=config.depth,
+        width=config.width,
+        activation=config.activation,
+        output=config.output,
+    ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     # cosine from lr to lr_min over every step of the run, stepped per batch so the decay is smooth
     steps_per_epoch = math.ceil(n_train / config.batch_size)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs * steps_per_epoch,
-                                                           eta_min=config.lr_min)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=config.epochs * steps_per_epoch, eta_min=config.lr_min
+    )
     # their own seeded generators, so the batch order and the shape points are reproducible
     batch_order = torch.Generator().manual_seed(config.seed)
     shape_rng = np.random.default_rng(config.seed)
@@ -382,7 +434,7 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
         sums = {"loss": 0.0, "shape": 0.0}
         batch_bar = tqdm(range(steps_per_epoch), desc=f"Epoch {epoch + 1}/{config.epochs}", unit="batch", leave=False)
         for step in batch_bar:
-            idx = order[step * config.batch_size:(step + 1) * config.batch_size]
+            idx = order[step * config.batch_size : (step + 1) * config.batch_size]
             # premium error + lambda_delta * delta error on this batch of labeled rows
             loss, _, _ = labeled_loss(model, tuple(t[idx] for t in train), scales, config.lambda_delta)
             if config.lambda_shape > 0:
@@ -401,12 +453,21 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
 
         # score the epoch on the held-out rows (labeled loss only: the random shape term would add noise)
         metrics = evaluate_labeled(model, valid, scales, config.lambda_delta)
-        history.append({"epoch": epoch + 1, "train_loss": sums["loss"] / steps_per_epoch,
-                        "shape_penalty": sums["shape"] / steps_per_epoch, "lr": optimizer.param_groups[0]["lr"],
-                        **{f"valid_{k}": v for k, v in metrics.items()}})
+        history.append(
+            {
+                "epoch": epoch + 1,
+                "train_loss": sums["loss"] / steps_per_epoch,
+                "shape_penalty": sums["shape"] / steps_per_epoch,
+                "lr": optimizer.param_groups[0]["lr"],
+                **{f"valid_{k}": v for k, v in metrics.items()},
+            }
+        )
         # the combined loss decides, its two halves are shown apart (one can improve as the other worsens)
-        shown = {"valid": f"{metrics['loss']:.3e}", "price": f"{metrics['premium_term']:.2e}",
-                 "delta": f"{metrics['delta_term']:.2e}"}
+        shown = {
+            "valid": f"{metrics['loss']:.3e}",
+            "price": f"{metrics['premium_term']:.2e}",
+            "delta": f"{metrics['delta_term']:.2e}",
+        }
         # keep (and save) the weights only on a strict improvement; else count towards early
         # stopping, once the rate is low enough that a stalled loss is not just high-rate jitter
         if metrics["loss"] < best_loss:
@@ -430,8 +491,7 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
     if config.lbfgs_steps > 0:
         # a fixed pool, as many points as training rows: the line search
         # compares losses between trial steps, which fresh points would break
-        pool = (ShapePoints.sample(shape_rng, n_train, data.domain, device)
-                if config.lambda_shape > 0 else None)
+        pool = ShapePoints.sample(shape_rng, n_train, data.domain, device) if config.lambda_shape > 0 else None
         _lbfgs_finish(model, train, scales, config, data.stats, pool)
         # keep the finish only if it beats Adam's best on the held-out rows
         metrics = evaluate_labeled(model, valid, scales, config.lambda_delta)
@@ -444,8 +504,10 @@ def train_surrogate(dataset_path: Union[str, os.PathLike], config: TrainConfig =
 
     return TrainResult(PutSurrogate(_cpu_copy(model), data.stats, data.domain), history)
 
-def _lbfgs_finish(model: MLP, train, scales: LossScales, config: TrainConfig, stats: FeatureStats,
-                  pool: Optional[ShapePoints]) -> None:
+
+def _lbfgs_finish(
+    model: MLP, train, scales: LossScales, config: TrainConfig, stats: FeatureStats, pool: ShapePoints | None
+) -> None:
     """
     `config.lbfgs_steps` full-batch L-BFGS iterations (strong-Wolfe line
     search) on the training loss, the shape penalty taken on the fixed
@@ -461,8 +523,14 @@ def _lbfgs_finish(model: MLP, train, scales: LossScales, config: TrainConfig, st
     # history_size=50: (s, y) pairs kept for the curvature estimate, ~400 KB
     # each for 50k weights; between the textbook 3-20 and torch's default 100,
     # not tuned
-    optimizer = torch.optim.LBFGS(model.parameters(), lr=1.0, max_iter=config.lbfgs_steps, max_eval=max_eval,
-                                  history_size=50, line_search_fn="strong_wolfe")
+    optimizer = torch.optim.LBFGS(
+        model.parameters(),
+        lr=1.0,
+        max_iter=config.lbfgs_steps,
+        max_eval=max_eval,
+        history_size=50,
+        line_search_fn="strong_wolfe",
+    )
     n_train = len(train[0])
     # one tick per loss evaluation; a run that converges early stops short of the total
     bar = tqdm(total=max_eval, desc="L-BFGS", unit="eval", leave=False)
@@ -472,7 +540,7 @@ def _lbfgs_finish(model: MLP, train, scales: LossScales, config: TrainConfig, st
         optimizer.zero_grad()
         total = 0.0
         for start in range(0, n_train, EVAL_CHUNK):
-            chunk = tuple(t[start:start + EVAL_CHUNK] for t in train)
+            chunk = tuple(t[start : start + EVAL_CHUNK] for t in train)
             loss = labeled_loss(model, chunk, scales, config.lambda_delta)[0] * (len(chunk[0]) / n_train)
             loss.backward()
             total += float(loss.detach())
@@ -487,6 +555,7 @@ def _lbfgs_finish(model: MLP, train, scales: LossScales, config: TrainConfig, st
 
     optimizer.step(closure)
     bar.close()
+
 
 def _cpu_copy(model: MLP) -> MLP:
     """A CPU copy of `model` (the surrogate's home), leaving the trained one where it is."""

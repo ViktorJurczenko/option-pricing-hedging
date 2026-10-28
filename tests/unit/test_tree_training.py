@@ -5,13 +5,21 @@ import pytest
 import torch
 
 import optionpricing.ml.surrogate.tree.tree_training as training
-from optionpricing.pricing.european.black_scholes import black_scholes_dT, black_scholes_vega
-from optionpricing.ml.surrogate.tree.tree_dataset import FEATURES, TreePutDataset, build_features
 from optionpricing.ml.surrogate.tree.generate_tree_dataset import DOMAIN
+from optionpricing.ml.surrogate.tree.tree_dataset import TreePutDataset, build_features
 from optionpricing.ml.surrogate.tree.tree_model import MLP
 from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
-from optionpricing.ml.surrogate.tree.tree_training import (SHAPE_CONDITIONS, LossScales, ShapePoints, TrainConfig, evaluate_labeled,
-                                   labeled_loss, premium_and_delta, shape_violations, train_surrogate)
+from optionpricing.ml.surrogate.tree.tree_training import (
+    LossScales,
+    ShapePoints,
+    TrainConfig,
+    evaluate_labeled,
+    labeled_loss,
+    premium_and_delta,
+    shape_violations,
+    train_surrogate,
+)
+from optionpricing.pricing.european.black_scholes import black_scholes_dT, black_scholes_vega
 from tests.helpers import write_tree_dataset
 
 # tiny net and run: these tests check the loop's mechanics, not accuracy
@@ -22,9 +30,11 @@ TINY = dict(depth=1, width=8, batch_size=16, epochs=4, seed=0)
 def tree_file(tmp_path_factory):
     return write_tree_dataset(tmp_path_factory.mktemp("tree"))
 
+
 @pytest.fixture(scope="module")
 def data(tree_file):
     return TreePutDataset(tree_file)
+
 
 def _net(scale=1.0):
     """A seeded float64 net; `scale` multiplies the output layer, so its derivatives can dominate BS's."""
@@ -37,15 +47,28 @@ def _net(scale=1.0):
 
 # --- TrainConfig ---
 
-@pytest.mark.parametrize("kwargs", [
-    {"batch_size": 0}, {"epochs": 0}, {"patience": 0}, {"shape_points": 0},
-    {"lr": 0.0}, {"lr_min": -1e-6}, {"lr": 1e-4, "lr_min": 1e-3},
-    {"valid_ratio": 0.0}, {"valid_ratio": 1.0},
-    {"lambda_delta": -1.0}, {"lambda_shape": -0.1}, {"lbfgs_steps": -1},
-])
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"batch_size": 0},
+        {"epochs": 0},
+        {"patience": 0},
+        {"shape_points": 0},
+        {"lr": 0.0},
+        {"lr_min": -1e-6},
+        {"lr": 1e-4, "lr_min": 1e-3},
+        {"valid_ratio": 0.0},
+        {"valid_ratio": 1.0},
+        {"lambda_delta": -1.0},
+        {"lambda_shape": -0.1},
+        {"lbfgs_steps": -1},
+    ],
+)
 def test_train_config_rejects_bad_settings(kwargs):
     with pytest.raises(ValueError):
         TrainConfig(**kwargs)
+
 
 def test_train_config_defaults_follow_the_plan():
     c = TrainConfig()
@@ -56,10 +79,12 @@ def test_train_config_defaults_follow_the_plan():
 
 # --- loss pieces ---
 
+
 def test_loss_scales_are_the_targets_population_variances_and_never_zero():
     s = LossScales.fit(torch.tensor([1.0, 3.0]), torch.tensor([0.0, 0.0, 6.0]))
     assert s.premium == pytest.approx(1.0) and s.delta == pytest.approx(8.0)
     assert LossScales.fit(torch.tensor([2.0]), torch.tensor([5.0, 5.0])) == (1.0, 1.0)
+
 
 def test_net_delta_is_the_derivative_in_m_through_the_dataset_features(data):
     # premium_and_delta's chain rule with the dataset's features_dm must equal
@@ -74,6 +99,7 @@ def test_net_delta_is_the_derivative_in_m_through_the_dataset_features(data):
     # x is the dataset's float32 features: ~1e-7 relative input rounding
     torch.testing.assert_close(delta.detach(), fd.detach(), atol=1e-5, rtol=1e-5)
 
+
 def test_labeled_loss_is_the_variance_scaled_sum_of_the_two_mses(data):
     model = _net().float()
     batch = (data.features[:32], data.features_dm[:32], data.premium[:32], data.premium_dm[:32])
@@ -87,6 +113,7 @@ def test_labeled_loss_is_the_variance_scaled_sum_of_the_two_mses(data):
     loss0, _, d0 = labeled_loss(model, batch, scales, lambda_delta=0.0)
     assert float(loss0.detach()) == pytest.approx(premium_mse / 2e-4, rel=1e-5) and math.isnan(float(d0))
 
+
 def test_evaluate_labeled_reports_the_two_terms_of_the_loss_apart(data):
     # the checkpoint goes by their sum, but one term can improve while the other worsens, so both are reported
     model = _net().float()
@@ -97,6 +124,7 @@ def test_evaluate_labeled_reports_the_two_terms_of_the_loss_apart(data):
     assert m["delta_term"] == pytest.approx(2.5 * m["delta_rmse"] ** 2 / 3e-2, rel=1e-6)
     assert m["loss"] == pytest.approx(m["premium_term"] + m["delta_term"], rel=1e-12)
     assert evaluate_labeled(model, rows, scales, lambda_delta=0.0)["delta_term"] == 0.0
+
 
 def test_delta_term_trains_the_weights_through_the_input_gradient(data):
     # create_graph=True must let the delta loss reach the parameters
@@ -113,8 +141,13 @@ def test_delta_term_trains_the_weights_through_the_input_gradient(data):
 # --- shape penalties ---
 
 # inside the domain (z from -1.8 to 1.9), so PutSurrogate prices them with the net
-POINTS = dict(m=np.array([0.7, 0.9, 1.0, 1.1, 1.3]), T=np.array([1.0, 0.5, 1.0, 2.0, 0.3]),
-              r=np.array([0.05, 0.03, 0.0, 0.07, 0.02]), sigma=np.array([0.2, 0.3, 0.15, 0.4, 0.25]))
+POINTS = dict(
+    m=np.array([0.7, 0.9, 1.0, 1.1, 1.3]),
+    T=np.array([1.0, 0.5, 1.0, 2.0, 0.3]),
+    r=np.array([0.05, 0.03, 0.0, 0.07, 0.02]),
+    sigma=np.array([0.2, 0.3, 0.15, 0.4, 0.25]),
+)
+
 
 def test_zero_premium_violates_only_the_maturity_condition_where_the_european_put_falls_with_T(data):
     model = _net()
@@ -126,6 +159,7 @@ def test_zero_premium_violates_only_the_maturity_condition_where_the_european_pu
     assert (dT[:2] < 0).all() and (dT[2:] > 0).all()  # deep ITM: the European put loses value with T
     np.testing.assert_allclose(v[:, 2], np.maximum(-T * dT, 0), atol=1e-15)
     np.testing.assert_array_equal(np.delete(v, 2, axis=1), 0)
+
 
 def test_shape_violations_are_the_relu_of_the_full_price_derivatives(data):
     # a net scaled up 50x breaks every condition somewhere; its violations
@@ -147,10 +181,13 @@ def test_shape_violations_are_the_relu_of_the_full_price_derivatives(data):
     # the m terms are scaled by w = sigma sqrt(T): price changes over a one-sigma move (an unscaled
     # convexity term outweighed the labeled loss ~3000x, BUGS.md "Shape penalty's convexity term ...")
     w = p["sigma"] * np.sqrt(p["T"])
-    expected = np.maximum(np.stack([w * p["m"] * d_m, -(w * p["m"]) ** 2 * d_mm, -p["T"] * d_T, -p["sigma"] * d_s], 1), 0)
+    expected = np.maximum(
+        np.stack([w * p["m"] * d_m, -((w * p["m"]) ** 2) * d_mm, -p["T"] * d_T, -p["sigma"] * d_s], 1), 0
+    )
     assert (expected > 0).any(0).all(), "every condition must be broken somewhere, or the check is vacuous"
     # step-size truncation: ~h^2 times third derivatives of a 50x net (O(1e3))
     np.testing.assert_allclose(v, expected, atol=1e-3 * np.abs(expected).max())
+
 
 def test_shape_points_follow_the_domain_and_the_seed():
     a = ShapePoints.sample(np.random.default_rng(5), 256, DOMAIN)
@@ -160,11 +197,13 @@ def test_shape_points_follow_the_domain_and_the_seed():
     for name, key in (("m", "m_range"), ("T", "T_range"), ("r", "r_range"), ("sigma", "sigma_range")):
         col = getattr(a, name).numpy()
         assert DOMAIN[key][0] <= col.min() and col.max() <= DOMAIN[key][1]
-    np.testing.assert_allclose(a.bs_vega.numpy(), black_scholes_vega(a.m.numpy(), 1.0, a.T.numpy(), a.r.numpy(),
-                                                                     a.sigma.numpy()))
+    np.testing.assert_allclose(
+        a.bs_vega.numpy(), black_scholes_vega(a.m.numpy(), 1.0, a.T.numpy(), a.r.numpy(), a.sigma.numpy())
+    )
 
 
 # --- train_surrogate ---
+
 
 def _split(tree_file, config):
     """The rows train_surrogate trains and validates on, rebuilt independently."""
@@ -173,6 +212,7 @@ def _split(tree_file, config):
     n_valid = int(len(data) * config.valid_ratio)
     rows = (data.features, data.features_dm, data.premium, data.premium_dm)
     return tuple(t[perm[n_valid:]] for t in rows), tuple(t[perm[:n_valid]] for t in rows)
+
 
 def test_training_is_reproducible_and_returns_the_best_validation_weights(tree_file, tmp_path):
     config = TrainConfig(**TINY)
@@ -189,9 +229,11 @@ def test_training_is_reproducible_and_returns_the_best_validation_weights(tree_f
     for x, y in zip(loaded.model.state_dict().values(), a.surrogate.model.state_dict().values()):
         assert torch.equal(x, y)
 
+
 def test_training_lowers_the_validation_loss(tree_file):
     res = train_surrogate(tree_file, TrainConfig(**{**TINY, "epochs": 30, "lr": 1e-2}))
     assert res.history[-1]["valid_loss"] < 0.5 * res.history[0]["valid_loss"]
+
 
 def test_learning_rate_follows_the_cosine_down_to_lr_min(tree_file):
     res = train_surrogate(tree_file, TrainConfig(**{**TINY, "lr": 1e-2, "lr_min": 1e-4, "patience": 100}))
@@ -199,12 +241,13 @@ def test_learning_rate_follows_the_cosine_down_to_lr_min(tree_file):
     assert lrs == sorted(lrs, reverse=True)
     assert lrs[-1] == pytest.approx(1e-4)
 
+
 def test_early_stopping_ends_a_run_that_stops_improving(tree_file):
     # lr = lr_min ~0: the weights never move, so epoch 2 does not beat epoch 1, and the rate is at
     # its minimum from the start, so that epoch already counts
-    res = train_surrogate(tree_file, TrainConfig(**{**TINY, "epochs": 50, "lr": 1e-30, "lr_min": 1e-30,
-                                                   "patience": 1}))
+    res = train_surrogate(tree_file, TrainConfig(**{**TINY, "epochs": 50, "lr": 1e-30, "lr_min": 1e-30, "patience": 1}))
     assert len(res.history) == 2
+
 
 def test_early_stopping_does_not_count_epochs_while_the_rate_is_high(tree_file):
     # Regression: a fixed patience cut 400-epoch runs short while the cosine was still high and the
@@ -218,12 +261,14 @@ def test_early_stopping_does_not_count_epochs_while_the_rate_is_high(tree_file):
     assert len(res.history) == first_counted + 1 < config.epochs
     assert first_counted > 1  # the high-rate epochs before it did not count
 
+
 def test_shape_penalty_is_trained_on_when_enabled(tree_file):
     off = train_surrogate(tree_file, TrainConfig(**TINY))
     on = train_surrogate(tree_file, TrainConfig(**{**TINY, "lambda_shape": 1.0, "shape_points": 32}))
     assert all(h["shape_penalty"] == 0 for h in off.history)
     assert any(h["shape_penalty"] > 0 for h in on.history)
     assert on.history[0]["train_loss"] != off.history[0]["train_loss"]
+
 
 @pytest.mark.parametrize("lambda_shape", [0.0, 1.0])
 def test_lbfgs_finish_is_kept_only_if_it_improves_validation(tree_file, lambda_shape):
@@ -240,9 +285,11 @@ def test_lbfgs_finish_is_kept_only_if_it_improves_validation(tree_file, lambda_s
     else:
         assert final["loss"] == pytest.approx(best_adam, rel=1e-6)
 
+
 def test_too_few_rows_to_validate_raises(tree_file):
     with pytest.raises(ValueError, match="valid_ratio"):
         train_surrogate(tree_file, TrainConfig(**{**TINY, "valid_ratio": 1e-4}))
+
 
 def test_a_validation_loss_that_is_never_finite_raises(tree_file, monkeypatch):
     nan = dict.fromkeys(("loss", "premium_term", "delta_term", "premium_rmse", "delta_rmse"), float("nan"))
@@ -250,11 +297,13 @@ def test_a_validation_loss_that_is_never_finite_raises(tree_file, monkeypatch):
     with pytest.raises(ValueError, match="diverged"):
         train_surrogate(tree_file, TrainConfig(**TINY))
 
+
 def test_an_lbfgs_finish_that_makes_validation_worse_is_thrown_away(tree_file, monkeypatch):
     def scramble(model, *args):  # stands in for a finish that wrecks the weights
         with torch.no_grad():
             for p in model.parameters():
                 p.add_(10.0)
+
     monkeypatch.setattr(training, "_lbfgs_finish", scramble)
     config = TrainConfig(**{**TINY, "lbfgs_steps": 5})
     res = train_surrogate(tree_file, config)

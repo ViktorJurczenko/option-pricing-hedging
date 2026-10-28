@@ -1,16 +1,14 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
-from typing import Optional
 
-class GBM():
-
+class GBM:
     def __init__(
         self,
         sigma: float = 0.2,
         start_price: float = 100.0,
         risk_free_rate: float = 0.05,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ):
         """
         Initialize the Monte-Carlo simulator.
@@ -25,7 +23,7 @@ class GBM():
         self.start_price = start_price
         self.risk_free_rate = risk_free_rate
         self.seed = seed
-        self.simulations: Optional[np.ndarray] = None
+        self.simulations: np.ndarray | None = None
 
     def simulate_paths(self, nb_predictions: int = 10000, maturity: float = 1.0, sampling: int = 365) -> np.ndarray:
         """
@@ -55,7 +53,9 @@ class GBM():
 
         for i in range(1, size + 1):
             Z = np.random.standard_normal(nb_predictions)
-            self.simulations[i] = self.simulations[i - 1] * np.exp((self.risk_free_rate - 0.5 * self.sigma**2) * dt + (self.sigma * np.sqrt(dt) * Z))
+            self.simulations[i] = self.simulations[i - 1] * np.exp(
+                (self.risk_free_rate - 0.5 * self.sigma**2) * dt + (self.sigma * np.sqrt(dt) * Z)
+            )
 
         return self.simulations
 

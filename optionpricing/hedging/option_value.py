@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 
@@ -7,13 +7,16 @@ from optionpricing.pricing.european.black_scholes import BlackScholes
 # value_fn(t, S) -> option value at simulation row t for spot(s) S.
 ValueFn = Callable[[int, np.ndarray], np.ndarray]
 
+
 def _intrinsic(S: np.ndarray, strike: float, option_type: str) -> np.ndarray:
     if option_type == "call":
         return np.maximum(S - strike, 0.0)
     return np.maximum(strike - S, 0.0)
 
-def black_scholes_value_fn(strike: float, risk_free_rate: float, sigma: float,
-                           maturity: float, n_steps: int, option_type: str) -> ValueFn:
+
+def black_scholes_value_fn(
+    strike: float, risk_free_rate: float, sigma: float, maturity: float, n_steps: int, option_type: str
+) -> ValueFn:
     """Closed-form option value on the simulation's time grid.
 
     `n_steps` is the number of rows of a `GBM.simulate_paths` array: row t
@@ -36,15 +39,24 @@ def black_scholes_value_fn(strike: float, risk_free_rate: float, sigma: float,
         tau = (n_steps - 1 - t) * dt
         if tau <= 0:
             return _intrinsic(S, strike, option_type)
-        bs = BlackScholes(sigma=sigma, start_price=S, strike=strike,
-                          risk_free_rate=risk_free_rate, option_type=option_type)
+        bs = BlackScholes(
+            sigma=sigma, start_price=S, strike=strike, risk_free_rate=risk_free_rate, option_type=option_type
+        )
         return bs.calculate_option_price(T=tau)
 
     return value_fn
 
-def binomial_value_fn(start_price: float, strike: float, risk_free_rate: float, sigma: float,
-                      maturity: float, n_steps: int, option_type: str,
-                      substeps: int = 4) -> ValueFn:
+
+def binomial_value_fn(
+    start_price: float,
+    strike: float,
+    risk_free_rate: float,
+    sigma: float,
+    maturity: float,
+    n_steps: int,
+    option_type: str,
+    substeps: int = 4,
+) -> ValueFn:
     """American option value on the simulation's time grid, from a single
     Cox-Ross-Rubinstein tree rooted at `start_price`.
 
@@ -102,8 +114,16 @@ def binomial_value_fn(start_price: float, strike: float, risk_free_rate: float, 
 
     return value_fn
 
-def make_option_value_fn(option_type: str, start_price: float, strike: float, risk_free_rate: float,
-                         sigma: float, maturity: float, n_steps: int) -> ValueFn:
+
+def make_option_value_fn(
+    option_type: str,
+    start_price: float,
+    strike: float,
+    risk_free_rate: float,
+    sigma: float,
+    maturity: float,
+    n_steps: int,
+) -> ValueFn:
     """Value function for HedgingEnv's accounting-P&L reward: closed-form
     Black-Scholes for calls (exact for an American call without dividends),
     a binomial-tree grid for puts (where early exercise matters)."""

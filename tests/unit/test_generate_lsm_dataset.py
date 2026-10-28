@@ -1,21 +1,39 @@
 import numpy as np
 import pytest
 
-from optionpricing.ml.surrogate.legacy.lsm_model import smooth_intrinsic_value
 from optionpricing.core.gbm import GBM
 from optionpricing.ml.surrogate.chunks import chunk_file
-from optionpricing.ml.surrogate.legacy.generate_lsm_dataset import (gen_data, gen_rdm_params, generate_chunks, load_chunks,
-                                                      process_sample)
+from optionpricing.ml.surrogate.legacy.generate_lsm_dataset import (
+    gen_data,
+    gen_rdm_params,
+    generate_chunks,
+    load_chunks,
+    process_sample,
+)
+from optionpricing.ml.surrogate.legacy.lsm_model import smooth_intrinsic_value
 from optionpricing.pricing.european.black_scholes import BlackScholes
 
-NORM = dict(log_sigma_mean=np.log(0.2), log_sigma_std=0.5, r_mean=0.03, r_std=0.02,
-            log_T_mean=0.0, log_T_std=0.5)
+NORM = dict(log_sigma_mean=np.log(0.2), log_sigma_std=0.5, r_mean=0.03, r_std=0.02, log_T_mean=0.0, log_T_std=0.5)
 
 
 def _sample(option_types=("call", "put"), S0=100.0, K=100.0, sigma=0.2, r=0.05, T=1.0, **kw):
-    return process_sample(S0, K, sigma, NORM["log_sigma_mean"], NORM["log_sigma_std"], r,
-                          NORM["r_mean"], NORM["r_std"], T, NORM["log_T_mean"], NORM["log_T_std"],
-                          500, 20, option_types, **kw)
+    return process_sample(
+        S0,
+        K,
+        sigma,
+        NORM["log_sigma_mean"],
+        NORM["log_sigma_std"],
+        r,
+        NORM["r_mean"],
+        NORM["r_std"],
+        T,
+        NORM["log_T_mean"],
+        NORM["log_T_std"],
+        500,
+        20,
+        option_types,
+        **kw,
+    )
 
 
 @pytest.mark.parametrize("S0, K", [(100.0, 100.0), (120.0, 100.0), (80.0, 100.0)])
@@ -27,6 +45,7 @@ def test_call_label_reconstructs_black_scholes_price(S0, K):
     price = label * K + smooth_intrinsic_value(S0, K, "call")
     assert price == pytest.approx(BlackScholes(0.2, S0, K, 0.05, "call").calculate_option_price(1.0), abs=1e-4)
 
+
 def test_put_label_is_not_the_black_scholes_european_price():
     # Puts use plain LSM (early exercise has value), so the label must differ
     # from the European price; a deep ITM put makes the gap large vs MC noise.
@@ -36,6 +55,7 @@ def test_put_label_is_not_the_black_scholes_european_price():
     price = label * K + smooth_intrinsic_value(S0, K, "put")
     eu = BlackScholes(0.2, S0, K, 0.05, "put").calculate_option_price(1.0)
     assert price > eu + 0.3  # early-exercise premium here is ~0.7+
+
 
 def test_process_sample_returns_call_then_put_rows_with_is_call_feature():
     rows = _sample()
@@ -48,9 +68,11 @@ def test_process_sample_returns_call_then_put_rows_with_is_call_feature():
     assert f_call[2] == pytest.approx((0.05 - 0.03) / 0.02)
     assert f_call[3] == pytest.approx(0.0)  # sigma == exp(log_sigma_mean)
 
+
 def test_process_sample_single_type_gives_one_row():
     rows = _sample(option_types=("put",))
     assert len(rows) == 1 and rows[0][0][4] == 0.0
+
 
 def test_process_sample_returns_empty_list_on_failure(capsys):
     # Regression: failures used to return (None, None); main() flattens lists, so [] is required.
@@ -60,8 +82,9 @@ def test_process_sample_returns_empty_list_on_failure(capsys):
 
 # --- gen_rdm_params ---
 
-RANGES = dict(S0_range=(60, 140), moneyness_range=(0.4, 1.6), sigma_range=(0.05, 0.6),
-              r_range=(0.0, 0.08), T_range=(0.25, 5))
+RANGES = dict(
+    S0_range=(60, 140), moneyness_range=(0.4, 1.6), sigma_range=(0.05, 0.6), r_range=(0.0, 0.08), T_range=(0.25, 5)
+)
 
 
 def test_gen_rdm_params_values_stay_inside_their_ranges():
@@ -72,6 +95,7 @@ def test_gen_rdm_params_values_stay_inside_their_ranges():
     assert r.min() >= 0.0 and r.max() <= 0.08
     assert T.min() >= 0.25 and T.max() <= 5
     assert (K > 0).all()
+
 
 def test_gen_rdm_params_moneyness_is_inside_range_and_log_uniform():
     np.random.seed(1)
@@ -85,6 +109,7 @@ def test_gen_rdm_params_moneyness_is_inside_range_and_log_uniform():
     counts, _ = np.histogram(np.log(m), bins=10, range=(np.log(0.4), np.log(1.6)))
     assert (counts > 200).all()
 
+
 def test_gen_rdm_params_repeats_each_combination_samples_per_param_times_with_new_strikes():
     np.random.seed(2)
     S0, K, sigma, r, T = gen_rdm_params(6, samples_per_param=4, **RANGES)
@@ -92,23 +117,47 @@ def test_gen_rdm_params_repeats_each_combination_samples_per_param_times_with_ne
         assert arr.shape == (24,)
     for arr in (S0, sigma, r, T):
         groups = arr.reshape(6, 4)
-        assert (groups == groups[:, :1]).all()       # shared within a combination
-        assert len(np.unique(groups[:, 0])) == 6      # distinct across combinations
+        assert (groups == groups[:, :1]).all()  # shared within a combination
+        assert len(np.unique(groups[:, 0])) == 6  # distinct across combinations
     assert all(len(np.unique(k)) == 4 for k in K.reshape(6, 4))  # a different strike per repeat
 
+
 def test_gen_rdm_params_is_reproducible_under_numpy_seed():
-    np.random.seed(5); a = gen_rdm_params(10)
-    np.random.seed(5); b = gen_rdm_params(10)
+    np.random.seed(5)
+    a = gen_rdm_params(10)
+    np.random.seed(5)
+    b = gen_rdm_params(10)
     for x, y in zip(a, b):
         np.testing.assert_array_equal(x, y)
 
 
 # --- chunked, resumable generation ---
 
+
 def _args_list(n):
-    return [(100.0 + i, 100.0, 0.2, NORM["log_sigma_mean"], NORM["log_sigma_std"], 0.05, NORM["r_mean"],
-             NORM["r_std"], 1.0, NORM["log_T_mean"], NORM["log_T_std"], 200, 10, ("put",), 2, "simple", 1000 + i)
-            for i in range(n)]
+    return [
+        (
+            100.0 + i,
+            100.0,
+            0.2,
+            NORM["log_sigma_mean"],
+            NORM["log_sigma_std"],
+            0.05,
+            NORM["r_mean"],
+            NORM["r_std"],
+            1.0,
+            NORM["log_T_mean"],
+            NORM["log_T_std"],
+            200,
+            10,
+            ("put",),
+            2,
+            "simple",
+            1000 + i,
+        )
+        for i in range(n)
+    ]
+
 
 def test_generate_chunks_resumes_by_redoing_only_the_missing_chunk(tmp_path):
     args_list = _args_list(5)
@@ -126,6 +175,7 @@ def test_generate_chunks_resumes_by_redoing_only_the_missing_chunk(tmp_path):
     # the redone chunk is identical to the uninterrupted run, labels included (each sample is seeded)
     np.testing.assert_array_equal(resumed[0], full[0])
     np.testing.assert_array_equal(resumed[1], full[1])
+
 
 def test_process_sample_is_reproducible_for_a_seed_and_differs_across_seeds():
     a, b, other = _sample(seed=3), _sample(seed=3), _sample(seed=4)

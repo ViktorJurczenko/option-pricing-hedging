@@ -7,8 +7,9 @@ from optionpricing.ml.rl.replay_buffer import ReplayBuffer
 
 def _push(buffer, i, action=None):
     """Transition i with recognisable values: state i, reward 10 + i, done on odd i."""
-    buffer.push(np.full(5, float(i)), float(i) if action is None else action,
-                10.0 + i, np.full(5, i + 0.5), bool(i % 2))
+    buffer.push(
+        np.full(5, float(i)), float(i) if action is None else action, 10.0 + i, np.full(5, i + 0.5), bool(i % 2)
+    )
 
 
 def test_len_counts_pushed_transitions():

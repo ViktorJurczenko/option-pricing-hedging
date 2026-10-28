@@ -1,11 +1,12 @@
 """train()'s reward shaping: reward_scale then risk_lambda reach the replay
 buffer, while episode bookkeeping stays on the raw reward."""
+
 import pytest
 import tqdm as tqdm_pkg
 
 import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.sac import train
 from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.sac import train
 from tests.unit.hedge_fakes import FakeEnv, make_nets
 
 
@@ -35,12 +36,19 @@ def test_train_pushes_risk_shaped_reward_to_replay_buffer(tmp_path):
     # takes so the gradient-update block never triggers -- this isolates the
     # reward-shaping/bookkeeping behavior from the (untouched) SAC math.
     train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=2, warmup_steps=10 ** 6, batch_size=10 ** 6,
-        risk_lambda=risk_lambda, checkpoint_path=str(tmp_path / "policy.pth"),
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=2,
+        warmup_steps=10**6,
+        batch_size=10**6,
+        risk_lambda=risk_lambda,
+        checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
-    expected_shaped = [r - risk_lambda * r ** 2 for r in raw_rewards] * 2  # 2 identical episodes
+    expected_shaped = [r - risk_lambda * r**2 for r in raw_rewards] * 2  # 2 identical episodes
     assert buffer.pushed_rewards == pytest.approx(expected_shaped)
 
 
@@ -71,9 +79,16 @@ def test_train_episode_reward_bookkeeping_stays_on_raw_reward(monkeypatch, tmp_p
     monkeypatch.setattr(hedge_module, "tqdm", RecordingTqdm)
 
     hedge_module.train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=10 ** 6, batch_size=10 ** 6,
-        risk_lambda=risk_lambda, checkpoint_path=str(tmp_path / "policy.pth"),
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=10**6,
+        batch_size=10**6,
+        risk_lambda=risk_lambda,
+        checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
     assert len(postfix_log) == 1
@@ -90,8 +105,14 @@ def test_train_with_default_risk_lambda_reproduces_prior_behavior(tmp_path):
     policy, critic1, critic2 = make_nets()
 
     train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=10 ** 6, batch_size=10 ** 6,
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=10**6,
+        batch_size=10**6,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
@@ -114,13 +135,18 @@ def test_train_scales_reward_before_applying_risk_penalty(tmp_path):
     policy, critic1, critic2 = make_nets()
 
     train(
-        policy, env, buffer, critic1, critic2,
-        n_episodes=1, warmup_steps=10 ** 6, batch_size=10 ** 6,
-        risk_lambda=risk_lambda, reward_scale=reward_scale,
+        policy,
+        env,
+        buffer,
+        critic1,
+        critic2,
+        n_episodes=1,
+        warmup_steps=10**6,
+        batch_size=10**6,
+        risk_lambda=risk_lambda,
+        reward_scale=reward_scale,
         checkpoint_path=str(tmp_path / "policy.pth"),
     )
 
-    expected_shaped = [
-        (reward_scale * r) - risk_lambda * (reward_scale * r) ** 2 for r in raw_rewards
-    ]
+    expected_shaped = [(reward_scale * r) - risk_lambda * (reward_scale * r) ** 2 for r in raw_rewards]
     assert buffer.pushed_rewards == pytest.approx(expected_shaped)

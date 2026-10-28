@@ -22,9 +22,16 @@ _INITIAL_BAND_TARGET = 0.9
 
 _ACTION_MODES = ["residual", "gap_fraction", "band"]
 
+
 class RLPolicy(nn.Module):
-    def __init__(self, state_dim: int, action_dim: int, residual_scale: float = 0.0,
-                 action_mode: str = "residual", band_max: float = 0.2) -> None:
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        residual_scale: float = 0.0,
+        action_mode: str = "residual",
+        band_max: float = 0.2,
+    ) -> None:
         """
         action_mode: how `hedge_ratio` turns the squashed action into a hedge.
             "residual" (default): `hedge = clip(delta + residual_scale * squashed, -1, 1)`,
@@ -66,7 +73,7 @@ class RLPolicy(nn.Module):
         self.action_dim = action_dim
         self.layer1 = nn.Linear(state_dim, 64)
         self.layer2 = nn.Linear(64, 64)
-        self.layer3 = nn.Linear(64, action_dim * 2) # Output mean and std for each action
+        self.layer3 = nn.Linear(64, action_dim * 2)  # Output mean and std for each action
         self.register_buffer("residual_scale", torch.tensor(float(residual_scale)))
         self.register_buffer("gap_fraction", torch.tensor(float(action_mode == "gap_fraction")))
         self.register_buffer("band_max", torch.tensor(float(band_max if action_mode == "band" else 0.0)))
@@ -112,11 +119,11 @@ class RLPolicy(nn.Module):
         env sees this mapping (see __init__'s action_mode). In residual mode
         with residual_scale == 0 it is the identity.
         """
-        delta    = state[..., _DELTA_IDX:_DELTA_IDX + 1]
-        position = state[..., _POSITION_IDX:_POSITION_IDX + 1]
+        delta = state[..., _DELTA_IDX : _DELTA_IDX + 1]
+        position = state[..., _POSITION_IDX : _POSITION_IDX + 1]
         mode = self.action_mode
         if mode == "band":
-            b   = self.band_max * (squashed[..., 0:1] + 1) / 2
+            b = self.band_max * (squashed[..., 0:1] + 1) / 2
             lam = (squashed[..., 1:2] + 1) / 2
             gap = position - delta
             rebalanced = torch.clamp(delta + torch.sign(gap) * (1 - lam) * b, -1, 1)

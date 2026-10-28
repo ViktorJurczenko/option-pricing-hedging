@@ -1,13 +1,13 @@
 """Fake envs, replay buffers and nets shared by the test_hedge_*.py files
 (not collected by pytest: no test_ prefix)."""
+
 import numpy as np
 
 import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.sac import train
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.policy import RLPolicy
 from optionpricing.ml.rl.critic import Critic
-
+from optionpricing.ml.rl.policy import RLPolicy
+from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.sac import train
 
 # --- train() tests --------------------------------------------------------
 #
@@ -18,6 +18,7 @@ from optionpricing.ml.rl.critic import Critic
 # Critic nets are used (they're tiny), but a fake env replaces HedgingEnv so
 # the reward sequence is fully controlled and the SAC math itself isn't what
 # is being asserted on.
+
 
 class FakeEnv:
     """Minimal env stand-in for train(): yields a fixed reward sequence and
@@ -56,6 +57,7 @@ class ActionSpyBuffer(ReplayBuffer):
 
 # --- gap_fraction mode in train() and deterministic_hedge --------------------
 
+
 class PositionEnv:
     """Env stand-in whose states carry a known delta (index 2) and a known,
     varying position (index 4), recording every action passed to step()."""
@@ -93,11 +95,23 @@ class BanditEnv:
         return self.state()
 
     def step(self, action):
-        return self.state(), -(float(action) - self.target) ** 2, True
+        return self.state(), -((float(action) - self.target) ** 2), True
 
 
 def train_bandit(tmp_path, policy, env, action_dim, **kwargs):
-    train(policy, env, ReplayBuffer(max_size=1000), Critic(5, action_dim), Critic(5, action_dim),
-          n_episodes=400, warmup_steps=50, update_every=1, batch_size=32, lr=3e-3,
-          reward_scale=10.0, checkpoint_path=str(tmp_path / "policy.pth"), **kwargs)
+    train(
+        policy,
+        env,
+        ReplayBuffer(max_size=1000),
+        Critic(5, action_dim),
+        Critic(5, action_dim),
+        n_episodes=400,
+        warmup_steps=50,
+        update_every=1,
+        batch_size=32,
+        lr=3e-3,
+        reward_scale=10.0,
+        checkpoint_path=str(tmp_path / "policy.pth"),
+        **kwargs,
+    )
     return hedge_module.deterministic_hedge(policy, env.state()).item()

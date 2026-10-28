@@ -4,17 +4,17 @@ cost: steps where it holds must not be charged. This is the reason delta_band
 returns exactly the current position -- HedgingEnv only skips the fixed cost
 when |trade| <= _TRADE_EPS.
 """
+
 import numpy as np
 import pytest
 import torch
 
 from optionpricing.core.gbm import GBM
-from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
-from optionpricing.hedging.env import HedgingEnv
 from optionpricing.hedging.baselines import delta_band
-from optionpricing.ml.rl.sac import deterministic_hedge
-from optionpricing.hedging.evaluation import evaluate
+from optionpricing.hedging.env import HedgingEnv
 from optionpricing.ml.rl.policy import RLPolicy
+from optionpricing.ml.rl.sac import deterministic_hedge
+from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
 
 FIXED_COST = 0.5
 
@@ -65,6 +65,7 @@ def test_delta_band_charges_fewer_fixed_tcs_than_daily_delta(lsm):
 
 
 # --- the learned band (RLPolicy action_mode="band") in the same env ----------
+
 
 def _constant_band_policy(width_logit, target_logit):
     """Band-mode policy whose deterministic action is the same for every state."""

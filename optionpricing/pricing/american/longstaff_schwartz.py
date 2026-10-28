@@ -1,13 +1,14 @@
 import numpy as np
 
 from optionpricing.core.base import OptionPricing
-from optionpricing.pricing.european.black_scholes import BlackScholes
 from optionpricing.pricing.american.basis_functions import (
+    laguerre_deriv_k,
+    laguerre_poly_gen,
     simple_poly,
     simple_poly_deriv_k,
-    laguerre_poly_gen,
-    laguerre_deriv_k,
 )
+from optionpricing.pricing.european.black_scholes import BlackScholes
+
 
 def least_squares(features: np.ndarray, target: np.ndarray) -> np.ndarray:
     """
@@ -24,6 +25,7 @@ def least_squares(features: np.ndarray, target: np.ndarray) -> np.ndarray:
     """
     return np.linalg.lstsq(features.T @ features, features.T @ target, rcond=None)[0]
 
+
 class LongstaffSchwartz(OptionPricing):
     """
     Class for Longstaff-Schwartz option pricing.
@@ -31,18 +33,18 @@ class LongstaffSchwartz(OptionPricing):
     """
 
     def __init__(
-            self,
-            simulation: np.ndarray,
-            strike: float = 100.0,
-            risk_free_rate: float = 0.05,
-            maturity: float = 1.0,
-            option_type: str = "call",
-            reg_type: str = "simple",
-            max_degree: int = 3,
-            sigma: float | None = None,
-            control_variate: bool = False,
-            compute_greeks: bool = True
-        ):
+        self,
+        simulation: np.ndarray,
+        strike: float = 100.0,
+        risk_free_rate: float = 0.05,
+        maturity: float = 1.0,
+        option_type: str = "call",
+        reg_type: str = "simple",
+        max_degree: int = 3,
+        sigma: float | None = None,
+        control_variate: bool = False,
+        compute_greeks: bool = True,
+    ):
         """
         Initialize the Longstaff-Schwartz model.
 
@@ -91,12 +93,14 @@ class LongstaffSchwartz(OptionPricing):
 
         self.simulation = simulation
         self.continue_val = np.zeros(simulation.shape)
-        self.exercise_time = np.full(simulation.shape[1], simulation.shape[0] - 1) # Default = maturity (i.e. not early exercised)
+        self.exercise_time = np.full(
+            simulation.shape[1], simulation.shape[0] - 1
+        )  # Default = maturity (i.e. not early exercised)
         self.compute_greeks = compute_greeks
         # No delta at the end. None (not zeros) without compute_greeks, so using them fails loudly.
         self.delta = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) if compute_greeks else None
         self.gamma = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) if compute_greeks else None
-        self.payoff = None # Allocated by predict_payoff(); None marks an unfitted model
+        self.payoff = None  # Allocated by predict_payoff(); None marks an unfitted model
         self.strike = strike
         self.risk_free_rate = risk_free_rate
         self.maturity = maturity
@@ -165,7 +169,9 @@ class LongstaffSchwartz(OptionPricing):
         realized_continuation = np.exp(-self.risk_free_rate * dt) * payoff_next
         features = self._basis(x)
         tau = (n_steps - 1 - index) * dt
-        european = self._european(S) if self.sigma is not None and (self.control_variate or self.compute_greeks) else None
+        european = (
+            self._european(S) if self.sigma is not None and (self.control_variate or self.compute_greeks) else None
+        )
 
         # Continuation value, on ITM paths only
         itm_mask = self._intrinsic(S) > 0
@@ -213,7 +219,9 @@ class LongstaffSchwartz(OptionPricing):
         self.payoff = np.zeros(self.simulation.shape)
         self.payoff[-1] = self._intrinsic(self.simulation[-1])
 
-        for i in range(self.simulation.shape[0] - 2, -1, -1): # Traverses prediction backward starting from the second last element
+        for i in range(
+            self.simulation.shape[0] - 2, -1, -1
+        ):  # Traverses prediction backward starting from the second last element
             self.fit(self.payoff[i + 1], i)
 
             exercice_payoff = self._intrinsic(self.simulation[i])

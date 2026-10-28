@@ -4,19 +4,21 @@ metrics on a test split and the price against a fresh LSM run. No CLI
 command uses it: `test-ml` evaluates the tree surrogate
 (optionpricing/ml/surrogate/tree/tree_evaluation.py).
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
 
-from optionpricing.core.metrics import mse_fn, mae_fn, r2_fn
+from optionpricing.core.metrics import mae_fn, mse_fn, r2_fn
+from optionpricing.ml.surrogate.legacy.lsm_model import option_type_feature, smooth_intrinsic_value
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
-from optionpricing.ml.surrogate.legacy.lsm_model import smooth_intrinsic_value, option_type_feature
+
 
 def regression_tests(model: torch.nn.Module, dataloader_test):
-    model.eval() # Set the model on evaluation mode
+    model.eval()  # Set the model on evaluation mode
     all_pred, all_true = [], []
 
-    with torch.no_grad(): # More performence on tests
+    with torch.no_grad():  # More performence on tests
         for x, y in dataloader_test:
             pred = model(x)
             all_pred.append(pred.cpu().numpy())
@@ -27,15 +29,29 @@ def regression_tests(model: torch.nn.Module, dataloader_test):
 
         mse = mse_fn(pred, true)
         mae = mae_fn(pred, true)
-        r2  = r2_fn(pred, true)
+        r2 = r2_fn(pred, true)
 
         print(f"MSE:  {mse:.6f}")
         print(f"MAE:  {mae:.6f}")
         print(f"R²:   {r2:.4f}")
 
-def test_option_price_lsm(model: nn.Module, simulation, moneyness, K, r, r_norm, T, T_norm, sigma_norm,
-                           option_type="put", reg_type="simple", max_degree=3,
-                           sigma=None, control_variate=False) -> tuple:
+
+def test_option_price_lsm(
+    model: nn.Module,
+    simulation,
+    moneyness,
+    K,
+    r,
+    r_norm,
+    T,
+    T_norm,
+    sigma_norm,
+    option_type="put",
+    reg_type="simple",
+    max_degree=3,
+    sigma=None,
+    control_variate=False,
+) -> tuple:
     """
     Args:
         sigma, control_variate: passed to the LSM benchmark. Calls should use
@@ -57,8 +73,9 @@ def test_option_price_lsm(model: nn.Module, simulation, moneyness, K, r, r_norm,
     MLP error with simple-vs-Laguerre basis differences.
     """
     # LSM benchmark
-    lsm = LongstaffSchwartz(simulation, K, r, T, option_type, reg_type, max_degree,
-                            sigma=sigma, control_variate=control_variate)
+    lsm = LongstaffSchwartz(
+        simulation, K, r, T, option_type, reg_type, max_degree, sigma=sigma, control_variate=control_variate
+    )
     lsm.predict_payoff()
     option_price_lsm = lsm.calculate_option_price()
 
@@ -77,7 +94,7 @@ def test_option_price_lsm(model: nn.Module, simulation, moneyness, K, r, r_norm,
 
     abs_error = np.abs(option_price_ml - option_price_lsm)
 
-    if option_price_lsm < 1e-1: # Prevent division by 0
+    if option_price_lsm < 1e-1:  # Prevent division by 0
         error = abs_error
     else:
         error = abs_error / option_price_lsm * 100

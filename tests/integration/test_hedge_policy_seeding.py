@@ -7,6 +7,7 @@ tests/integration/test_cli_smoke.py covers the CLI (subprocess) surface for
 this same script; this file targets an invariant that can't be observed from
 stdout alone: which pseudo-random state actually reaches evaluate().
 """
+
 import numpy as np
 import pytest
 import torch
@@ -212,8 +213,7 @@ def test_add_arguments_prop_tc_band_and_policy_choices():
     args = parser.parse_args([])
     assert args.prop_tc == pytest.approx(0.001)
     assert args.band == pytest.approx(0.05) and args.band_target == "delta"
-    args = parser.parse_args(["--policy", "delta_band", "--band", "0.2", "--band_target", "edge",
-                              "--prop_tc", "0.01"])
+    args = parser.parse_args(["--policy", "delta_band", "--band", "0.2", "--band_target", "edge", "--prop_tc", "0.01"])
     assert (args.policy, args.band, args.band_target, args.prop_tc) == ("delta_band", 0.2, "edge", 0.01)
     with pytest.raises(SystemExit):
         parser.parse_args(["--band_target", "middle"])
@@ -225,8 +225,11 @@ def test_delta_band_policy_builds_delta_band_from_band_flags(monkeypatch, band_t
     band_target): a gap of 0.3 is outside band 0.1 (rebalance, to delta or the
     edge depending on target), but inside band 0.5 (hold)."""
     seen = {}
-    monkeypatch.setattr(test_hedge_script, "evaluate",
-                        lambda action_fn, env, n_episodes=1000: seen.update(fn=action_fn) or (0.0, 0.0, 0.0))
+    monkeypatch.setattr(
+        test_hedge_script,
+        "evaluate",
+        lambda action_fn, env, n_episodes=1000: seen.update(fn=action_fn) or (0.0, 0.0, 0.0),
+    )
 
     state = np.array([1.0, 0.5, 0.5, 0.02, 0.8])  # delta 0.5, position 0.8
     test_hedge_script.run(_make_args("delta_band", seed=1, band=0.1, band_target=band_target))
@@ -242,7 +245,7 @@ def test_rl_policy_loads_band_checkpoint_in_band_mode(monkeypatch, tmp_path):
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
     with torch.no_grad():
         policy.layer3.weight.zero_()
-        policy.layer3.bias[0] = 0.0   # b = 0.1
+        policy.layer3.bias[0] = 0.0  # b = 0.1
         policy.layer3.bias[1] = 20.0  # rebalance to delta
     checkpoint_path = tmp_path / "policy.pth"
     torch.save(policy.state_dict(), checkpoint_path)

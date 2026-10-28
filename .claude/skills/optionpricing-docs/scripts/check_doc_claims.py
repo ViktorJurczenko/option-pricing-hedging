@@ -18,6 +18,7 @@ Usage, from the project root:
 
 Exits with 1 if any path or name is missing.
 """
+
 import re
 import subprocess
 import sys
@@ -54,8 +55,11 @@ def repo_files() -> list[Path]:
     listed = git("ls-files")
     if listed is not None and listed.returncode == 0:
         return [Path(p) for p in listed.stdout.split()]
-    return [p.relative_to(ROOT) for p in ROOT.rglob("*")
-            if p.is_file() and not EXCLUDED_DIRS & set(p.relative_to(ROOT).parts)]
+    return [
+        p.relative_to(ROOT)
+        for p in ROOT.rglob("*")
+        if p.is_file() and not EXCLUDED_DIRS & set(p.relative_to(ROOT).parts)
+    ]
 
 
 def is_ignored(path: str) -> bool:
@@ -73,8 +77,12 @@ def check(doc: Path, symbols: set[str], files: list[Path], source: str, strict: 
         return Path(path).parts[0] not in tracked_tops or is_ignored(path)
 
     text = re.sub(r"```.*?```", "", doc.read_text(encoding="utf-8"), flags=re.S)
-    found = {"missing path": [], "not in the source": [], "generated, not checked": [],
-             "short name, give the full path": []}
+    found = {
+        "missing path": [],
+        "not in the source": [],
+        "generated, not checked": [],
+        "short name, give the full path": [],
+    }
     for token in sorted({t.strip() for t in re.findall(r"`([^`\n]+)`", text)}):
         if token in symbols or FORMULA_CHARS & set(token) or ".." in token or SUBSCRIPTED_SYMBOL.fullmatch(token):
             continue
@@ -111,8 +119,7 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 2
     files = repo_files()
-    source = "\n".join((ROOT / p).read_text(encoding="utf-8", errors="ignore")
-                       for p in files if p.suffix == ".py")
+    source = "\n".join((ROOT / p).read_text(encoding="utf-8", errors="ignore") for p in files if p.suffix == ".py")
     symbols = notation_symbols()
     failed = False
     for doc in docs:

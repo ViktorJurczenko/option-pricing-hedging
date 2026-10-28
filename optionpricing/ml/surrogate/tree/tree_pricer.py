@@ -1,15 +1,15 @@
-import numpy as np
-import torch
-
 import os
 from pathlib import Path
-from typing import NamedTuple, Union
+from typing import NamedTuple
+
+import numpy as np
+import torch
 from numpy.typing import ArrayLike
 
-from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
-from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
 from optionpricing.ml.surrogate.tree.tree_dataset import FeatureStats, build_features
 from optionpricing.ml.surrogate.tree.tree_model import MLP
+from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
 
 # The sampling ranges a surrogate is valid on, as generate_tree_dataset stores
 # them (TreePutDataset.domain); each is an inclusive (low, high).
@@ -26,6 +26,7 @@ CHECKPOINT_FORMAT = "tree_put_surrogate"
 # max(1 - m, 0), replaced by it (see PutSurrogate).
 ROUTES = ("net", "payoff_floor", "black_scholes", "exercised", "tree")
 
+
 class SurrogateResult(NamedTuple):
     """
     Per-option outputs of PutSurrogate.price, per unit of strike like
@@ -33,10 +34,12 @@ class SurrogateResult(NamedTuple):
     K d2V/dS2 (scale back with K * price and gamma / K). `route` names the
     method that answered each option, one of ROUTES.
     """
+
     price: np.ndarray
     delta: np.ndarray
     gamma: np.ndarray
     route: np.ndarray
+
 
 class PutSurrogate:
     """
@@ -77,6 +80,7 @@ class PutSurrogate:
     Raises:
         ValueError: if `domain` misses a DOMAIN_KEYS entry.
     """
+
     def __init__(self, model: MLP, stats: FeatureStats, domain: dict):
         missing = [k for k in DOMAIN_KEYS if k not in domain]
         if missing:
@@ -187,13 +191,13 @@ class PutSurrogate:
         x = self.stats.apply(build_features(m_t, T, r, sigma))
         premium = self.model(x.to(param)).squeeze(-1)
         # create_graph: keep delta's own graph, so it can be differentiated again for gamma
-        dm, = torch.autograd.grad(premium.sum(), m_t, create_graph=True)
+        (dm,) = torch.autograd.grad(premium.sum(), m_t, create_graph=True)
         # allow_unused: a net whose delta does not depend on m has no graph to differentiate
-        dm2, = torch.autograd.grad(dm.sum(), m_t, allow_unused=True)
+        (dm2,) = torch.autograd.grad(dm.sum(), m_t, allow_unused=True)
         dm2 = torch.zeros_like(m_t) if dm2 is None else dm2
         return tuple(v.detach().double().cpu().numpy() for v in (premium, dm, dm2))
 
-    def save(self, path: Union[str, os.PathLike]) -> None:
+    def save(self, path: str | os.PathLike) -> None:
         """
         Saves everything `load` needs in one file: the net's constructor
         arguments and weights, the feature stats and the domain, so a
@@ -201,14 +205,19 @@ class PutSurrogate:
         architecture.
         """
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"format": CHECKPOINT_FORMAT,
-                    "model_config": self.model.config,
-                    "state_dict": self.model.state_dict(),
-                    "feature_stats": self.stats.to_dict(),
-                    "domain": {k: list(v) for k, v in self.domain.items()}}, path)
+        torch.save(
+            {
+                "format": CHECKPOINT_FORMAT,
+                "model_config": self.model.config,
+                "state_dict": self.model.state_dict(),
+                "feature_stats": self.stats.to_dict(),
+                "domain": {k: list(v) for k, v in self.domain.items()},
+            },
+            path,
+        )
 
     @classmethod
-    def load(cls, path: Union[str, os.PathLike]) -> "PutSurrogate":
+    def load(cls, path: str | os.PathLike) -> "PutSurrogate":
         """
         Rebuilds a surrogate saved by `save`, on the CPU.
 

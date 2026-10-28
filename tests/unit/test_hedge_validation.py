@@ -1,17 +1,18 @@
 """train() with a validation env: scoring schedule, metrics and
 checkpoint selection."""
+
 import numpy as np
 import pytest
 import torch
 
 import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.sac import train
 from optionpricing.hedging.evaluation import cvar
 from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.sac import train
 from tests.unit.hedge_fakes import FakeEnv, make_nets
 
-
 # --- train() with a validation env ------------------------------------------
+
 
 class ScriptedValEnv:
     """Stands in for a validation HedgingEnv: rollout_pnl returns scripted P&L
@@ -31,8 +32,7 @@ class ScriptedValEnv:
         return np.asarray(self.scripted[len(self.calls) - 1], dtype=float)
 
 
-def _train_with_val(tmp_path, scripted, n_episodes, val_every, val_metric="std", val_paths=5,
-                    n_paths=500, update=True):
+def _train_with_val(tmp_path, scripted, n_episodes, val_every, val_metric="std", val_paths=5, n_paths=500, update=True):
     """Runs train() on 2-step episodes with real updates (so weights change
     between scorings). Returns (val_env, checkpoint_path)."""
     torch.manual_seed(0)
@@ -40,9 +40,19 @@ def _train_with_val(tmp_path, scripted, n_episodes, val_every, val_metric="std",
     val_env = ScriptedValEnv(scripted, policy, n_paths=n_paths)
     path = str(tmp_path / "p.pth")
     train(
-        policy, FakeEnv([0.1, -0.2]), ReplayBuffer(max_size=100), c1, c2,
-        n_episodes=n_episodes, warmup_steps=0 if update else 10 ** 6, update_every=1, batch_size=1,
-        val_env=val_env, val_paths=val_paths, val_every=val_every, val_metric=val_metric,
+        policy,
+        FakeEnv([0.1, -0.2]),
+        ReplayBuffer(max_size=100),
+        c1,
+        c2,
+        n_episodes=n_episodes,
+        warmup_steps=0 if update else 10**6,
+        update_every=1,
+        batch_size=1,
+        val_env=val_env,
+        val_paths=val_paths,
+        val_every=val_every,
+        val_metric=val_metric,
         checkpoint_path=path,
     )
     return val_env, path
@@ -123,8 +133,8 @@ def test_train_cvar_metric_ranks_by_tail_mean_not_fifth_percentile(tmp_path):
 
 def test_train_cvar_metric_not_fooled_by_lower_std(tmp_path):
     # Second P&L has lower std but a worse left tail (CVaR -0.1 vs 0.0): it must NOT be saved.
-    first = np.concatenate([np.full(95, 0.0), np.full(5, 1.0)])       # CVaR 0.0
-    second = np.concatenate([np.full(10, -0.1), np.full(90, 0.0)])    # CVaR -0.1, smaller std
+    first = np.concatenate([np.full(95, 0.0), np.full(5, 1.0)])  # CVaR 0.0
+    second = np.concatenate([np.full(10, -0.1), np.full(90, 0.0)])  # CVaR -0.1, smaller std
     assert np.std(second) < np.std(first)
     val_env, path = _train_with_val(tmp_path, [first, second], n_episodes=1, val_every=1, val_metric="cvar")
     _assert_ckpt_equals(path, val_env.snapshots[0])
@@ -148,9 +158,18 @@ def test_train_validation_hedge_fn_is_deterministic_hedge_of_the_policy(tmp_path
             seen.append((hedge_fn(states), hedge_module.deterministic_hedge(policy, states)))
             return super().rollout_pnl(hedge_fn, path_idxs)
 
-    train(policy, FakeEnv([0.1]), ReplayBuffer(max_size=10), c1, c2, n_episodes=0,
-          val_env=Env([[1.0, -1.0]], policy), val_paths=2, val_every=1,
-          checkpoint_path=str(tmp_path / "p.pth"))
+    train(
+        policy,
+        FakeEnv([0.1]),
+        ReplayBuffer(max_size=10),
+        c1,
+        c2,
+        n_episodes=0,
+        val_env=Env([[1.0, -1.0]], policy),
+        val_paths=2,
+        val_every=1,
+        checkpoint_path=str(tmp_path / "p.pth"),
+    )
     np.testing.assert_array_equal(seen[0][0], seen[0][1])
 
 
@@ -158,11 +177,29 @@ def test_train_without_val_env_keeps_trailing_50_mean_reward_criterion(tmp_path)
     # No checkpoint may exist before 50 episodes have been recorded; afterwards one is saved.
     policy, c1, c2 = make_nets()
     path = tmp_path / "p.pth"
-    train(policy, FakeEnv([0.1]), ReplayBuffer(max_size=100), c1, c2, n_episodes=49,
-          warmup_steps=10 ** 6, batch_size=10 ** 6, checkpoint_path=str(path))
+    train(
+        policy,
+        FakeEnv([0.1]),
+        ReplayBuffer(max_size=100),
+        c1,
+        c2,
+        n_episodes=49,
+        warmup_steps=10**6,
+        batch_size=10**6,
+        checkpoint_path=str(path),
+    )
     assert not path.exists()
-    train(policy, FakeEnv([0.1]), ReplayBuffer(max_size=100), c1, c2, n_episodes=50,
-          warmup_steps=10 ** 6, batch_size=10 ** 6, checkpoint_path=str(path))
+    train(
+        policy,
+        FakeEnv([0.1]),
+        ReplayBuffer(max_size=100),
+        c1,
+        c2,
+        n_episodes=50,
+        warmup_steps=10**6,
+        batch_size=10**6,
+        checkpoint_path=str(path),
+    )
     assert path.exists()
 
 

@@ -2,6 +2,7 @@ import numpy as np
 
 from optionpricing.core.base import OptionPricing
 
+
 class BinomialTree(OptionPricing):
     """
     Class for Binomial tree option pricing.
@@ -9,15 +10,15 @@ class BinomialTree(OptionPricing):
     """
 
     def __init__(
-            self,
-            sigma: float = 0.2,
-            start_price: float = 100.0,
-            strike: float = 100.0,
-            risk_free_rate: float = 0.05,
-            maturity: float = 1.0,
-            nb_steps: int = 1000,
-            option_type: str = "call"
-        ):
+        self,
+        sigma: float = 0.2,
+        start_price: float = 100.0,
+        strike: float = 100.0,
+        risk_free_rate: float = 0.05,
+        maturity: float = 1.0,
+        nb_steps: int = 1000,
+        option_type: str = "call",
+    ):
         """
         Initialize the Binomial tree model.
 
@@ -58,13 +59,13 @@ class BinomialTree(OptionPricing):
         dt = self.maturity / self.nb_steps
         discount = np.exp(-self.risk_free_rate * dt)
 
-        u = np.exp(self.sigma * np.sqrt(dt)) # Up factor
-        d = 1 / u # Down factor
+        u = np.exp(self.sigma * np.sqrt(dt))  # Up factor
+        d = 1 / u  # Down factor
 
-        p = (np.exp(self.risk_free_rate * dt) - d) / (u - d) # Risk-neutral probability of an up move
+        p = (np.exp(self.risk_free_rate * dt) - d) / (u - d)  # Risk-neutral probability of an up move
 
         j = np.arange(self.nb_steps + 1)
-        end_price = self.start_price * u ** j * d ** (self.nb_steps - j)
+        end_price = self.start_price * u**j * d ** (self.nb_steps - j)
 
         if self.option_type == "call":
             self.payoff = np.maximum(end_price - self.strike, 0)
@@ -74,16 +75,15 @@ class BinomialTree(OptionPricing):
         # Backpropagation of payoff
         for i in range(self.nb_steps - 1, -1, -1):
             j = np.arange(i + 1)
-            price = self.start_price * u ** j * d ** (i - j)
+            price = self.start_price * u**j * d ** (i - j)
             if self.option_type == "call":
                 exercise_payoff = np.maximum(price - self.strike, 0)
             else:
                 exercise_payoff = np.maximum(self.strike - price, 0)
 
-            continuation_payoff = discount * (p * self.payoff[1:i+2] + (1 -p) * self.payoff[0:i+1])
+            continuation_payoff = discount * (p * self.payoff[1 : i + 2] + (1 - p) * self.payoff[0 : i + 1])
 
-            self.payoff = np.maximum(exercise_payoff[:i+1], continuation_payoff)
-
+            self.payoff = np.maximum(exercise_payoff[: i + 1], continuation_payoff)
 
     def calculate_option_price(self, T: float = 1) -> float:
         # It's important to note that we don't use T here because we are evaluating the price of an american option which can be exercised

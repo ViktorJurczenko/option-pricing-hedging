@@ -6,6 +6,7 @@ default-size run. The generator runs as `python -m`, as documented; no CLI
 command trains or scores LegacyMLP any more (train-ml/test-ml run the tree
 surrogate, tests/integration/test_cli_smoke.py).
 """
+
 import numpy as np
 import pytest
 import torch
@@ -17,10 +18,26 @@ from tests.helpers import run_python
 # Dataset generation and training take longer than the helpers' default timeout.
 PIPELINE_TIMEOUT = 600
 
+
 def _generate(out_dir, *extra):
-    result = run_python("-m", "optionpricing.ml.surrogate.legacy.generate_lsm_dataset", "--path_per_sim", "500", "--nb_param_comb", "40",
-                  "--samples_per_param", "2", "--nb_jobs", "2", "--sampling", "20",
-                  "--output_dir", str(out_dir), *extra, timeout=PIPELINE_TIMEOUT)
+    result = run_python(
+        "-m",
+        "optionpricing.ml.surrogate.legacy.generate_lsm_dataset",
+        "--path_per_sim",
+        "500",
+        "--nb_param_comb",
+        "40",
+        "--samples_per_param",
+        "2",
+        "--nb_jobs",
+        "2",
+        "--sampling",
+        "20",
+        "--output_dir",
+        str(out_dir),
+        *extra,
+        timeout=PIPELINE_TIMEOUT,
+    )
     assert result.returncode == 0, result.stderr
     return np.load(out_dir / "american_option_dataset.npz")
 
@@ -43,12 +60,18 @@ def test_generate_lsm_dataset_default_writes_five_columns_with_calls_and_puts(pi
     assert set(np.unique(features[:, 4])) == {0.0, 1.0}
     assert np.isfinite(data["label"]).all()
 
+
 def test_generate_lsm_dataset_stores_the_lsm_settings_it_labelled_with(pipeline, tmp_path):
     _, data, _, _ = pipeline
-    assert (str(data["reg_type"]), int(data["max_degree"]), int(data["path_per_sim"]), int(data["sampling"])) \
-        == ("simple", 3, 500, 20)
+    assert (str(data["reg_type"]), int(data["max_degree"]), int(data["path_per_sim"]), int(data["sampling"])) == (
+        "simple",
+        3,
+        500,
+        20,
+    )
     custom = _generate(tmp_path, "--reg_type", "laguerre", "--max_degree", "2", "--option_type", "put")
     assert (str(custom["reg_type"]), int(custom["max_degree"])) == ("laguerre", 2)
+
 
 def test_generate_lsm_dataset_is_seeded_chunked_and_cleans_up_its_chunks(pipeline, tmp_path):
     out, data, _, _ = pipeline
@@ -58,19 +81,23 @@ def test_generate_lsm_dataset_is_seeded_chunked_and_cleans_up_its_chunks(pipelin
     np.testing.assert_array_equal(again["features"], data["features"])
     np.testing.assert_array_equal(again["label"], data["label"])
 
+
 def test_generate_lsm_dataset_single_type_still_writes_five_columns(tmp_path):
     features = _generate(tmp_path, "--option_type", "put")["features"]
     assert features.shape == (80, 5)
     assert (features[:, 4] == 0.0).all()
+
 
 def test_train_legacy_mlp_saves_a_checkpoint_that_loads_into_the_legacy_mlp(pipeline):
     _, _, ckpt, mlp = pipeline
     assert isinstance(mlp, LegacyMLP)
     LegacyMLP().load_state_dict(torch.load(ckpt, map_location="cpu"))  # strict: shapes must match
 
+
 def test_train_legacy_mlp_missing_dataset_names_the_generator(tmp_path):
     with pytest.raises(FileNotFoundError, match="generate_lsm_dataset"):
         train_legacy_mlp(tmp_path / "nope.npz", checkpoint_path=tmp_path / "m.pth")
+
 
 def test_features_norm_keys_and_values_invert_the_generators_columns(pipeline):
     # CLAUDE.md requires generate_lsm_dataset and the dataset class to share one
@@ -98,6 +125,8 @@ def test_features_norm_keys_and_values_invert_the_generators_columns(pipeline):
     assert r.min() >= 0.0 - eps and r.max() <= 0.08 + eps
 
     # And the forward formula reproduces the stored column.
-    np.testing.assert_allclose((np.log(sigma) - norms["log_sigma_mean"]) / norms["log_sigma_std"], sigma_norm, atol=1e-9)
+    np.testing.assert_allclose(
+        (np.log(sigma) - norms["log_sigma_mean"]) / norms["log_sigma_std"], sigma_norm, atol=1e-9
+    )
     np.testing.assert_allclose((np.log(T) - norms["log_T_mean"]) / norms["log_T_std"], T_norm, atol=1e-9)
     np.testing.assert_allclose((r - norms["r_mean"]) / norms["r_std"], r_norm, atol=1e-9)

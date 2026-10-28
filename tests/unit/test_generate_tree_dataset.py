@@ -2,11 +2,19 @@ import numpy as np
 import pytest
 
 import optionpricing.ml.surrogate.tree.generate_tree_dataset as gen
+from optionpricing.ml.surrogate.chunks import chunk_file
+from optionpricing.ml.surrogate.tree.generate_tree_dataset import (
+    COLUMNS,
+    DOMAIN,
+    SAMPLED,
+    generate_tree_chunks,
+    label_puts,
+    load_tree_chunks,
+    map_to_domain,
+    sobol_points,
+)
 from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_price
-from optionpricing.ml.surrogate.tree.generate_tree_dataset import (COLUMNS, DOMAIN, SAMPLED, generate_tree_chunks, label_puts, load_tree_chunks,
-                                              map_to_domain, sobol_points)
-from optionpricing.ml.surrogate.chunks import chunk_file
 
 # small trees keep these fast; the labels' accuracy is the pricer's tests' job
 TINY = ["--nb_steps", "50", "--nb_jobs", "1"]
@@ -73,12 +81,15 @@ def test_map_to_domain_maps_t_sigma_r_from_their_own_uniform_only():
     np.testing.assert_allclose(a["r"], r_low + col["r"] * (r_high - r_low), rtol=1e-12)
 
 
-@pytest.mark.parametrize("u_t_sigma, z_ends, m_ends", [
-    # 1 week, 5% vol: v = 0.0069, the z range binds on both sides
-    ((0.0, 0.0), DOMAIN["z_range"], None),
-    # 5 years, 60% vol: v = 1.34, the m cap binds on both sides
-    ((1 - 1e-12, 1 - 1e-12), None, DOMAIN["m_range"]),
-])
+@pytest.mark.parametrize(
+    "u_t_sigma, z_ends, m_ends",
+    [
+        # 1 week, 5% vol: v = 0.0069, the z range binds on both sides
+        ((0.0, 0.0), DOMAIN["z_range"], None),
+        # 5 years, 60% vol: v = 1.34, the m cap binds on both sides
+        ((1 - 1e-12, 1 - 1e-12), None, DOMAIN["m_range"]),
+    ],
+)
 def test_z_interval_ends_where_the_tighter_of_the_z_range_and_m_cap_does(u_t_sigma, z_ends, m_ends):
     # two rows, same T, sigma and r, z at the bottom and the top of its interval
     u = np.full((2, N_DIMS), 0.5)
@@ -98,7 +109,9 @@ def test_label_puts_match_the_tree_and_black_scholes():
     tree = binomial_put_batch(p["m"], p["T"], p["r"], p["sigma"], nb_steps=50)
     np.testing.assert_array_equal(out["price"], tree.price)
     np.testing.assert_array_equal(out["exercised"], tree.exercised)
-    np.testing.assert_array_equal(out["european_price"], black_scholes_price(p["m"], 1.0, p["T"], p["r"], p["sigma"], "put"))
+    np.testing.assert_array_equal(
+        out["european_price"], black_scholes_price(p["m"], 1.0, p["T"], p["r"], p["sigma"], "put")
+    )
     assert 0 < out["exercised"].mean() < 1
 
 
@@ -139,11 +152,14 @@ def test_generate_tree_chunks_resumes_by_redoing_only_the_missing_chunk(tmp_path
         np.testing.assert_array_equal(resumed[col], full[col])
 
 
-@pytest.mark.parametrize("nb_steps, error", [
-    ("51", "even"),  # "bbsr" halves the tree
-    # 10-step coarse tree at T = 5: r dt > sigma sqrt(dt) at sigma = 0.05, r = 0.08
-    ("20", "probability"),
-])
+@pytest.mark.parametrize(
+    "nb_steps, error",
+    [
+        ("51", "even"),  # "bbsr" halves the tree
+        # 10-step coarse tree at T = 5: r dt > sigma sqrt(dt) at sigma = 0.05, r = 0.08
+        ("20", "probability"),
+    ],
+)
 def test_bad_tree_settings_fail_before_the_config_is_written(tmp_path, nb_steps, error):
     # They used to fail inside the first job, after config.json was saved, so
     # the corrected re-run was refused as "other settings".
@@ -160,6 +176,7 @@ def test_interrupted_main_resumes_with_the_same_flags_and_refuses_other_ones(tmp
 
     def interrupted(*a, **kw):
         raise KeyboardInterrupt
+
     monkeypatch.setattr(gen, "generate_tree_chunks", interrupted)
     with pytest.raises(KeyboardInterrupt):
         gen.main(args)

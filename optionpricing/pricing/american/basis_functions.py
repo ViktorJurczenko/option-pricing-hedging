@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def simple_poly(x: np.ndarray, max_degree: int = 3) -> np.ndarray:
     """
     Creates a 2D-array containing a polynomial of the input x at each dimension like
@@ -15,9 +16,10 @@ def simple_poly(x: np.ndarray, max_degree: int = 3) -> np.ndarray:
     poly = np.zeros((max_degree + 1, x.shape[0]))
 
     for i in range(0, max_degree + 1):
-        poly[i] = x ** i
+        poly[i] = x**i
 
     return poly.T
+
 
 def simple_poly_deriv_k(x: np.ndarray, max_degree: int = 3, k: int = 0) -> np.ndarray:
     poly = np.zeros((max_degree + 1, x.shape[0]))
@@ -30,6 +32,7 @@ def simple_poly_deriv_k(x: np.ndarray, max_degree: int = 3, k: int = 0) -> np.nd
             poly[i] = coeff * x ** (i - k)
 
     return poly.T
+
 
 def laguerre_poly_gen(x: np.ndarray, max_degree: int = 3, alpha: int = 0) -> np.ndarray:
     """
@@ -52,14 +55,15 @@ def laguerre_poly_gen(x: np.ndarray, max_degree: int = 3, alpha: int = 0) -> np.
     for i in range(2, max_degree + 1):
         k = i - 1
         # Closed form solution for Laguerre polynomial
-        poly[i] = ((2*k + alpha + 1 - x) * poly[k] - (k + alpha) * poly[k - 1]) / (k + 1)
+        poly[i] = ((2 * k + alpha + 1 - x) * poly[k] - (k + alpha) * poly[k - 1]) / (k + 1)
 
     return poly.T
+
 
 def laguerre_deriv_k(x: np.ndarray, max_degree: int = 3, k: int = 0, alpha: int = 0) -> np.ndarray:
     deriv = np.zeros((x.shape[0], max_degree + 1))
 
     poly_alpha = laguerre_poly_gen(x, max_degree, alpha + k)
     # The k-th derivative: L_n^(alpha)(k)(x) = (-1)^k * L_{n-k}^{alpha+k}(x), zero for n < k
-    deriv[:, k:] = ((-1) ** k) * poly_alpha[:, :-k if k > 0 else None]
+    deriv[:, k:] = ((-1) ** k) * poly_alpha[:, : -k if k > 0 else None]
     return deriv

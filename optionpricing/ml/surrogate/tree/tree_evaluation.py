@@ -20,21 +20,29 @@ How good a trained PutSurrogate is, as `test-ml` reports it.
   exercised rows), the routing outside the domain, and the time per price.
 - The held-out test split of the dataset, against the teacher's labels.
 """
+
 import json
 import math
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import NamedTuple, Optional, Sequence, Union
+from typing import NamedTuple
 
 import numpy as np
 from tqdm import tqdm
 
-from optionpricing.pricing.american.batch_binomial_tree import TreeResult, binomial_put_batch
-from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_price
 from optionpricing.ml.surrogate.tree.tree_dataset import TreePutDataset
 from optionpricing.ml.surrogate.tree.tree_pricer import DOMAIN_KEYS, ROUTES, PutSurrogate
-from optionpricing.ml.surrogate.tree.tree_training import EVAL_CHUNK, SHAPE_CONDITIONS, ShapePoints, price_derivatives, scaled_violations
+from optionpricing.ml.surrogate.tree.tree_training import (
+    EVAL_CHUNK,
+    SHAPE_CONDITIONS,
+    ShapePoints,
+    price_derivatives,
+    scaled_violations,
+)
+from optionpricing.pricing.american.batch_binomial_tree import TreeResult, binomial_put_batch
+from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_price
 
 # ---------------------------------------------------------------------------
 # Units and buckets
@@ -178,11 +186,13 @@ REFERENCE_FORMAT = "tree_reference_grid"
 
 class Grid(NamedTuple):
     """Flat (n,) arrays of the evaluation points, per unit of strike."""
+
     m: np.ndarray
     T: np.ndarray
     r: np.ndarray
     sigma: np.ndarray
     z: np.ndarray
+
 
 class Reference(NamedTuple):
     """
@@ -190,10 +200,12 @@ class Reference(NamedTuple):
     the reference tree there, its vega, and the reference tree's time per
     option when it was computed (for the timing line).
     """
+
     grid: Grid
     tree: TreeResult
     vega: np.ndarray
     seconds_per_option: float
+
 
 class NetDiagnostics(NamedTuple):
     """
@@ -202,13 +214,20 @@ class NetDiagnostics(NamedTuple):
     theta = -dV/dT by autograd; theta_pde = r V - r m delta -
     1/2 sigma^2 m^2 gamma from the net's own V, delta, gamma.
     """
+
     price: np.ndarray
     theta: np.ndarray
     theta_pde: np.ndarray
     violations: np.ndarray
 
-def evaluation_grid(domain: dict, n_z: int = GRID_N_Z, n_sigma: int = GRID_N_SIGMA, n_T: int = GRID_N_T,
-                    rates: Sequence[float] = GRID_RATES) -> Grid:
+
+def evaluation_grid(
+    domain: dict,
+    n_z: int = GRID_N_Z,
+    n_sigma: int = GRID_N_SIGMA,
+    n_T: int = GRID_N_T,
+    rates: Sequence[float] = GRID_RATES,
+) -> Grid:
     """
     The factorial grid: z evenly spaced over the domain's z range, sigma and
     T log-spaced over theirs (T from its low end, 1 week in the default
@@ -238,10 +257,10 @@ def evaluation_grid(domain: dict, n_z: int = GRID_N_Z, n_sigma: int = GRID_N_SIG
     # The values of each parameter. z is evenly spaced, then pulled
     # Z_INSET inside its ends so no point leaves the net's route by rounding.
     z_low, z_high = domain["z_range"]
-    z     = spaced("z_range", n_z, geometric=False).clip(z_low + Z_INSET, z_high - Z_INSET)
+    z = spaced("z_range", n_z, geometric=False).clip(z_low + Z_INSET, z_high - Z_INSET)
     sigma = spaced("sigma_range", n_sigma, geometric=True)
-    T     = spaced("T_range", n_T, geometric=True)
-    r     = np.asarray(rates, dtype=float)
+    T = spaced("T_range", n_T, geometric=True)
+    r = np.asarray(rates, dtype=float)
 
     # Every combination once: meshgrid gives one 4-d array per parameter,
     # flattened into one point per (z, sigma, T, r).
@@ -254,6 +273,7 @@ def evaluation_grid(domain: dict, n_z: int = GRID_N_Z, n_sigma: int = GRID_N_SIG
     keep = (m >= m_low) & (m <= m_high)
     return Grid(m[keep], T[keep], R[keep], S[keep], Z[keep])
 
+
 def tree_prices(m, T, r, sigma, nb_steps: int, method: str, desc: str = "Tree") -> TreeResult:
     """binomial_put_batch over (n,) arrays in blocks of TREE_BLOCK, with a progress bar."""
     n = len(m)
@@ -262,11 +282,13 @@ def tree_prices(m, T, r, sigma, nb_steps: int, method: str, desc: str = "Tree") 
     with tqdm(total=n, desc=desc, unit="option") as bar:
         for start in range(0, n, TREE_BLOCK):
             sl = slice(start, start + TREE_BLOCK)
-            res = binomial_put_batch(m[sl], T[sl], r[sl], sigma[sl], nb_steps=nb_steps, method=method,
-                                     chunk_size=TREE_CHUNK)
+            res = binomial_put_batch(
+                m[sl], T[sl], r[sl], sigma[sl], nb_steps=nb_steps, method=method, chunk_size=TREE_CHUNK
+            )
             price[sl], delta[sl], gamma[sl], exercised[sl] = res
             bar.update(len(res.price))
     return TreeResult(price, delta, gamma, exercised)
+
 
 def tree_vega(m, T, r, sigma) -> np.ndarray:
     """
@@ -278,27 +300,43 @@ def tree_vega(m, T, r, sigma) -> np.ndarray:
     # both bumps in one tree pass: the points twice, sigma up then sigma down
     m2, T2, r2 = (np.concatenate([x, x]) for x in (m, T, r))
     sigma2 = np.concatenate([sigma + h, sigma - h])
-    both = tree_prices(m2, T2, r2, sigma2, nb_steps=TEACHER_STEPS, method=TEACHER_METHOD,
-                       desc="Reference vega").price
+    both = tree_prices(m2, T2, r2, sigma2, nb_steps=TEACHER_STEPS, method=TEACHER_METHOD, desc="Reference vega").price
 
-    up, down = both[:len(m)], both[len(m):]
+    up, down = both[: len(m)], both[len(m) :]
     return (up - down) / (2 * h)
 
-def reference_settings(domain: dict, ref_steps: int, ref_method: str, n_z: int, n_sigma: int, n_T: int,
-                       rates: Sequence[float]) -> dict:
+
+def reference_settings(
+    domain: dict, ref_steps: int, ref_method: str, n_z: int, n_sigma: int, n_T: int, rates: Sequence[float]
+) -> dict:
     """
     Everything a Reference depends on, as plain JSON values: the grid's
     domain and sizes, the reference tree, and the vega's trees and bump.
     """
-    settings = {"format": REFERENCE_FORMAT, "ref_method": ref_method, "ref_steps": int(ref_steps),
-                "n_z": int(n_z), "n_sigma": int(n_sigma), "n_T": int(n_T), "rates": [float(r) for r in rates],
-                "vega": [TEACHER_METHOD, TEACHER_STEPS, VEGA_BUMP],
-                **{key: [float(v) for v in domain[key]] for key in DOMAIN_KEYS}}
+    settings = {
+        "format": REFERENCE_FORMAT,
+        "ref_method": ref_method,
+        "ref_steps": int(ref_steps),
+        "n_z": int(n_z),
+        "n_sigma": int(n_sigma),
+        "n_T": int(n_T),
+        "rates": [float(r) for r in rates],
+        "vega": [TEACHER_METHOD, TEACHER_STEPS, VEGA_BUMP],
+        **{key: [float(v) for v in domain[key]] for key in DOMAIN_KEYS},
+    }
     return json.loads(json.dumps(settings))  # the form it takes once stored, so the two compare equal
 
-def grid_reference(domain: dict, ref_steps: int = REF_STEPS, ref_method: str = REF_METHOD, n_z: int = GRID_N_Z,
-                   n_sigma: int = GRID_N_SIGMA, n_T: int = GRID_N_T, rates: Sequence[float] = GRID_RATES,
-                   cache_path: Optional[Union[str, os.PathLike]] = None) -> Reference:
+
+def grid_reference(
+    domain: dict,
+    ref_steps: int = REF_STEPS,
+    ref_method: str = REF_METHOD,
+    n_z: int = GRID_N_Z,
+    n_sigma: int = GRID_N_SIGMA,
+    n_T: int = GRID_N_T,
+    rates: Sequence[float] = GRID_RATES,
+    cache_path: str | os.PathLike | None = None,
+) -> Reference:
     """
     evaluation_grid(domain, ...) with its `ref_method` tree of `ref_steps`
     steps and tree_vega. With `cache_path`, an existing cache file is loaded
@@ -315,8 +353,10 @@ def grid_reference(domain: dict, ref_steps: int = REF_STEPS, ref_method: str = R
             stored = json.loads(str(data["settings"])) if "settings" in data.files else {}
             if stored != settings:
                 diff = {k: (stored.get(k), settings.get(k)) for k in settings if stored.get(k) != settings[k]}
-                raise ValueError(f"{cache_path} is a reference for other settings ((stored, requested): {diff}); "
-                                 "pass another --reference_cache path or delete the file")
+                raise ValueError(
+                    f"{cache_path} is a reference for other settings ((stored, requested): {diff}); "
+                    "pass another --reference_cache path or delete the file"
+                )
             grid = Grid(*(data[k] for k in Grid._fields))
             tree = TreeResult(data["price"], data["delta"], data["gamma"], data["exercised"])
             return Reference(grid, tree, data["vega"], float(data["seconds_per_option"]))
@@ -333,10 +373,20 @@ def grid_reference(domain: dict, ref_steps: int = REF_STEPS, ref_method: str = R
         path = Path(cache_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.stem + ".tmp.npz")
-        np.savez(tmp, settings=json.dumps(settings), **grid._asdict(), price=tree.price, delta=tree.delta,
-                 gamma=tree.gamma, exercised=tree.exercised, vega=ref.vega, seconds_per_option=seconds)
+        np.savez(
+            tmp,
+            settings=json.dumps(settings),
+            **grid._asdict(),
+            price=tree.price,
+            delta=tree.delta,
+            gamma=tree.gamma,
+            exercised=tree.exercised,
+            vega=ref.vega,
+            seconds_per_option=seconds,
+        )
         os.replace(tmp, path)
     return ref
+
 
 def net_diagnostics(surrogate: PutSurrogate, m, T, r, sigma) -> NetDiagnostics:
     """
@@ -364,10 +414,11 @@ def net_diagnostics(surrogate: PutSurrogate, m, T, r, sigma) -> NetDiagnostics:
         # theta = dV/dt = -dV/dT (t is calendar time, T the time left)
         out["theta"].append(-d.dT.detach().numpy())
         # the Black-Scholes PDE per unit of strike, solved for theta
-        out["theta_pde"].append(rc * V - rc * mc * delta - 0.5 * sc ** 2 * mc ** 2 * gamma)
+        out["theta_pde"].append(rc * V - rc * mc * delta - 0.5 * sc**2 * mc**2 * gamma)
         out["violations"].append(scaled_violations(d, pts).detach().numpy())
 
     return NetDiagnostics(*(np.concatenate(out[k]) for k in NetDiagnostics._fields))
+
 
 def theta_gap(diag: NetDiagnostics, exercised: np.ndarray) -> np.ndarray:
     """
@@ -377,6 +428,7 @@ def theta_gap(diag: NetDiagnostics, exercised: np.ndarray) -> np.ndarray:
     """
     return np.where(exercised, np.abs(diag.theta), np.abs(diag.theta - diag.theta_pde))
 
+
 def bucket_masks(values: np.ndarray, buckets, exercised: np.ndarray) -> list:
     """
     [(name, mask)]: one per (name, low, high) bucket of `values` over the
@@ -385,13 +437,23 @@ def bucket_masks(values: np.ndarray, buckets, exercised: np.ndarray) -> list:
     groups = [(name, ~exercised & (values >= low) & (values < high)) for name, low, high in buckets]
     return groups + [("exercised", exercised), ("all", np.ones_like(exercised))]
 
+
 def _mean(x: np.ndarray) -> float:
     """The mean, NaN for no rows (an empty bucket prints as "-")."""
     return float(np.mean(x)) if len(x) else math.nan
 
-def bucket_metrics(groups: list, price_err: np.ndarray, ref_price: np.ndarray, delta_err: np.ndarray,
-                   floored: np.ndarray, gamma_err: Optional[np.ndarray] = None, vega: Optional[np.ndarray] = None,
-                   exercised: Optional[np.ndarray] = None, gap: Optional[np.ndarray] = None) -> list:
+
+def bucket_metrics(
+    groups: list,
+    price_err: np.ndarray,
+    ref_price: np.ndarray,
+    delta_err: np.ndarray,
+    floored: np.ndarray,
+    gamma_err: np.ndarray | None = None,
+    vega: np.ndarray | None = None,
+    exercised: np.ndarray | None = None,
+    gap: np.ndarray | None = None,
+) -> list:
     """
     One dict of error metrics per (name, mask) group, every figure per unit
     of strike (the printer converts): n, price_mae, price_max, rel_mae (mean
@@ -415,16 +477,19 @@ def bucket_metrics(groups: list, price_err: np.ndarray, ref_price: np.ndarray, d
 
     rows = []
     for name, mask in groups:
-        row = {"name": name, "n": int(mask.sum()),
-               "price_mae": _mean(abs_err[mask]),
-               "price_max": float(abs_err[mask].max()) if mask.any() else math.nan,
-               "n_rel": int((mask & rel_ok).sum()),
-               "rel_mae": _mean(abs_err[mask & rel_ok] / ref_price[mask & rel_ok]),
-               "delta_mae": _mean(np.abs(delta_err[mask])),
-               "gamma_mae": math.nan if gamma_err is None else _mean(np.abs(gamma_err[mask])),
-               # the median: one point at the exercise boundary, where the PDE switches off, would dominate a mean
-               "theta_gap": float(np.median(gap[mask])) if gap is not None and mask.any() else math.nan,
-               "floor_rate": _mean(floored[mask].astype(float))}
+        row = {
+            "name": name,
+            "n": int(mask.sum()),
+            "price_mae": _mean(abs_err[mask]),
+            "price_max": float(abs_err[mask].max()) if mask.any() else math.nan,
+            "n_rel": int((mask & rel_ok).sum()),
+            "rel_mae": _mean(abs_err[mask & rel_ok] / ref_price[mask & rel_ok]),
+            "delta_mae": _mean(np.abs(delta_err[mask])),
+            "gamma_mae": math.nan if gamma_err is None else _mean(np.abs(gamma_err[mask])),
+            # the median: one point at the exercise boundary, where the PDE switches off, would dominate a mean
+            "theta_gap": float(np.median(gap[mask])) if gap is not None and mask.any() else math.nan,
+            "floor_rate": _mean(floored[mask].astype(float)),
+        }
 
         # first-order implied-vol error: how far sigma must move for the true price to reach the surrogate's
         if iv_ok is None:
@@ -434,6 +499,7 @@ def bucket_metrics(groups: list, price_err: np.ndarray, ref_price: np.ndarray, d
             row.update(n_iv=int(sel.sum()), iv_mae=_mean(abs_err[sel] / vega[sel]))
         rows.append(row)
     return rows
+
 
 def violation_rates(violations: np.ndarray, exercised: np.ndarray, tol: float = VIOLATION_TOL) -> dict:
     """
@@ -448,11 +514,13 @@ def violation_rates(violations: np.ndarray, exercised: np.ndarray, tol: float = 
         out[region] = {"n": int(mask.sum()), **rates, "any": _mean(over.any(axis=1).astype(float))}
     return out
 
+
 def violation_rates_by_tol(violations: np.ndarray, exercised: np.ndarray, tols: Sequence[float]) -> dict:
     """{tol: violation_rates(..., tol)} for each tolerance, in the given order."""
     if len(tols) == 0:
         raise ValueError("need at least one violation tolerance")
     return {float(tol): violation_rates(violations, exercised, tol) for tol in tols}
+
 
 def routing_queries(domain: dict) -> Grid:
     """
@@ -482,12 +550,17 @@ def routing_queries(domain: dict) -> Grid:
     # m beyond each end of its cap, at the corner where z alone would still be inside
     q += [(m_high * 1.1, T_high, r0, s_high), (m_low / 1.1, T_high, r0, s_high)]
     # T, sigma, r each beyond its range, at the money
-    q += [(1.0, T_low / 2, r0, s0), (1.0, T_high * 1.5, r0, s0),
-          (1.0, T0, r0, s_low / 2), (1.0, T0, r0, s_high * 1.5),
-          (1.0, T0, r_high + 0.02, s0)]
+    q += [
+        (1.0, T_low / 2, r0, s0),
+        (1.0, T_high * 1.5, r0, s0),
+        (1.0, T0, r0, s_low / 2),
+        (1.0, T0, r0, s_high * 1.5),
+        (1.0, T0, r_high + 0.02, s0),
+    ]
 
     m, T, r, sigma = (np.array(c) for c in zip(*q))
     return Grid(m, T, r, sigma, np.log(m) / (sigma * np.sqrt(T)))
+
 
 def time_pricers(surrogate: PutSurrogate, grid: Grid) -> dict:
     """
@@ -516,11 +589,19 @@ def time_pricers(surrogate: PutSurrogate, grid: Grid) -> dict:
     # the teacher tree, the alternative the surrogate replaces
     k = min(TIMING_TREE, n)
     start = time.perf_counter()
-    binomial_put_batch(grid.m[:k], grid.T[:k], grid.r[:k], grid.sigma[:k], nb_steps=TEACHER_STEPS,
-                       method=TEACHER_METHOD, chunk_size=TREE_CHUNK)
+    binomial_put_batch(
+        grid.m[:k],
+        grid.T[:k],
+        grid.r[:k],
+        grid.sigma[:k],
+        nb_steps=TEACHER_STEPS,
+        method=TEACHER_METHOD,
+        chunk_size=TREE_CHUNK,
+    )
     teacher = (time.perf_counter() - start) / k
 
     return {"surrogate_batch": min(batch), "surrogate_single": float(np.median(single)), "teacher_tree": teacher}
+
 
 def check_reference(teacher: tuple, ref_method: str, ref_steps: int) -> None:
     """
@@ -529,18 +610,29 @@ def check_reference(teacher: tuple, ref_method: str, ref_steps: int) -> None:
     errors included, not how close it is to the true price.
     """
     if (ref_method, ref_steps) == tuple(teacher):
-        raise ValueError(f"the reference tree ({ref_method}, {ref_steps} steps) has the training teacher's "
-                         "settings: pick another --ref_method or --ref_steps")
+        raise ValueError(
+            f"the reference tree ({ref_method}, {ref_steps} steps) has the training teacher's "
+            "settings: pick another --ref_method or --ref_steps"
+        )
+
 
 def teacher_settings(dataset_path) -> tuple:
     """The (method, nb_steps) the tree dataset's labels were generated with."""
     with np.load(dataset_path) as data:
         return str(data["method"]), int(data["nb_steps"])
 
-def evaluate_grid(surrogate: PutSurrogate, ref_steps: int = REF_STEPS, ref_method: str = REF_METHOD,
-                  n_z: int = GRID_N_Z, n_sigma: int = GRID_N_SIGMA, n_T: int = GRID_N_T,
-                  rates: Sequence[float] = GRID_RATES, tols: Sequence[float] = (VIOLATION_TOL,),
-                  reference_cache: Optional[Union[str, os.PathLike]] = None) -> dict:
+
+def evaluate_grid(
+    surrogate: PutSurrogate,
+    ref_steps: int = REF_STEPS,
+    ref_method: str = REF_METHOD,
+    n_z: int = GRID_N_Z,
+    n_sigma: int = GRID_N_SIGMA,
+    n_T: int = GRID_N_T,
+    rates: Sequence[float] = GRID_RATES,
+    tols: Sequence[float] = (VIOLATION_TOL,),
+    reference_cache: str | os.PathLike | None = None,
+) -> dict:
     """
     Scores the surrogate on evaluation_grid(surrogate.domain, ...) against
     a `ref_method` tree of `ref_steps` steps (see the module docstring),
@@ -563,9 +655,16 @@ def evaluate_grid(surrogate: PutSurrogate, ref_steps: int = REF_STEPS, ref_metho
 
     # the errors every table is built from; "exercised" is the reference's flag
     exercised = ref.exercised
-    metrics = dict(price_err=res.price - ref.price, ref_price=ref.price, delta_err=res.delta - ref.delta,
-                   floored=res.route == "payoff_floor", gamma_err=res.gamma - ref.gamma, vega=vega,
-                   exercised=exercised, gap=theta_gap(diag, exercised))
+    metrics = dict(
+        price_err=res.price - ref.price,
+        ref_price=ref.price,
+        delta_err=res.delta - ref.delta,
+        floored=res.route == "payoff_floor",
+        gamma_err=res.gamma - ref.gamma,
+        vega=vega,
+        exercised=exercised,
+        gap=theta_gap(diag, exercised),
+    )
 
     # one group per rate (in grid order), then exercised and all, like bucket_masks
     r_groups = [(f"r = {rate:g}", ~exercised & (grid.r == rate)) for rate in dict.fromkeys(grid.r.tolist())]
@@ -574,13 +673,17 @@ def evaluate_grid(surrogate: PutSurrogate, ref_steps: int = REF_STEPS, ref_metho
     routing = _routing_report(surrogate, ref_steps, ref_method)
     timing = {**time_pricers(surrogate, grid), "reference_tree": reference.seconds_per_option}
 
-    return {"n": len(grid.m),
-            "by_z": bucket_metrics(bucket_masks(np.abs(grid.z), Z_BUCKETS, exercised), **metrics),
-            "by_T": bucket_metrics(bucket_masks(grid.T, T_BUCKETS, exercised), **metrics),
-            "by_r": bucket_metrics(r_groups, **metrics),
-            "violations": violation_rates_by_tol(diag.violations, exercised, tols),
-            "routes": {name: int((res.route == name).sum()) for name in ROUTES},
-            "routing": routing, "timing": timing}
+    return {
+        "n": len(grid.m),
+        "by_z": bucket_metrics(bucket_masks(np.abs(grid.z), Z_BUCKETS, exercised), **metrics),
+        "by_T": bucket_metrics(bucket_masks(grid.T, T_BUCKETS, exercised), **metrics),
+        "by_r": bucket_metrics(r_groups, **metrics),
+        "violations": violation_rates_by_tol(diag.violations, exercised, tols),
+        "routes": {name: int((res.route == name).sum()) for name in ROUTES},
+        "routing": routing,
+        "timing": timing,
+    }
+
 
 def _routing_report(surrogate: PutSurrogate, ref_steps: int, ref_method: str) -> list:
     """routing_queries priced by the surrogate and the reference, one row per route taken."""
@@ -593,11 +696,19 @@ def _routing_report(surrogate: PutSurrogate, ref_steps: int, ref_method: str) ->
     for name in ROUTES:
         taken = res.route == name
         if taken.any():
-            rows.append({"route": name, "n": int(taken.sum()), "mae": _mean(err[taken]), "max": float(err[taken].max())})
+            rows.append(
+                {"route": name, "n": int(taken.sum()), "mae": _mean(err[taken]), "max": float(err[taken].max())}
+            )
     return rows
 
-def evaluate_test_split(surrogate: PutSurrogate, dataset_path, split_ratio: float = 0.8, seed: int = 42,
-                        tols: Sequence[float] = (VIOLATION_TOL,)) -> dict:
+
+def evaluate_test_split(
+    surrogate: PutSurrogate,
+    dataset_path,
+    split_ratio: float = 0.8,
+    seed: int = 42,
+    tols: Sequence[float] = (VIOLATION_TOL,),
+) -> dict:
     """
     Scores the surrogate on the dataset's test split (the split the training
     never read: same split_ratio and seed as the training run) against the
@@ -615,8 +726,10 @@ def evaluate_test_split(surrogate: PutSurrogate, dataset_path, split_ratio: floa
     # a surrogate trained on another dataset: its "test split" here would not be unseen
     for key in DOMAIN_KEYS:
         if not np.allclose(data.domain.get(key, (math.nan, math.nan)), surrogate.domain[key]):
-            raise ValueError(f"the dataset's {key} {data.domain.get(key)} is not the surrogate's "
-                             f"{surrogate.domain[key]}: the checkpoint was trained on another dataset")
+            raise ValueError(
+                f"the dataset's {key} {data.domain.get(key)} is not the surrogate's "
+                f"{surrogate.domain[key]}: the checkpoint was trained on another dataset"
+            )
 
     # the labels, rebuilt from the dataset's targets: price = European + premium, delta likewise
     m, T, r, sigma = (data.params[c] for c in ("m", "T", "r", "sigma"))
@@ -629,66 +742,95 @@ def evaluate_test_split(surrogate: PutSurrogate, dataset_path, split_ratio: floa
     res = surrogate.price(m, T, r, sigma)
     diag = net_diagnostics(surrogate, m, T, r, sigma)
 
-    metrics = dict(price_err=res.price - ref_price, ref_price=ref_price, delta_err=res.delta - ref_delta,
-                   floored=res.route == "payoff_floor", exercised=exercised, gap=theta_gap(diag, exercised))
+    metrics = dict(
+        price_err=res.price - ref_price,
+        ref_price=ref_price,
+        delta_err=res.delta - ref_delta,
+        floored=res.route == "payoff_floor",
+        exercised=exercised,
+        gap=theta_gap(diag, exercised),
+    )
     z = np.log(m) / (sigma * np.sqrt(T))
-    return {"n": len(m),
-            "by_z": bucket_metrics(bucket_masks(np.abs(z), Z_BUCKETS, exercised), **metrics),
-            "by_T": bucket_metrics(bucket_masks(T, T_BUCKETS, exercised), **metrics),
-            "violations": violation_rates_by_tol(diag.violations, exercised, tols)}
+    return {
+        "n": len(m),
+        "by_z": bucket_metrics(bucket_masks(np.abs(z), Z_BUCKETS, exercised), **metrics),
+        "by_T": bucket_metrics(bucket_masks(T, T_BUCKETS, exercised), **metrics),
+        "violations": violation_rates_by_tol(diag.violations, exercised, tols),
+    }
+
 
 # ---------------------------------------------------------------------------
 # Printing
 # ---------------------------------------------------------------------------
 
+
 def _fmt(x: float, scale: float = 1.0, spec: str = ".2e") -> str:
     """x * scale formatted with spec, "-" for a missing (None or NaN) value."""
     return "-" if x is None or (isinstance(x, float) and math.isnan(x)) else format(x * scale, spec)
+
 
 # (header, key, scale, format) of the bucket tables; the scale turns a
 # per-unit-of-strike figure into the header's unit ($ at K = STRIKE, %,
 # basis points of vol); None marks a label or a count, printed as it is.
 # Gamma per unit of strike is K d2V/dS2, so d2V/dS2 in 1/$ is it / STRIKE.
 # The row counts' headers name the threshold that selects their rows.
-BUCKET_COLUMNS = (("bucket", "name", None, ""), ("n", "n", None, "d"),
-                  ("price MAE $", "price_mae", STRIKE, ".4f"), ("price max $", "price_max", STRIKE, ".4f"),
-                  ("rel. err %", "rel_mae", 100.0, ".3f"),
-                  (f"n rel. (price >= ${MIN_RELATIVE_PRICE * STRIKE:g})", "n_rel", None, "d"),
-                  ("IV err bp", "iv_mae", 1e4, ".2f"),
-                  (f"n IV (vega >= ${MIN_IV_VEGA * STRIKE:g}/vol)", "n_iv", None, "d"),
-                  ("delta MAE", "delta_mae", 1.0, ".2e"), ("gamma MAE 1/$", "gamma_mae", 1 / STRIKE, ".2e"),
-                  ("theta gap $/yr (median)", "theta_gap", STRIKE, ".2e"), ("floor %", "floor_rate", 100.0, ".1f"))
+BUCKET_COLUMNS = (
+    ("bucket", "name", None, ""),
+    ("n", "n", None, "d"),
+    ("price MAE $", "price_mae", STRIKE, ".4f"),
+    ("price max $", "price_max", STRIKE, ".4f"),
+    ("rel. err %", "rel_mae", 100.0, ".3f"),
+    (f"n rel. (price >= ${MIN_RELATIVE_PRICE * STRIKE:g})", "n_rel", None, "d"),
+    ("IV err bp", "iv_mae", 1e4, ".2f"),
+    (f"n IV (vega >= ${MIN_IV_VEGA * STRIKE:g}/vol)", "n_iv", None, "d"),
+    ("delta MAE", "delta_mae", 1.0, ".2e"),
+    ("gamma MAE 1/$", "gamma_mae", 1 / STRIKE, ".2e"),
+    ("theta gap $/yr (median)", "theta_gap", STRIKE, ".2e"),
+    ("floor %", "floor_rate", 100.0, ".1f"),
+)
 # The test split's: the dataset class loads no gamma, and its vega would cost two trees per row
 TEST_COLUMNS = tuple(c for c in BUCKET_COLUMNS if c[1] not in ("iv_mae", "n_iv", "gamma_mae"))
+
 
 def format_table(rows: list, columns) -> str:
     """Rows of dicts as an aligned text table, one column per (header, key, scale, format)."""
     # every cell as a string: the header row, then one row per dict
     cells = [[h for h, *_ in columns]]
     for row in rows:
-        cells.append([format(row[k], spec) if scale is None else _fmt(row[k], scale, spec)
-                      for _, k, scale, spec in columns])
+        cells.append(
+            [format(row[k], spec) if scale is None else _fmt(row[k], scale, spec) for _, k, scale, spec in columns]
+        )
 
     # each column as wide as its widest cell; labels left-aligned, numbers right-aligned
     widths = [max(len(c[j]) for c in cells) for j in range(len(columns))]
-    lines = ["  ".join(c[j].ljust(widths[j]) if j == 0 else c[j].rjust(widths[j]) for j in range(len(columns)))
-             for c in cells]
+    lines = [
+        "  ".join(c[j].ljust(widths[j]) if j == 0 else c[j].rjust(widths[j]) for j in range(len(columns)))
+        for c in cells
+    ]
     lines.insert(1, "-" * len(lines[0]))  # a rule under the header
     return "\n".join(lines)
 
+
 def format_violations(rates: dict, tol: float) -> str:
     """The violation_rates dict as a table, in %."""
-    columns = (("region", "region", None, ""), ("n", "n", None, "d"),
-               *((name, name, 100.0, ".2f") for name in SHAPE_CONDITIONS), ("any", "any", 100.0, ".2f"))
+    columns = (
+        ("region", "region", None, ""),
+        ("n", "n", None, "d"),
+        *((name, name, 100.0, ".2f") for name in SHAPE_CONDITIONS),
+        ("any", "any", 100.0, ".2f"),
+    )
     rows = [{"region": region, **v} for region, v in rates.items()]
     return f"Scaled no-arbitrage violations > {tol:g} (% of points, raw net):\n" + format_table(rows, columns)
 
-def print_report(grid: Optional[dict] = None, test: Optional[dict] = None) -> None:
+
+def print_report(grid: dict | None = None, test: dict | None = None) -> None:
     """Prints evaluate_grid's and evaluate_test_split's results, one unit per column."""
-    note = (f"$ at K = {STRIKE:g}; rel. err only where the price >= ${MIN_RELATIVE_PRICE * STRIKE:g}; "
-            f"IV err = |error| / vega, where vega >= ${MIN_IV_VEGA * STRIKE:g} per unit of vol, exercised rows excluded; "
-            "theta gap = |net theta - PDE theta| (|net theta| on exercised rows); "
-            "floor % = rows answered by the payoff floor")
+    note = (
+        f"$ at K = {STRIKE:g}; rel. err only where the price >= ${MIN_RELATIVE_PRICE * STRIKE:g}; "
+        f"IV err = |error| / vega, where vega >= ${MIN_IV_VEGA * STRIKE:g} per unit of vol, exercised rows excluded; "
+        "theta gap = |net theta - PDE theta| (|net theta| on exercised rows); "
+        "floor % = rows answered by the payoff floor"
+    )
 
     if test is not None:
         print(f"\n=== Test split ({test['n']} rows, against the teacher's labels) ===")
@@ -710,14 +852,25 @@ def print_report(grid: Optional[dict] = None, test: Optional[dict] = None) -> No
 
         print("\nRoutes on the grid: " + ", ".join(f"{k} {v}" for k, v in grid["routes"].items()))
         print("\nOut-of-domain routing against the reference tree:")
-        print(format_table(grid["routing"], (("route", "route", None, ""), ("n", "n", None, "d"),
-                                             ("MAE $", "mae", STRIKE, ".2e"), ("max $", "max", STRIKE, ".2e"))))
+        print(
+            format_table(
+                grid["routing"],
+                (
+                    ("route", "route", None, ""),
+                    ("n", "n", None, "d"),
+                    ("MAE $", "mae", STRIKE, ".2e"),
+                    ("max $", "max", STRIKE, ".2e"),
+                ),
+            )
+        )
 
         t = grid["timing"]
-        print(f"\nTime per price: surrogate {t['surrogate_batch'] * 1e6:.1f} us (batch of {grid['n']}), "
-              f"{t['surrogate_single'] * 1e3:.2f} ms (one query); teacher tree "
-              f"({TEACHER_METHOD}, {TEACHER_STEPS} steps) {t['teacher_tree'] * 1e3:.2f} ms, "
-              f"reference tree {t['reference_tree'] * 1e3:.2f} ms "
-              f"(surrogate batch {t['teacher_tree'] / t['surrogate_batch']:.0f}x faster than the teacher)")
+        print(
+            f"\nTime per price: surrogate {t['surrogate_batch'] * 1e6:.1f} us (batch of {grid['n']}), "
+            f"{t['surrogate_single'] * 1e3:.2f} ms (one query); teacher tree "
+            f"({TEACHER_METHOD}, {TEACHER_STEPS} steps) {t['teacher_tree'] * 1e3:.2f} ms, "
+            f"reference tree {t['reference_tree'] * 1e3:.2f} ms "
+            f"(surrogate batch {t['teacher_tree'] / t['surrogate_batch']:.0f}x faster than the teacher)"
+        )
 
     print(f"\n({note})")

@@ -4,14 +4,19 @@ import numpy as np
 import pytest
 import torch
 
+from optionpricing.core.gbm import GBM
+from optionpricing.hedging.baselines import delta_band
 from optionpricing.hedging.env import HedgingEnv
 from optionpricing.ml.rl.policy import (
-    _DELTA_IDX, _INITIAL_BAND_FRACTION, _INITIAL_BAND_TARGET, _INITIAL_GAP_FRACTION, _POSITION_IDX,
-    RLPolicy, checkpoint_action_dim,
+    _DELTA_IDX,
+    _INITIAL_BAND_FRACTION,
+    _INITIAL_BAND_TARGET,
+    _INITIAL_GAP_FRACTION,
+    _POSITION_IDX,
+    RLPolicy,
+    checkpoint_action_dim,
 )
-from optionpricing.hedging.baselines import delta_band
 from optionpricing.pricing.american import LongstaffSchwartz
-from optionpricing.core.gbm import GBM
 from tests.helpers import make_state
 
 
@@ -65,10 +70,13 @@ def test_hedge_ratio_batched_uses_each_rows_own_delta():
     torch.testing.assert_close(out, torch.tensor([[0.3], [-0.5], [0.4]]))
 
 
-@pytest.mark.parametrize("delta,squashed,expected", [
-    (0.98, 0.9, 1.0),     # 0.98 + 0.09 = 1.07 -> upper clamp
-    (-0.98, -0.9, -1.0),  # lower clamp
-])
+@pytest.mark.parametrize(
+    "delta,squashed,expected",
+    [
+        (0.98, 0.9, 1.0),  # 0.98 + 0.09 = 1.07 -> upper clamp
+        (-0.98, -0.9, -1.0),  # lower clamp
+    ],
+)
 def test_hedge_ratio_clamped_to_unit_interval(delta, squashed, expected):
     policy = RLPolicy(5, 1, residual_scale=0.1)
     out = policy.hedge_ratio(_state(delta, batch=2), torch.tensor([[squashed]] * 2))
@@ -129,9 +137,11 @@ def test_delta_idx_matches_hedging_env_state_layout():
     # reorders its entries without the constant being updated.
     np.random.seed(0)
     simulation = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=1).simulate_paths(
-        nb_predictions=60, maturity=1, sampling=6)
-    lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0,
-                            option_type="put", max_degree=2)
+        nb_predictions=60, maturity=1, sampling=6
+    )
+    lsm = LongstaffSchwartz(
+        simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2
+    )
     lsm.predict_payoff()
     env = HedgingEnv(lsm)
 
@@ -156,6 +166,7 @@ def test_delta_idx_matches_hedging_env_state_layout():
 
 # --- gap_fraction action mode -------------------------------------------------
 
+
 @pytest.mark.parametrize("bad", ["gap", "Residual", "", None])
 def test_invalid_action_mode_raises(bad):
     with pytest.raises(ValueError, match="action_mode"):
@@ -174,12 +185,15 @@ def test_gap_fraction_is_buffer_saved_in_state_dict():
     assert "gap_fraction" not in dict(policy.named_parameters())
 
 
-@pytest.mark.parametrize("squashed,expected", [
-    (-1.0, 0.3),    # w = 0: hold exactly the current position
-    (1.0, -0.2),    # w = 1: go all the way to delta
-    (0.0, 0.05),    # w = 0.5: midpoint of position 0.3 and delta -0.2
-    (0.5, -0.075),  # w = 0.75
-])
+@pytest.mark.parametrize(
+    "squashed,expected",
+    [
+        (-1.0, 0.3),  # w = 0: hold exactly the current position
+        (1.0, -0.2),  # w = 1: go all the way to delta
+        (0.0, 0.05),  # w = 0.5: midpoint of position 0.3 and delta -0.2
+        (0.5, -0.075),  # w = 0.75
+    ],
+)
 def test_gap_fraction_hedge_ratio_interpolates_position_to_delta(squashed, expected):
     policy = RLPolicy(5, 1, action_mode="gap_fraction")
     out = policy.hedge_ratio(_state(delta=-0.2, position=0.3), torch.tensor([squashed]))
@@ -215,9 +229,11 @@ def test_position_idx_matches_hedging_env_state_layout():
     # _POSITION_IDX is a hand-copied constant; fails if HedgingEnv._get_state reorders.
     np.random.seed(0)
     simulation = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=1).simulate_paths(
-        nb_predictions=60, maturity=1, sampling=6)
-    lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0,
-                            option_type="put", max_degree=2)
+        nb_predictions=60, maturity=1, sampling=6
+    )
+    lsm = LongstaffSchwartz(
+        simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2
+    )
     lsm.predict_payoff()
     env = HedgingEnv(lsm)
     state = env.reset()
@@ -261,8 +277,7 @@ def test_residual_mode_keeps_default_bias_init():
 
 
 def test_load_pre_gap_fraction_state_dict_loads_as_residual_strict():
-    legacy = {k: v for k, v in RLPolicy(5, 1, residual_scale=0.2).state_dict().items()
-              if k != "gap_fraction"}
+    legacy = {k: v for k, v in RLPolicy(5, 1, residual_scale=0.2).state_dict().items() if k != "gap_fraction"}
     target = RLPolicy(5, 1, action_mode="gap_fraction")
     target.load_state_dict(legacy)  # strict; must not raise
     assert target.gap_fraction.item() == 0.0
@@ -290,6 +305,7 @@ def test_load_does_not_mutate_callers_dict_when_gap_fraction_key_missing():
 
 
 # --- band action mode ---------------------------------------------------------
+
 
 def _band_action(b_frac, lam):
     """Squashed action giving band half-width b_frac * band_max and target lam."""
@@ -334,14 +350,17 @@ def test_band_hold_returns_position_exactly_inside_band(position):
     state = _state(0.2, position)
     out = policy.hedge_ratio(state, _band_action(0.5, 0.3))
     assert out.shape == (1,)
-    assert torch.equal(out, state[_POSITION_IDX:_POSITION_IDX + 1])
+    assert torch.equal(out, state[_POSITION_IDX : _POSITION_IDX + 1])
 
 
-@pytest.mark.parametrize("lam,expected", [
-    (0.0, 0.2 + 0.1),   # edge: back to delta + b on the side the position drifted to
-    (1.0, 0.2),         # all the way to delta
-    (0.5, 0.2 + 0.05),  # halfway into the band
-])
+@pytest.mark.parametrize(
+    "lam,expected",
+    [
+        (0.0, 0.2 + 0.1),  # edge: back to delta + b on the side the position drifted to
+        (1.0, 0.2),  # all the way to delta
+        (0.5, 0.2 + 0.05),  # halfway into the band
+    ],
+)
 def test_band_rebalances_between_edge_and_delta_above(lam, expected):
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
     out = policy.hedge_ratio(_state(0.2, 0.6), _band_action(0.5, lam))
@@ -428,8 +447,9 @@ def test_checkpoint_action_dim_of_one_dimensional_policies():
 
 @pytest.mark.parametrize("mode", ["residual", "gap_fraction"])
 def test_load_pre_band_checkpoint_keeps_its_mode_strict(mode):
-    legacy = {k: v for k, v in RLPolicy(5, 1, residual_scale=0.2, action_mode=mode).state_dict().items()
-              if k != "band_max"}
+    legacy = {
+        k: v for k, v in RLPolicy(5, 1, residual_scale=0.2, action_mode=mode).state_dict().items() if k != "band_max"
+    }
     target = RLPolicy(5, 1)
     target.load_state_dict(legacy)  # strict; must not raise
     assert target.band_max.item() == 0.0

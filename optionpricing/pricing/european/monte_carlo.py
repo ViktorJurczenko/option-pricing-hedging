@@ -2,12 +2,14 @@ import numpy as np
 
 from optionpricing.core.base import OptionPricing
 
+
 # --- Monte-Carlo Class ---
 class MonteCarlo(OptionPricing):
     """
     Class for Monte-Carlo simulation and option pricing.
     Extends OptionPricing.
     """
+
     def __init__(
         self,
         predictions: np.ndarray,

@@ -12,6 +12,7 @@ ACTIVATIONS = {"silu": nn.SiLU, "gelu": nn.GELU, "tanh": nn.Tanh, "softplus": nn
 # it > 0, as the true premium is (an ablation decides between them).
 OUTPUTS = ("linear", "softplus")
 
+
 class MLP(nn.Module):
     """
     The surrogate net: standardized features (build_features, then
@@ -35,8 +36,14 @@ class MLP(nn.Module):
         ValueError: for depth/width/n_inputs < 1 or an unknown activation/output.
     """
 
-    def __init__(self, n_inputs: int = len(FEATURES), depth: int = 4, width: int = 128,
-                 activation: str = "silu", output: str = "linear"):
+    def __init__(
+        self,
+        n_inputs: int = len(FEATURES),
+        depth: int = 4,
+        width: int = 128,
+        activation: str = "silu",
+        output: str = "linear",
+    ):
         super().__init__()
         if min(n_inputs, depth, width) < 1:
             raise ValueError(f"n_inputs, depth and width must be >= 1, got {n_inputs}, {depth}, {width}")
@@ -45,8 +52,7 @@ class MLP(nn.Module):
         if output not in OUTPUTS:
             raise ValueError(f"output must be one of {OUTPUTS}, got {output!r}")
         # the constructor's arguments, stored in the checkpoint to rebuild the same net
-        self.config = {"n_inputs": n_inputs, "depth": depth, "width": width,
-                       "activation": activation, "output": output}
+        self.config = {"n_inputs": n_inputs, "depth": depth, "width": width, "activation": activation, "output": output}
 
         layers, size = [], n_inputs
         for _ in range(depth):
