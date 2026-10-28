@@ -1,7 +1,7 @@
 """
 Tests for scripts/test_hedge.py::run() exercised in-process (real GBM
 simulation + LongstaffSchwartz fit + HedgingEnv wiring, all real; only
-Hedging.evaluation.evaluate is stubbed out so the test stays fast).
+optionpricing.hedging.evaluation.evaluate is stubbed out so the test stays fast).
 
 tests/integration/test_cli_smoke.py covers the CLI (subprocess) surface for
 this same script; this file targets an invariant that can't be observed from
@@ -12,8 +12,8 @@ import pytest
 import torch
 
 import scripts.test_hedge as test_hedge_script
-from Hedging.baselines import delta_hedge, no_hedge
-from ML.rl.policy import RLPolicy
+from optionpricing.hedging.baselines import delta_hedge, no_hedge
+from optionpricing.ml.rl.policy import RLPolicy
 from tests.helpers import make_parser, parse_script_args
 
 
@@ -77,7 +77,7 @@ def test_different_seeds_give_different_random_state_entering_evaluate(monkeypat
 
 def test_action_fn_matches_requested_policy(monkeypatch):
     """Confirms --policy delta/no_hedge wire up to the actual baseline
-    functions from Hedging.baselines, not e.g. both pointing at the
+    functions from optionpricing.hedging.baselines, not e.g. both pointing at the
     same one by accident."""
     seen = {}
 
@@ -99,7 +99,7 @@ def test_action_fn_for_rl_policy_applies_tanh_squashing_to_mean(monkeypatch, tmp
 
     It used to be `policy_model(state).mean.item()` -- the raw, unbounded
     distribution mean, safe only because HedgingEnv.step() clips it -- which
-    silently disagreed with how ML.rl.sac.train()/_squash derive
+    silently disagreed with how optionpricing.ml.rl.sac.train()/_squash derive
     the deterministic action (tanh-squashed mean). It must now match: the
     action_fn built for --policy rl is `torch.tanh(policy_model(state).mean)`.
     """

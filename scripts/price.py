@@ -1,8 +1,8 @@
-from core.gbm import GBM
-from EuropeanOptionPricing.MonteCarlo import MonteCarlo
-from EuropeanOptionPricing.BlackScholes import BlackScholes
-from AmericanOptionPricing.BinomialTree import BinomialTree
-from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
+from optionpricing.core.gbm import GBM
+from optionpricing.pricing.european.monte_carlo import MonteCarlo
+from optionpricing.pricing.european.black_scholes import BlackScholes
+from optionpricing.pricing.american.binomial_tree import BinomialTree
+from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
 
 def add_arguments(parser):
     parser.add_argument("--sigma", default=0.2, type=float, help="Volatility (standard deviation of returns).")

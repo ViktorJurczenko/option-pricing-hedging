@@ -1,6 +1,6 @@
 import numpy as np
 
-from AmericanOptionPricing.basis_functions import (
+from optionpricing.pricing.american.basis_functions import (
     simple_poly,
     simple_poly_deriv_k,
     laguerre_poly_gen,

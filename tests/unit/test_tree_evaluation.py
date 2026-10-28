@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 import torch
 
-from AmericanOptionPricing.BatchBinomialTree import binomial_put_batch
-from EuropeanOptionPricing.BlackScholes import black_scholes_price, black_scholes_vega
-from ML.surrogate.tree import tree_evaluation as te
-from ML.surrogate.tree.tree_dataset import FeatureStats, TreePutDataset, build_features
-from ML.surrogate.tree.generate_tree_dataset import DOMAIN, map_to_domain, sobol_points
-from ML.surrogate.tree.tree_model import MLP
-from ML.surrogate.tree.tree_pricer import PutSurrogate
-from ML.surrogate.tree.tree_training import SHAPE_CONDITIONS, ShapePoints, shape_violations
+from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.european.black_scholes import black_scholes_price, black_scholes_vega
+from optionpricing.ml.surrogate.tree import tree_evaluation as te
+from optionpricing.ml.surrogate.tree.tree_dataset import FeatureStats, TreePutDataset, build_features
+from optionpricing.ml.surrogate.tree.generate_tree_dataset import DOMAIN, map_to_domain, sobol_points
+from optionpricing.ml.surrogate.tree.tree_model import MLP
+from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
+from optionpricing.ml.surrogate.tree.tree_training import SHAPE_CONDITIONS, ShapePoints, shape_violations
 from tests.helpers import write_tree_dataset
 
 

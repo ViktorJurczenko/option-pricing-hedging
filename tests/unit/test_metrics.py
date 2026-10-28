@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from utils.metrics import mse_fn, mae_fn, r2_fn, accuracy_fn
+from optionpricing.core.metrics import mse_fn, mae_fn, r2_fn, accuracy_fn
 
 def test_mse_fn():
     pred = np.array([1.0, 2.0, 3.0])

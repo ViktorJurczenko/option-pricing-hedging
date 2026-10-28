@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from AmericanOptionPricing.BatchBinomialTree import _EXERCISE_TOL, METHODS, binomial_put_batch
-from AmericanOptionPricing.BinomialTree import BinomialTree
-from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
+from optionpricing.pricing.american.batch_binomial_tree import _EXERCISE_TOL, METHODS, binomial_put_batch
+from optionpricing.pricing.american.binomial_tree import BinomialTree
+from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
 
 # Seven options spread over the sampling domain (m, T, r, sigma), one per column.
 M = np.array([0.6, 0.8, 0.95, 1.0, 1.05, 1.2, 1.5])

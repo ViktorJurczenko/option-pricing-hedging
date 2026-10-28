@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 
-from core.gbm import GBM
-from EuropeanOptionPricing.MonteCarlo import MonteCarlo
-from EuropeanOptionPricing.BlackScholes import BlackScholes
-from AmericanOptionPricing.BinomialTree import BinomialTree
-from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
+from optionpricing.core.gbm import GBM
+from optionpricing.pricing.european.monte_carlo import MonteCarlo
+from optionpricing.pricing.european.black_scholes import BlackScholes
+from optionpricing.pricing.american.binomial_tree import BinomialTree
+from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
 
 def test_monte_carlo_converges_to_black_scholes():
     gbm = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=123)

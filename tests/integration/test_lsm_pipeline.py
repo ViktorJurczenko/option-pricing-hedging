@@ -1,5 +1,5 @@
 """
-The legacy LSM pipeline (ML/surrogate/legacy/), generate_lsm_dataset ->
+The legacy LSM pipeline (optionpricing/ml/surrogate/legacy/), generate_lsm_dataset ->
 train_legacy_mlp, on tiny inputs in a temp dir, so a shape change (feature
 count, checkpoint format) between the stages is caught without the ~1h
 default-size run. The generator runs as `python -m`, as documented; no CLI
@@ -10,15 +10,15 @@ import numpy as np
 import pytest
 import torch
 
-from ML.surrogate.legacy.lsm_model import LegacyMLP
-from ML.surrogate.legacy.lsm_training import train_legacy_mlp
+from optionpricing.ml.surrogate.legacy.lsm_model import LegacyMLP
+from optionpricing.ml.surrogate.legacy.lsm_training import train_legacy_mlp
 from tests.helpers import run_python
 
 # Dataset generation and training take longer than the helpers' default timeout.
 PIPELINE_TIMEOUT = 600
 
 def _generate(out_dir, *extra):
-    result = run_python("-m", "ML.surrogate.legacy.generate_lsm_dataset", "--path_per_sim", "500", "--nb_param_comb", "40",
+    result = run_python("-m", "optionpricing.ml.surrogate.legacy.generate_lsm_dataset", "--path_per_sim", "500", "--nb_param_comb", "40",
                   "--samples_per_param", "2", "--nb_jobs", "2", "--sampling", "20",
                   "--output_dir", str(out_dir), *extra, timeout=PIPELINE_TIMEOUT)
     assert result.returncode == 0, result.stderr

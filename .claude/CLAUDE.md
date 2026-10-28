@@ -11,8 +11,10 @@ A from-scratch option pricing and hedging research project in Python/PyTorch (Py
 
 Everything runs through `python main.py <command>` from the project root. Each command's flags and logic live in `scripts/<name>.py`, and `--help` lists the flags.
 - `price`: compare pricers.
-- `train-ml` / `test-ml`: train and evaluate the put surrogate. Its dataset comes from `python -m ML.surrogate.tree.generate_tree_dataset`.
+- `train-ml` / `test-ml`: train and evaluate the put surrogate. Its dataset comes from `python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`.
 - `train-hedge` / `test-hedge`: train and evaluate a hedging policy.
+
+Layout: the library is the `optionpricing/` package (`core/`, `pricing/european/`, `pricing/american/`, `hedging/`, `ml/surrogate/`, `ml/rl/`, `ml/experiments/`; `pip install -e .` makes it importable from anywhere). `scripts/` holds the CLI commands, `tests/` the suite, `docs/` the architecture reference and results. Generated outputs (datasets, checkpoints, logs, runs) go to `artifacts/`, personal notes are in `notes/`; both are gitignored.
 
 ## How to work here
 
@@ -23,7 +25,7 @@ Everything runs through `python main.py <command>` from the project root. Each c
   - `.claude/PLAN.md`: tick finished steps, archive finished workstreams.
   - `.claude/BUGS.md`: every bug found.
   - `README.md`: usage, results and layout.
-  - `REMINDER.md`: the theory and design chapter of anything whose design changed. It is gitignored personal notes, so code and tracked docs never cite it.
+  - `notes/REMINDER.md`: the theory and design chapter of anything whose design changed. It is gitignored personal notes, so code and tracked docs never cite it.
 - **Git.**
   - Conventional Commits: `type(scope): description`, lowercase, imperative, subject <= 50 characters, body on why.
   - Types: feat, fix, refactor, perf, test, docs, style, chore.

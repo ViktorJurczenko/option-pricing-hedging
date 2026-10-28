@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from EuropeanOptionPricing.BlackScholes import (BlackScholes, black_scholes_delta, black_scholes_dT,
+from optionpricing.pricing.european.black_scholes import (BlackScholes, black_scholes_delta, black_scholes_dT,
                                                 black_scholes_gamma, black_scholes_price, black_scholes_vega)
 
 def test_put_call_parity():

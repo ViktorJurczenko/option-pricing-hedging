@@ -1,6 +1,6 @@
 # Examples to imitate
 
-These are pointers to the parts of existing docs that passed the audit (`AUDIT.md`). Each pointer has a short excerpt showing the pattern. Open the full section when writing that type of doc; line numbers are approximate, so search for the heading.
+These are pointers to the parts of existing docs that passed a documentation audit. Each pointer has a short excerpt showing the pattern. Open the full section when writing that type of doc; line numbers are approximate, so search for the heading.
 
 ## Theory / design note: REMINDER.md
 
@@ -20,7 +20,7 @@ Assumptions and failure modes are stated, together with the guard that enforces 
 
 **Also good:**
 - `## The new model, part by part`. A design choice is explained through its target, its inputs and its loss. Rejected alternatives appear as "Why not X?" with measured evidence.
-- `# How the RL hedging policy works`, from "What the RLPolicy network outputs" on. It uses a pipeline diagram in a code block, and links to code lines as `[policy.py:67-69](ML/rl/policy.py#L67-L69)`.
+- `# How the RL hedging policy works`, from "What the RLPolicy network outputs" on. It uses a pipeline diagram in a code block, and links to code lines as `[policy.py:67-69](optionpricing/ml/rl/policy.py#L67-L69)`.
 
 **Do not imitate in REMINDER.md:**
 - the dated "Personal notes from … after commit …" headers;
@@ -41,7 +41,7 @@ Assumptions and failure modes are stated, together with the guard that enforces 
 
 **Usage.** A command table (`| Command | Purpose |`) followed by fenced invocations with `#` comments.
 
-**Caveats** (see `AUDIT.md`): the test count, the `--reg_type` sentence at L199–201, `HedgeEnv` at L85, and L159–160 on the tree surrogate are wrong or stale. Don't copy them.
+**Caveats** (found by the documentation audit): the test count, the `--reg_type` sentence at L199–201, `HedgeEnv` at L85, and L159–160 on the tree surrogate are wrong or stale. Don't copy them.
 
 ## Decision record: the removed docs/decisions/softplus-reparameterization.md
 
@@ -55,15 +55,15 @@ The evidence section rules out the alternative explanation:
 
 ## Docstrings
 
-- `AmericanOptionPricing/BatchBinomialTree.py::binomial_put_batch`. It opens with prose, then a "Vocabulary" paragraph, then a `Methods:` list explaining each option and why it exists, then the units ("Scale price and gamma back with K * price, gamma / K").
-- `ML/surrogate/tree/tree_pricer.py::PutSurrogate.price`. A compact `Args:`/`Returns:`/`Raises:` block, where the `Raises:` entry says *why* the error happens.
+- `optionpricing/pricing/american/batch_binomial_tree.py::binomial_put_batch`. It opens with prose, then a "Vocabulary" paragraph, then a `Methods:` list explaining each option and why it exists, then the units ("Scale price and gamma back with K * price, gamma / K").
+- `optionpricing/ml/surrogate/tree/tree_pricer.py::PutSurrogate.price`. A compact `Args:`/`Returns:`/`Raises:` block, where the `Raises:` entry says *why* the error happens.
 - `TreeResult` (NamedTuple) documents each field with its units in the class docstring.
-- `Hedging/env.py::HedgingEnv.__init__`. A named-value block for a mode argument, explaining what each mode makes possible.
+- `optionpricing/hedging/env.py::HedgingEnv.__init__`. A named-value block for a mode argument, explaining what each mode makes possible.
 
 ## Incident: .claude/BUGS.md
 
 A typical entry is `### B-031 Early stopping cut longer cosine schedules short`, with its `Status: · Found: · Files:` line, then the parts `**Symptom:**` (with numbers), `**Root cause:**`, `**Impact:**` and `**Fix:**` (naming the file and the test that pins it, and saying that the test fails if the fix is removed). The file's header holds the template and the rules for IDs and the index.
 
-## Writing rules: course/CRITIQUE.md §2
+## Writing rules: notes/course/CRITIQUE.md §2
 
 Use it as a checklist for explanation docs: the order of a concept, no concept before it is taught, derivations line by line, proofs explained, and the table for deciding on forward references.

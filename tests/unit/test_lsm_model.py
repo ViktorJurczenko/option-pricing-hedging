@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from ML.surrogate.legacy.lsm_model import LegacyMLP, intrinsic_value, option_type_feature, smooth_intrinsic_value
+from optionpricing.ml.surrogate.legacy.lsm_model import LegacyMLP, intrinsic_value, option_type_feature, smooth_intrinsic_value
 
 
 def test_option_type_feature_encodes_call_as_one_and_put_as_zero():

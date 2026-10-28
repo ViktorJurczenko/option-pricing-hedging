@@ -1,14 +1,14 @@
 import argparse
 import math
 
-from core.gbm import GBM
-from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from ML.rl.critic import Critic
-from Hedging.env import HedgingEnv
-from ML.rl.replay_buffer import ReplayBuffer
-from ML.rl.policy import RLPolicy
-from ML.rl.sac import train
-from Hedging.option_value import make_option_value_fn
+from optionpricing.core.gbm import GBM
+from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
+from optionpricing.ml.rl.critic import Critic
+from optionpricing.hedging.env import HedgingEnv
+from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.policy import RLPolicy
+from optionpricing.ml.rl.sac import train
+from optionpricing.hedging.option_value import make_option_value_fn
 
 def _positive_float(value: str) -> float:
     """argparse type for a finite float that must be > 0 (argparse turns
@@ -52,7 +52,7 @@ def add_arguments(parser):
     parser.add_argument("--val_every", default=50, type=int, help="Episodes between validation scorings (the last episode is always scored).")
     parser.add_argument("--val_metric", default="std", type=str, choices=["std", "cvar"], help="Checkpoint criterion on the validation P&L: lowest std (hedging error) or highest 95%% CVaR.")
     parser.add_argument("--val_seed", default=None, type=int, help="Seed of the validation paths. Defaults to --seed + 1000; keep it away from the seed you evaluate on with test-hedge.")
-    parser.add_argument("--checkpoint_path", default="checkpoints/best_policy_model.pth", type=str, help="Where to save the best policy.")
+    parser.add_argument("--checkpoint_path", default="artifacts/checkpoints/best_policy_model.pth", type=str, help="Where to save the best policy.")
 
 def _simulate_and_fit_lsm(args, seed):
     gbm = GBM(

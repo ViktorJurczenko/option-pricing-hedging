@@ -83,7 +83,7 @@ with the default degree-3 polynomial fit, delta landed outside that range
 (depending on random seed), with values reaching into the tens — or, at a
 higher regression degree, the thousands. This matters in practice:
 `HedgeEnv` feeds this delta straight into the hedging policy's state, and
-`Hedging/baselines.py`'s `delta_hedge` baseline trades on it
+`optionpricing/hedging/baselines.py`'s `delta_hedge` baseline trades on it
 directly and unclamped — a negative "delta" near expiry could execute as an
 actual short position, the wrong trade direction. Switching to the Laguerre
 basis changes nothing at the same degree (see "Which regression basis?"
@@ -153,26 +153,26 @@ default to `simple`; switching any of them changes nothing.
 ### MLP surrogate vs. Longstaff-Schwartz
 
 This section is about the *legacy* surrogate, `LegacyMLP`, trained on
-Longstaff-Schwartz labels. It is kept as a library in `ML/surrogate/legacy/`
+Longstaff-Schwartz labels. It is kept as a library in `optionpricing/ml/surrogate/legacy/`
 and no CLI command runs it any more. `train-ml`/`test-ml` now train and score
 its replacement, a smooth MLP trained on binomial-tree labels (see Usage).
 That replacement has no results here yet: they come with its first full
 generation run (`.claude/PLAN.md`). The legacy pipeline is still runnable:
 
 ```
-python -m ML.surrogate.legacy.generate_lsm_dataset   # the LSM training set (~40 min at defaults)
-python -c "from ML.surrogate.legacy.lsm_training import train_legacy_mlp; train_legacy_mlp('data/american_option_dataset.npz')"
+python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset   # the LSM training set (~40 min at defaults)
+python -c "from optionpricing.ml.surrogate.legacy.lsm_training import train_legacy_mlp; train_legacy_mlp('artifacts/data/american_option_dataset.npz')"
 ```
 
 The benchmark below was produced by the old `test-ml`, using the helpers
-now in `ML/surrogate/legacy/lsm_evaluation.py`.
+now in `optionpricing/ml/surrogate/legacy/lsm_evaluation.py`.
 
 An earlier version of this surrogate had a real ~9.5% average error on ITM
 puts. Chasing that down changed several things about how the dataset is built
 and how the model's target is defined — worth explaining since none of it is
-obvious from reading `ML/surrogate/legacy/lsm_model.py` alone:
+obvious from reading `optionpricing/ml/surrogate/legacy/lsm_model.py` alone:
 
-**1. Training data now covers moneyness continuously.** `ML/surrogate/legacy/generate_lsm_dataset.py`
+**1. Training data now covers moneyness continuously.** `optionpricing/ml/surrogate/legacy/generate_lsm_dataset.py`
 used to sample moneyness (`S0/K`) from 5 discrete buckets (`{0.5, 0.7, 1.0, 1.2,
 1.5}` ± a little noise), leaving large *untrained* gaps between them (e.g.
 nothing at all between 0.75 and 0.95). The old evaluation benchmark happened to
@@ -182,7 +182,7 @@ samples moneyness log-uniformly and continuously over `(0.4, 1.6)` instead.
 
 **2. The label is a *smoothly* decomposed residual, not raw price.** The MLP
 predicts `(price - smooth_intrinsic_value) / K` rather than `price / K`
-directly (see `ML/surrogate/legacy/lsm_model.py::smooth_intrinsic_value`). The
+directly (see `optionpricing/ml/surrogate/legacy/lsm_model.py::smooth_intrinsic_value`). The
 naive version of this idea — subtracting the *exact* intrinsic value
 `max(K-S, 0)` — helps in general (it shrinks the target's dynamic range: deep
 ITM prices can be many times larger than deep OTM ones), but that exact
@@ -400,7 +400,7 @@ Pinned versions match the environment this was developed against (Python
 ## Usage
 
 Everything runs through `main.py` from the project root (imports are absolute,
-e.g. `from core.gbm import GBM`):
+e.g. `from optionpricing.core.gbm import GBM`):
 
 ```
 python main.py --help                  # list all commands
@@ -410,7 +410,7 @@ python main.py <command> --help        # list a command's flags
 | Command | Purpose |
 |---|---|
 | `price` | Compare pricing models (`--option_class {EU,US,both}`, `--option_type {call,put}`, plus strike/vol/rate/maturity/sampling flags). |
-| `train-ml` | Train the tree-trained put surrogate (`PutSurrogate`) on `data/tree_put_dataset.npz`, one flag per training setting (architecture, split, schedule, loss weights, L-BFGS finish), saved to `checkpoints/put_surrogate.pth`, where `test-ml` reads it. |
+| `train-ml` | Train the tree-trained put surrogate (`PutSurrogate`) on `artifacts/data/tree_put_dataset.npz`, one flag per training setting (architecture, split, schedule, loss weights, L-BFGS finish), saved to `artifacts/checkpoints/put_surrogate.pth`, where `test-ml` reads it. |
 | `test-ml` | Evaluate the tree-trained put surrogate (`PutSurrogate`): test-split errors, plus a factorial grid against an independent finer binomial tree (per-bucket $, relative, implied-vol, delta/gamma errors, no-arbitrage violation rates, theta check, routing, timing). |
 | `train-hedge` | Train the SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
 | `test-hedge` | Evaluate a policy (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
@@ -420,13 +420,13 @@ since its absolute imports need the project root on `sys.path`. The full
 surrogate pipeline is:
 
 ```
-python -m ML.surrogate.tree.generate_tree_dataset   # data/tree_put_dataset.npz
-python main.py train-ml                      # checkpoints/put_surrogate.pth
+python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # artifacts/data/tree_put_dataset.npz
+python main.py train-ml                      # artifacts/checkpoints/put_surrogate.pth
 python main.py test-ml
 ```
 
 ```
-python -m ML.surrogate.tree.generate_tree_dataset [--n_rows N] [--chunk_size N] [--nb_steps N] \
+python -m optionpricing.ml.surrogate.tree.generate_tree_dataset [--n_rows N] [--chunk_size N] [--nb_steps N] \
     [--method crr|bbs|bbsr] [--nb_jobs N] [--seed N] [--output_dir data]
 ```
 
@@ -436,28 +436,28 @@ Parameters come from a scrambled Sobol sequence (`--n_rows` and
 `z = ln(m)/(σ√T)`, so every maturity and volatility gets the same coverage
 around the strike. It writes raw columns (parameters, American and European
 prices, delta, gamma, an `exercised` flag) and its settings to
-`data/tree_put_dataset.npz`. `train-ml` and `test-ml` must be given the same
+`artifacts/data/tree_put_dataset.npz`. `train-ml` and `test-ml` must be given the same
 `--split_ratio`/`--seed` (the defaults match), or `test-ml`'s test split
 overlaps the rows trained on.
 
 The run is resumable and reproducible: the parameters are seeded (`--seed`,
 default 42), and each finished chunk of `--chunk_size` rows is saved to
-`data/tree_chunks/`. After a Ctrl-C or a kill, re-run the same command and it
+`artifacts/data/tree_chunks/`. After a Ctrl-C or a kill, re-run the same command and it
 continues where it stopped, losing at most one chunk. A resume with different
 settings is refused.
 
 The legacy LSM surrogate's dataset (see "MLP surrogate vs. Longstaff-Schwartz"
-above) is generated the same way, chunks in `data/chunks/`:
+above) is generated the same way, chunks in `artifacts/data/chunks/`:
 
 ```
-python -m ML.surrogate.legacy.generate_lsm_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] \
+python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] \
     [--nb_jobs N] [--sampling N] [--option_type call|put|both] [--reg_type simple|laguerre] [--max_degree N] \
     [--output_dir data] [--seed N] [--chunk_size N]
 ```
 
 It parallelizes LSM pricing across randomly sampled `(S0, K, σ, r, T)`
-combinations to build `data/american_option_dataset.npz` and the
-feature-normalization stats in `data/features_norm.npz`.
+combinations to build `artifacts/data/american_option_dataset.npz` and the
+feature-normalization stats in `artifacts/data/features_norm.npz`.
 
 ## Testing
 
@@ -470,19 +470,19 @@ python -m pytest tests/integration      # convergence checks + CLI smoke tests; 
 ## Architecture
 
 Pricers are grouped by option class, everything that is learned lives in
-`ML/`, and the hedging problem the learners are trained in lives in
-`Hedging/`:
+`optionpricing/ml/`, and the hedging problem the learners are trained in lives in
+`optionpricing/hedging/`:
 
-- **`core/`** — the foundation every pricer depends on: `gbm.py` (GBM path
+- **`optionpricing/core/`** — the foundation every pricer depends on: `gbm.py` (GBM path
   simulator) and `base.py` (the `OptionPricing` ABC).
-- **`EuropeanOptionPricing/`** — `BlackScholes` (closed form) and `MonteCarlo`
+- **`optionpricing/pricing/european/`** — `BlackScholes` (closed form) and `MonteCarlo`
   (path-average payoff).
-- **`AmericanOptionPricing/`** — `BinomialTree` (CRR tree with backward
+- **`optionpricing/pricing/american/`** — `BinomialTree` (CRR tree with backward
   induction), `LongstaffSchwartz` (LSM with simple/Laguerre polynomial
   regression bases, an optional European control variate, and delta/gamma
   from a regression of pathwise deltas — see Results above) and
   `basis_functions.py` (the regression bases, unit-tested independently).
-- **`ML/`** — everything that is learned:
+- **`optionpricing/ml/`** — everything that is learned:
   - `surrogate/`: the MLP surrogate pricer for American puts.
     - `tree/`: the binomial-tree-trained surrogate that `train-ml`/`test-ml`
       run.
@@ -512,7 +512,7 @@ Pricers are grouped by option class, everything that is learned lives in
     `sac.py` (the training loop: target networks, warmup, learned entropy
     coefficient, mean-variance reward shaping, checkpointing on held-out
     validation paths).
-- **`Hedging/`** — the hedging problem, independent of any learner:
+- **`optionpricing/hedging/`** — the hedging problem, independent of any learner:
   - `env.py`: `HedgingEnv`, wraps a fitted `LongstaffSchwartz` instance.
     State = spot/strike, time, delta, gamma, position; episodes run to each
     path's exercise time under LSM's exercise rule. Proportional and fixed
@@ -526,7 +526,7 @@ Pricers are grouped by option class, everything that is learned lives in
     any policy) and `cvar()`.
 - **`scripts/`** — one module per CLI subcommand, wired into `main.py`'s
   `argparse` subparsers.
-- **`data/`, `checkpoints/`** — generated artifacts only (gitignored): the
+- **`artifacts/data/`, `artifacts/checkpoints/`** — generated artifacts only (gitignored): the
   dataset/normalization `.npz` files and trained model `.pth` weights.
 
 See `.claude/CLAUDE.md` for the full architectural notes (invariants like

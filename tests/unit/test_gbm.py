@@ -4,7 +4,7 @@ matplotlib.use("Agg")  # headless backend so plot_paths() never opens a window d
 import numpy as np
 import pytest
 
-from core.gbm import GBM
+from optionpricing.core.gbm import GBM
 
 def test_simulate_paths_shape_and_start_price():
     gbm = GBM(sigma=0.2, start_price=100.0, risk_free_rate=0.05, seed=1)

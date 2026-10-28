@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 import torch
 
-from ML.surrogate.tree.tree_dataset import FEATURES
-from ML.surrogate.tree.tree_model import MLP
+from optionpricing.ml.surrogate.tree.tree_dataset import FEATURES
+from optionpricing.ml.surrogate.tree.tree_model import MLP
 
 
 # --- MLP (the tree-trained net) ---

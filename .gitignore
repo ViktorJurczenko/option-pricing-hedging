@@ -1,25 +1,15 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
-
-# Generated dataset artifacts and model checkpoints
-data/**/*.npz
-
-# Run outputs (test-ml reports, progress-bar logs)
-logs/
-checkpoints/**/*.pth
+*.egg-info/
+.venv/
 
 # Editor and Claude Code session-local state (machine-specific, not project content)
 .vscode/
 .claude/scheduled_tasks.lock
 
-# Personal notes, not meant to be shared/tracked
-REMINDER.md
-AUDIT.md
+# Generated outputs: datasets, checkpoints, logs, experiment runs
+artifacts/
 
-.venv/
-
-course/
-
-# Experiment outputs (ablation runs, reference caches)
-runs/
+# Personal notes (REMINDER.md, course material), not shared
+notes/

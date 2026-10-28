@@ -1,9 +1,9 @@
 import os
 import pytest
 
-from ML.surrogate.legacy.lsm_dataset import AmericanOptionDataset
+from optionpricing.ml.surrogate.legacy.lsm_dataset import AmericanOptionDataset
 
-DATASET_PATH = "data/american_option_dataset.npz"
+DATASET_PATH = "artifacts/data/american_option_dataset.npz"
 
 @pytest.mark.skipif(not os.path.exists(DATASET_PATH), reason="bundled dataset not present")
 def test_bundled_dataset_loads_and_has_expected_feature_width():

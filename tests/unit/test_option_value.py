@@ -1,5 +1,5 @@
 """
-Tests for Hedging/option_value.py: the value functions used by
+Tests for optionpricing/hedging/option_value.py: the value functions used by
 HedgingEnv's "accounting" reward mode (see tests/unit/test_hedge_env.py) to
 know the option's value at every simulation row, not just at exercise.
 
@@ -13,13 +13,13 @@ call-never-exercised-early / American->=European invariants.
 import numpy as np
 import pytest
 
-from Hedging.option_value import (
+from optionpricing.hedging.option_value import (
     black_scholes_value_fn,
     binomial_value_fn,
     make_option_value_fn,
 )
-from AmericanOptionPricing.BinomialTree import BinomialTree
-from EuropeanOptionPricing.BlackScholes import BlackScholes
+from optionpricing.pricing.american.binomial_tree import BinomialTree
+from optionpricing.pricing.european.black_scholes import BlackScholes
 
 STRIKE = 100.0
 R = 0.05

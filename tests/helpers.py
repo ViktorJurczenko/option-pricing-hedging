@@ -80,7 +80,7 @@ def write_tree_dataset(out_dir, n_rows=128, seed=3):
     """A real generate_tree_dataset file of `n_rows` puts in `out_dir`, returns
     its path. 50-step trees keep it fast; the labels' accuracy is the
     pricer's tests' job."""
-    import ML.surrogate.tree.generate_tree_dataset as gen  # imported here: most test files never need it
+    import optionpricing.ml.surrogate.tree.generate_tree_dataset as gen  # imported here: most test files never need it
     gen.main(["--n_rows", str(n_rows), "--chunk_size", str(min(n_rows, 64)), "--nb_steps", "50",
               "--nb_jobs", "1", "--seed", str(seed), "--output_dir", str(out_dir)])
     return Path(out_dir) / "tree_put_dataset.npz"

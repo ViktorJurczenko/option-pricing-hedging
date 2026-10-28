@@ -3,9 +3,9 @@ buffer, while episode bookkeeping stays on the raw reward."""
 import pytest
 import tqdm as tqdm_pkg
 
-import ML.rl.sac as hedge_module
-from ML.rl.sac import train
-from ML.rl.replay_buffer import ReplayBuffer
+import optionpricing.ml.rl.sac as hedge_module
+from optionpricing.ml.rl.sac import train
+from optionpricing.ml.rl.replay_buffer import ReplayBuffer
 from tests.unit.hedge_fakes import FakeEnv, make_nets
 
 

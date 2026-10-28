@@ -1,4 +1,4 @@
-"""experiments/run_ablations.py's pure parts: variant configs, the done check, job order, the summary.
+"""optionpricing/ml/experiments/run_ablations.py's pure parts: variant configs, the done check, job order, the summary.
 The runner end to end (processes, training, scoring) is in tests/integration/test_run_ablations.py."""
 import json
 import math
@@ -6,8 +6,8 @@ from dataclasses import fields
 
 import pytest
 
-from experiments import run_ablations as ra
-from ML.surrogate.tree.tree_training import TrainConfig
+from optionpricing.ml.experiments import run_ablations as ra
+from optionpricing.ml.surrogate.tree.tree_training import TrainConfig
 
 EVAL = {"ref_steps": 100, "ref_method": "bbsr", "n_z": 3, "n_sigma": 1, "n_T": 2, "rates": [0.04],
         "tols": [1e-4, 1e-5]}

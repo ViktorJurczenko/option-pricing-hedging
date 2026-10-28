@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-import ML.surrogate.tree.generate_tree_dataset as gen
-from AmericanOptionPricing.BatchBinomialTree import binomial_put_batch
-from EuropeanOptionPricing.BlackScholes import black_scholes_price
-from ML.surrogate.tree.generate_tree_dataset import (COLUMNS, DOMAIN, SAMPLED, generate_tree_chunks, label_puts, load_tree_chunks,
+import optionpricing.ml.surrogate.tree.generate_tree_dataset as gen
+from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.european.black_scholes import black_scholes_price
+from optionpricing.ml.surrogate.tree.generate_tree_dataset import (COLUMNS, DOMAIN, SAMPLED, generate_tree_chunks, label_puts, load_tree_chunks,
                                               map_to_domain, sobol_points)
-from ML.surrogate.chunks import chunk_file
+from optionpricing.ml.surrogate.chunks import chunk_file
 
 # small trees keep these fast; the labels' accuracy is the pricer's tests' job
 TINY = ["--nb_steps", "50", "--nb_jobs", "1"]

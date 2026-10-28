@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 import torch
 
-from AmericanOptionPricing.BatchBinomialTree import binomial_put_batch
-from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
-from ML.surrogate.tree.tree_dataset import FeatureStats, build_features
-from ML.surrogate.tree.generate_tree_dataset import DOMAIN, map_to_domain, sobol_points
-from ML.surrogate.legacy.lsm_model import LegacyMLP
-from ML.surrogate.tree.tree_model import MLP
-from ML.surrogate.tree.tree_pricer import EXERCISE_MIN_RATE, PutSurrogate
+from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
+from optionpricing.ml.surrogate.tree.tree_dataset import FeatureStats, build_features
+from optionpricing.ml.surrogate.tree.generate_tree_dataset import DOMAIN, map_to_domain, sobol_points
+from optionpricing.ml.surrogate.legacy.lsm_model import LegacyMLP
+from optionpricing.ml.surrogate.tree.tree_model import MLP
+from optionpricing.ml.surrogate.tree.tree_pricer import EXERCISE_MIN_RATE, PutSurrogate
 
 
 def _stats():

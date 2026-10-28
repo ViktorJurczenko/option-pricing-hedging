@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from EuropeanOptionPricing.BlackScholes import BlackScholes
-from AmericanOptionPricing.BinomialTree import BinomialTree
+from optionpricing.pricing.european.black_scholes import BlackScholes
+from optionpricing.pricing.american.binomial_tree import BinomialTree
 
 def test_call_converges_to_black_scholes():
     # Early exercise is never optimal for a call on a non-dividend-paying stock,

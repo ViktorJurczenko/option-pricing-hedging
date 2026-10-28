@@ -1,13 +1,13 @@
 # Conventions
 
-These conventions come only from sources that passed the audit (`AUDIT.md` at the repo root). The source of each rule is given in brackets.
+These conventions come only from sources that passed a documentation audit. The source of each rule is given in brackets.
 
 Sources:
-- **[R]** REMINDER.md, its trusted parts;
+- **[R]** `notes/REMINDER.md`, its trusted parts;
 - **[RD]** README.md;
-- **[C]** course/CRITIQUE.md §2 and §5, the author's own writing rules;
+- **[C]** notes/course/CRITIQUE.md §2 and §5, the author's own writing rules;
 - **[D]** the softplus decision record, formerly `docs/decisions/softplus-reparameterization.md` (removed; its incident is now in `.claude/BUGS.md`, "ML surrogate pricer's target had a self-inflicted kink at ATM");
-- **[DS]** docstrings in `AmericanOptionPricing/BatchBinomialTree.py`, `ML/surrogate/tree/tree_pricer.py`, `Hedging/env.py` and `core/gbm.py`;
+- **[DS]** docstrings in `optionpricing/pricing/american/batch_binomial_tree.py`, `optionpricing/ml/surrogate/tree/tree_pricer.py`, `optionpricing/hedging/env.py` and `optionpricing/core/gbm.py`;
 - **[B]** the BUGS.md entry format.
 
 ## Contents
@@ -59,10 +59,10 @@ Sources:
 
 ## 4. Code in docs
 
-- **Show commands as a fenced block run from the project root**, with an end-of-line `#` comment for what each produces or costs (`# data/tree_put_dataset.npz`, `# ~40 min at defaults`) [RD Usage].
-- **Run modules as modules:** `python -m ML.surrogate.tree.generate_tree_dataset`, never a script path [RD].
+- **Show commands as a fenced block run from the project root**, with an end-of-line `#` comment for what each produces or costs (`# artifacts/data/tree_put_dataset.npz`, `# ~40 min at defaults`) [RD Usage].
+- **Run modules as modules:** `python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`, never a script path [RD].
 - **Name code in backticks:** `` `binomial_put_batch` ``, `` `HedgingEnv` ``. Write `path.py::function` for a specific function [D].
-- **Link to code lines** in theory notes, relative to the repo root: `[policy.py:67-69](ML/rl/policy.py#L67-L69)` [R RL part]. Check the line numbers at write time; they go stale.
+- **Link to code lines** in theory notes, relative to the repo root: `[policy.py:67-69](optionpricing/ml/rl/policy.py#L67-L69)` [R RL part]. Check the line numbers at write time; they go stale.
 - **Short excerpts only.** Quote the few lines that carry the idea, not whole functions [R §1–2].
 
 ## 5. Results and reproducibility
@@ -84,11 +84,12 @@ Sources:
 
 ## 7. Naming, headings, links, file locations
 
-- **Headings.** `#` for a part or topic, `##` for sections, `###` for subsections. Use sentence case. A heading may contain a path in backticks: `# The batch binomial tree, from the ground up (\`AmericanOptionPricing/BatchBinomialTree.py\`)` [R].
+- **Headings.** `#` for a part or topic, `##` for sections, `###` for subsections. Use sentence case. A heading may contain a path in backticks: `# The batch binomial tree, from the ground up (\`optionpricing/pricing/american/batch_binomial_tree.py\`)` [R].
 - **Places:**
   - README.md: user-facing.
-  - REMINDER.md: theory and design notes. It is gitignored, as personal notes.
+  - `notes/REMINDER.md`: theory and design notes. `notes/` is gitignored, as personal notes.
   - `docs/decisions/<kebab-slug>.md`: decision records.
-  - `.claude/BUGS.md` and `.claude/PLAN.md`: logs.
+  - `docs/architecture.md`: the module reference; `docs/results/<topic>.md`: measured results.
+  - `.claude/BUGS.md`, `.claude/PLAN.md` and `.claude/PLAN_ARCHIVE.md`: logs.
 - **Cross-document links.** Name the target doc and section in quotes, e.g. `See .claude/BUGS.md, "LSM early-exercises American calls"` [RD]. Decision records start by linking the general pattern they illustrate [D].
 - **CLI names.** Commands are kebab-case (`train-ml`). Flags are snake_case with `--` (`--option_type`) [`main.py --help`].

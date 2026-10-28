@@ -4,8 +4,8 @@ from dataclasses import fields
 
 import pytest
 
-from ML.surrogate.tree.tree_training import TrainConfig, TrainResult
-from ML.surrogate.tree.tree_evaluation import TEACHER_METHOD, TEACHER_STEPS
+from optionpricing.ml.surrogate.tree.tree_training import TrainConfig, TrainResult
+from optionpricing.ml.surrogate.tree.tree_evaluation import TEACHER_METHOD, TEACHER_STEPS
 from scripts import test_ml, train_ml
 from tests.helpers import make_parser, write_tree_dataset
 

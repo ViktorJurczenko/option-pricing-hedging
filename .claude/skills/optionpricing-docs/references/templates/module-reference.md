@@ -67,7 +67,7 @@ _NAME = 1e-12
 
 ## Example
 
-Run from the project root (imports are absolute: `from core.gbm import GBM`).
+Run from the project root (imports are absolute: `from optionpricing.core.gbm import GBM`).
 Save it inside the repo and run `python <file>.py`, or run it from elsewhere
 with the root on the path (`PYTHONPATH=. python <file>.py`). It takes ~<measured time>.
 

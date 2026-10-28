@@ -1,6 +1,6 @@
 import pytest
 
-from ML.surrogate.chunks import prepare_chunk_dir
+from optionpricing.ml.surrogate.chunks import prepare_chunk_dir
 
 
 def test_prepare_chunk_dir_accepts_the_same_config_and_rejects_a_different_one(tmp_path):

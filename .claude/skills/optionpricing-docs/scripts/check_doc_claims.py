@@ -65,8 +65,8 @@ def is_ignored(path: str) -> bool:
 
 def check(doc: Path, symbols: set[str], files: list[Path], source: str, strict: bool) -> dict[str, list[str]]:
     names = {p.name for p in files} | {part for p in files for part in p.parts[:-1]}
-    # Top-level folders holding tracked files; any other folder (data/,
-    # checkpoints/, runs/) only holds generated output
+    # Top-level folders holding tracked files; any other folder (artifacts/,
+    # notes/) only holds generated or untracked files
     tracked_tops = {p.parts[0] for p in files if len(p.parts) > 1}
 
     def generated(path: str) -> bool:

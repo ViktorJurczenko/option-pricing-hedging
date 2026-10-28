@@ -29,4 +29,4 @@ The roadmap's format (a table row per workstream; **Goal** then `- [ ]` steps fo
 - <What it does not show, and what is still open.>
 ```
 
-For experiment drivers (`experiments/run_ablations.py`), name the output directory (`runs/ablations/summary.md`). Never paste a whole log into a write-up.
+For experiment drivers (`optionpricing/ml/experiments/run_ablations.py`), name the output directory (`artifacts/runs/ablations/summary.md`). Never paste a whole log into a write-up.

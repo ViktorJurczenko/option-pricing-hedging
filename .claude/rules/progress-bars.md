@@ -1,8 +1,8 @@
 ---
 paths:
-  - "ML/**"
+  - "optionpricing/ml/**"
   - "scripts/train_*.py"
-  - "Hedging/evaluation.py"
+  - "optionpricing/hedging/evaluation.py"
 ---
 
 # Progress bars for long-running work
@@ -15,7 +15,7 @@ completed work rather than by how many inputs were submitted or queued.
   (`tqdm(args_list)`) — since the list is already materialized, that reports
   submission order and the bar fills instantly, not real progress. Instead
   drive the bar from job completions, e.g. the `tqdm_joblib` context manager
-  in `ML/surrogate/chunks.py`.
+  in `optionpricing/ml/surrogate/chunks.py`.
 - For epoch/step training loops: wrap the loop in `tqdm` over
   epochs/batches/episodes and show a running loss/reward/metric in the
   postfix.

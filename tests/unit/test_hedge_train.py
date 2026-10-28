@@ -1,4 +1,4 @@
-"""ML.rl.sac.train(): the training loop wiring, its argument
+"""optionpricing.ml.rl.sac.train(): the training loop wiring, its argument
 checks, the entropy coefficient, action squashing and each action mode."""
 import math
 
@@ -7,11 +7,11 @@ import pytest
 import torch
 import tqdm as tqdm_pkg
 
-import ML.rl.sac as hedge_module
-from ML.rl.sac import _squash, train
-from ML.rl.replay_buffer import ReplayBuffer
-from ML.rl.policy import RLPolicy
-from ML.rl.critic import Critic
+import optionpricing.ml.rl.sac as hedge_module
+from optionpricing.ml.rl.sac import _squash, train
+from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.policy import RLPolicy
+from optionpricing.ml.rl.critic import Critic
 from tests.unit.hedge_fakes import FakeEnv, make_nets, ActionSpyBuffer, PositionEnv, BanditEnv, train_bandit
 
 

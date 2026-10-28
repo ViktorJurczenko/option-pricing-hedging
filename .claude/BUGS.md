@@ -32,6 +32,7 @@ Open and deferred issues first, then newest first.
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
 | [B-002](#b-002) | Price-vs-Binomial-Tree drift comparisons are noisy across seeds | Pricing | deferred | 2026-09-29 |
+| [B-033](#b-033) | Smoke tests looked for checkpoints outside artifacts/ after the package move | Tooling and tests | fixed | 2026-10-28 |
 | [B-032](#b-032) | Overnight ablation run suspended by Modern Standby | Tooling and tests | fixed | 2026-10-28 |
 | [B-031](#b-031) | Early stopping cut longer cosine schedules short | Surrogate | fixed | 2026-10-27 |
 | [B-030](#b-030) | bucket_metrics crashed on vega without exercised flags | Surrogate | fixed | 2026-10-25 |
@@ -70,7 +71,7 @@ Open and deferred issues first, then newest first.
 
 ### B-018 Tree Greeks wrong just inside the exercise region
 
-Status: fixed · Found: 2026-10-22 · Files: `AmericanOptionPricing/BatchBinomialTree.py`
+Status: fixed · Found: 2026-10-22 · Files: `optionpricing/pricing/american/batch_binomial_tree.py`
 
 **Symptom:** found by step 2 of the MLP overhaul (tests for
 `binomial_put_batch`). On a 675-point grid over the sampling domain, `"bbsr"`
@@ -114,7 +115,7 @@ less than its payoff, no rule).
 
 ### B-015 LongstaffSchwartz.calculate_option_price returns 0 before predict_payoff
 
-Status: fixed · Found: 2026-10-02 · Files: `AmericanOptionPricing/LongstaffSchwartz.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/pricing/american/longstaff_schwartz.py`
 
 **Symptom:** found by the test-suite cleanup. Calling
 `calculate_option_price()` before `predict_payoff()` returns 0.0. In the
@@ -134,7 +135,7 @@ same error `BinomialTree` gives.
 
 ### B-007 Simulated horizon was one step short of the maturity
 
-Status: fixed · Found: 2026-09-30 · Files: `core/gbm.py`, `AmericanOptionPricing/LongstaffSchwartz.py`, `Hedging/env.py`
+Status: fixed · Found: 2026-09-30 · Files: `optionpricing/core/gbm.py`, `optionpricing/pricing/american/longstaff_schwartz.py`, `optionpricing/hedging/env.py`
 
 **Symptom:** found during the LSM diagnosis below. With `maturity=1,
 sampling=365`, the LSM call price with an exact control variate came out at
@@ -173,7 +174,7 @@ expiry, so they all priced a shorter option:
 
 ### B-006 LSM early-exercises American calls and mis-estimates delta
 
-Status: fixed · Found: 2026-09-29 · Files: `AmericanOptionPricing/LongstaffSchwartz.py`
+Status: fixed · Found: 2026-09-29 · Files: `optionpricing/pricing/american/longstaff_schwartz.py`
 
 **Symptom:** found while sanity-checking the accounting-P&L reward's value
 function. For an American call on a non-dividend stock early exercise is
@@ -344,7 +345,7 @@ and put with 10000 paths.
 
 ### B-003 LSM delta/gamma estimates unreliable near maturity
 
-Status: fixed · Found: 2026-09-29 · Files: `AmericanOptionPricing/LongstaffSchwartz.py`, `AmericanOptionPricing/basis_functions.py`
+Status: fixed · Found: 2026-09-29 · Files: `optionpricing/pricing/american/longstaff_schwartz.py`, `optionpricing/pricing/american/basis_functions.py`
 
 **Symptom:** `LongstaffSchwartz.delta` (and by extension `.gamma`) falls
 outside a call's theoretically valid `[0,1]` range a meaningful fraction of
@@ -410,7 +411,7 @@ unaffected since its own defaults are unchanged.
 
 ### B-002 Price-vs-Binomial-Tree drift comparisons are noisy across seeds
 
-Status: deferred · Found: 2026-09-29 · Files: `AmericanOptionPricing/LongstaffSchwartz.py`
+Status: deferred · Found: 2026-09-29 · Files: `optionpricing/pricing/american/longstaff_schwartz.py`
 
 **Symptom:** found while validating the Greeks fix above. The unregularized
 LSM baseline's own price error vs. a Binomial Tree reference varies by
@@ -445,7 +446,7 @@ LSM price-accuracy claim as precise to better than ~1-2%.
 
 ### B-031 Early stopping cut longer cosine schedules short
 
-Status: fixed · Found: 2026-10-27 · Files: `ML/surrogate/tree/tree_training.py`
+Status: fixed · Found: 2026-10-27 · Files: `optionpricing/ml/surrogate/tree/tree_training.py`
 
 **Symptom:** in step 9's data-vs-steps check, `train-ml --epochs 400`
 (default `--patience 20`) stopped at epoch 278 on 2^18 rows and at
@@ -476,7 +477,7 @@ which fails if the condition is removed.
 
 ### B-030 bucket_metrics crashed on vega without exercised flags
 
-Status: fixed · Found: 2026-10-25 · Files: `ML/surrogate/tree/tree_evaluation.py`
+Status: fixed · Found: 2026-10-25 · Files: `optionpricing/ml/surrogate/tree/tree_evaluation.py`
 
 **Symptom:** found in the step-7 review: `bucket_metrics(..., vega=v)`
 called without `exercised` raised `TypeError: bad operand type for
@@ -500,7 +501,7 @@ flags: ...")` up front (`ML/surrogate/tree/tree_evaluation.py`), pinned by
 
 ### B-028 Shape penalty's convexity term ~3000x too big
 
-Status: fixed · Found: 2026-10-24 · Files: `ML/surrogate/tree/tree_training.py`
+Status: fixed · Found: 2026-10-24 · Files: `optionpricing/ml/surrogate/tree/tree_training.py`
 
 **Symptom:** with `lambda_shape = 1` the step-6 training loop tripled the
 test price error (4.4e-4 -> 1.5e-3 at 4k rows) in every region alike,
@@ -534,7 +535,7 @@ checks the scaled formula; dropping the `w` factors fails it.
 
 ### B-027 Shape-violation rate inflated by exercised points
 
-Status: fixed · Found: 2026-10-24 · Files: `ML/surrogate/tree/tree_evaluation.py`
+Status: fixed · Found: 2026-10-24 · Files: `optionpricing/ml/surrogate/tree/tree_evaluation.py`
 
 **Symptom:** found while trying the step-6 training loop on a 4,096-row
 dataset. The rate of points breaking a no-arbitrage condition (any
@@ -606,7 +607,7 @@ functions.
 
 ### B-024 Diverging training run would crash on missing weights
 
-Status: fixed · Found: 2026-10-24 · Files: `ML/surrogate/tree/tree_training.py`
+Status: fixed · Found: 2026-10-24 · Files: `optionpricing/ml/surrogate/tree/tree_training.py`
 
 **Symptom:** found reading the step-6 draft: if the validation loss is
 NaN at every epoch, `best_state` stays `None` and
@@ -625,7 +626,7 @@ never finite: training diverged ...")`
 
 ### B-023 L-BFGS finish seemed to hang: oversized shape pool
 
-Status: fixed · Found: 2026-10-24 · Files: `ML/surrogate/tree/tree_training.py`
+Status: fixed · Found: 2026-10-24 · Files: `optionpricing/ml/surrogate/tree/tree_training.py`
 
 **Symptom:** in the first step-6 trial, the run with `lbfgs_steps=100`
 printed nothing for minutes, after three runs of ~5-20 s each. A
@@ -647,7 +648,7 @@ unlabeled points as labeled ones.
 
 ### B-022 L-BFGS progress bar did not follow real work
 
-Status: fixed · Found: 2026-10-24 · Files: `ML/surrogate/tree/tree_training.py`
+Status: fixed · Found: 2026-10-24 · Files: `optionpricing/ml/surrogate/tree/tree_training.py`
 
 **Symptom:** found reading the step-6 draft: the L-BFGS finish showed a
 bar with `total=1` that filled only when `optimizer.step` returned.
@@ -665,7 +666,7 @@ LBFGS's cap (`max_eval = 1.25 x lbfgs_steps`), and shows the loss.
 
 ### B-021 PutSurrogate answers m = 0 and m = inf silently
 
-Status: fixed · Found: 2026-10-24 · Files: `ML/surrogate/tree/tree_pricer.py`
+Status: fixed · Found: 2026-10-24 · Files: `optionpricing/ml/surrogate/tree/tree_pricer.py`
 
 **Symptom:** found by the review of step 5 of the MLP overhaul.
 `PutSurrogate.price(0.0, 0.5, 0.03, 0.25)` returned price 1, delta -1,
@@ -693,7 +694,7 @@ without the fix.
 
 ### B-020 An invalid split_ratio is used silently
 
-Status: fixed (in `TreePutDataset`) · Found: 2026-10-24 · Files: `ML/surrogate/tree/tree_dataset.py`
+Status: fixed (in `TreePutDataset`) · Found: 2026-10-24 · Files: `optionpricing/ml/surrogate/tree/tree_dataset.py`
 
 **Symptom:** found by the review of step 4 of the MLP overhaul.
 `TreePutDataset(path, split_ratio=-0.1)` built without complaint, and so
@@ -718,7 +719,7 @@ switch to the tree pipeline (steps 5-7).
 
 ### B-019 A bad tree flag locks the tree generator's resume directory
 
-Status: fixed · Found: 2026-10-22 · Files: `ML/surrogate/tree/generate_tree_dataset.py`
+Status: fixed · Found: 2026-10-22 · Files: `optionpricing/ml/surrogate/tree/generate_tree_dataset.py`
 
 **Symptom:** found by the review of step 3 of the MLP overhaul.
 `python -m ML.surrogate.tree.generate_tree_dataset --nb_steps 51` (odd, with the
@@ -746,7 +747,7 @@ flags and the corrected re-run.
 
 ### B-017 Dataset generation loses all work when interrupted
 
-Status: fixed · Found: 2026-10-20 · Files: `ML/surrogate/chunks.py`
+Status: fixed · Found: 2026-10-20 · Files: `optionpricing/ml/surrogate/chunks.py`
 
 **Symptom:** the 100,000-sample run was killed at 33% after 31 minutes (the
 system ran low on memory with 12 jobs), and again stopped on purpose at 42%.
@@ -769,7 +770,7 @@ index, so a redone chunk (and a whole re-run) reproduces its labels too.
 
 ### B-014 r2_fn returns nan/-inf for constant targets
 
-Status: fixed · Found: 2026-10-02 · Files: `utils/metrics.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/core/metrics.py`
 
 **Symptom:** found by the test-suite cleanup. With constant targets,
 `utils/metrics.py::r2_fn` returns nan for a perfect prediction and -inf
@@ -788,7 +789,7 @@ fallback.
 
 ### B-001 ML surrogate pricer's target had a self-inflicted kink at ATM
 
-Status: fixed · Found: 2026-09-29 · Files: `ML/surrogate/legacy/lsm_model.py`
+Status: fixed · Found: 2026-09-29 · Files: `optionpricing/ml/surrogate/legacy/lsm_model.py`
 
 **Symptom:** the MLP surrogate pricer (`AmericanOptionPricing/ML.py`)
 showed a ~16% average error concentrated right at the money, well above
@@ -828,7 +829,7 @@ reparameterization".
 
 ### B-013 HedgingEnv.rollout_pnl crashes on an empty path list
 
-Status: fixed · Found: 2026-10-02 · Files: `Hedging/env.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/env.py`
 
 **Symptom:** found by the test-suite cleanup. `rollout_pnl(hedge_fn, [])`
 raises `ValueError` instead of returning an empty array.
@@ -845,7 +846,7 @@ test is now a plain test.
 
 ### B-012 HedgingEnv.step() keeps stepping after done
 
-Status: fixed · Found: 2026-10-02 · Files: `Hedging/env.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/env.py`
 
 **Symptom:** found by the test-suite cleanup. After `step()` returns
 `done=True` on a path exercised before the last row, calling `step()` again
@@ -866,7 +867,7 @@ covers zero-length row-0 episodes.
 
 ### B-011 HedgingEnv mishandles options exercised at row 0
 
-Status: fixed · Found: 2026-10-02 · Files: `Hedging/env.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/env.py`
 
 **Symptom:** found by the whole-suite test review. For a deep in-the-money
 put (S0=50, K=100), LSM sets `exercise_time = 0` on every path, and
@@ -904,7 +905,7 @@ payoff at S0, with no hedge ever held.
 
 ### B-010 RL policy under trading costs keeps trading every day; a simple band beats it
 
-Status: fixed · Found: 2026-10-01 · Files: `ML/rl/policy.py`, `Hedging/baselines.py`
+Status: fixed · Found: 2026-10-01 · Files: `optionpricing/ml/rl/policy.py`, `optionpricing/hedging/baselines.py`
 
 **Symptom:** found in PLAN_ARCHIVE.md's "Hedge under trading costs". Training with
 a 1% proportional cost (`--prop_tc 0.01 --residual_scale 0.25
@@ -1019,7 +1020,7 @@ sweep and longer runs for puts.
 
 ### B-009 "95% CVaR" in hedging evaluation is actually the 95% VaR
 
-Status: fixed · Found: 2026-10-01 · Files: `Hedging/evaluation.py`
+Status: fixed · Found: 2026-10-01 · Files: `optionpricing/hedging/evaluation.py`
 
 **Symptom:** found while reviewing the validation-checkpointing change.
 `AmericanHedging/Hedge.py::evaluate()` reports `cvar_95 =
@@ -1048,7 +1049,7 @@ numbers with both.
 
 ### B-008 RL hedging policy trails the LSM delta hedge
 
-Status: fixed for puts; calls match delta · Found: 2026-09-30 · Files: `ML/rl/policy.py`, `ML/rl/sac.py`
+Status: fixed for puts; calls match delta · Found: 2026-09-30 · Files: `optionpricing/ml/rl/policy.py`, `optionpricing/ml/rl/sac.py`
 
 **Symptom:** once the LSM delta was fixed (see "LSM early-exercises American
 calls..."), the SAC policy's P&L std was ~2x the LSM delta hedge's. It
@@ -1130,7 +1131,7 @@ learn (PLAN_ARCHIVE.md, "Hedge under trading costs").
 
 ### B-005 RL hedging objective gives no incentive to hedge
 
-Status: fixed · Found: 2026-09-29 · Files: `Hedging/env.py`, `Hedging/option_value.py`, `ML/rl/sac.py`
+Status: fixed · Found: 2026-09-29 · Files: `optionpricing/hedging/env.py`, `optionpricing/hedging/option_value.py`, `optionpricing/ml/rl/sac.py`
 
 **Symptom:** after the actor-divergence fix below, every trained SAC hedging
 policy lands on top of the `no_hedge` baseline (README table: mean/std/CVaR
@@ -1248,7 +1249,7 @@ delta estimate) is tracked separately.
 
 ### B-004 SAC actor diverged unboundedly during hedge training
 
-Status: fixed · Found: 2026-09-29 · Files: `ML/rl/sac.py`
+Status: fixed · Found: 2026-09-29 · Files: `optionpricing/ml/rl/sac.py`
 
 **Symptom:** a `risk_lambda` sweep (5 independently-trained policies)
 produced bit-identical eval metrics across two clusters instead of a
@@ -1288,11 +1289,27 @@ deterministic evaluation action was updated to match
 
 ## Tooling and tests
 
+<a id="b-033"></a>
+
+### B-033 Smoke tests looked for checkpoints outside artifacts/ after the package move
+
+Status: fixed · Found: 2026-10-28 · Files: `tests/integration/test_cli_smoke.py`
+
+**Symptom:** after moving the code into `optionpricing/` and the generated outputs into `artifacts/`, `python -m pytest tests/integration` gave 1 failed, 96 passed: `test_train_hedge_command_writes_a_loadable_checkpoint` asserted that `ROOT / "checkpoints" / "_smoke_test_policy.pth"` existed, while `train-hedge` had written it to `artifacts/checkpoints/`. The band round-trip test passed, but recreated an empty `checkpoints/` folder at the root.
+
+**Root cause:** the scripted path rewrite matched paths written as strings (`"checkpoints/..."`), not paths built from parts (`ROOT / "checkpoints" / ...`). The first test passed the rewritten string to the CLI but checked the part-built path; the second derived its CLI argument from the part-built path, so it stayed self-consistent but wrote outside `artifacts/`.
+
+**Impact:** only the test itself; the failing test left `_smoke_test_policy.pth` behind, since its cleanup removed the wrong path.
+
+**Fix:** both checkpoints are built as `ROOT / "artifacts" / "checkpoints" / ...`. A search for part-built `"data"`, `"checkpoints"`, `"runs"` and `"logs"` paths found no other case.
+
+**Regression test:** the two smoke tests themselves, which fail again if the path and the CLI default disagree.
+
 <a id="b-032"></a>
 
 ### B-032 Overnight ablation run suspended by Modern Standby
 
-Status: fixed · Found: 2026-10-28 · Files: `experiments/run_ablations.py`
+Status: fixed · Found: 2026-10-28 · Files: `optionpricing/ml/experiments/run_ablations.py`
 
 **Symptom:** the first overnight `python -m experiments.run_ablations`
 (started 01:49) had no finished run by 10:57: the 4 running trainings
@@ -1319,7 +1336,7 @@ off. Pinned by the `keep_awake` tests in `tests/unit/test_run_ablations.py`.
 
 ### B-029 test-ml report crashed printing to the Windows console
 
-Status: fixed · Found: 2026-10-25 · Files: `ML/surrogate/tree/tree_evaluation.py`
+Status: fixed · Found: 2026-10-25 · Files: `optionpricing/ml/surrogate/tree/tree_evaluation.py`
 
 **Symptom:** the first run of the step-7 evaluation report died with
 `UnicodeEncodeError: 'charmap' codec can't encode character 'Γ'`

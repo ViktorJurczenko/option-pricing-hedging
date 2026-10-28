@@ -1,15 +1,15 @@
 from pathlib import Path
 
-from AmericanOptionPricing.BatchBinomialTree import METHODS
-from ML.surrogate.tree.tree_pricer import PutSurrogate
-from ML.surrogate.tree.tree_evaluation import (GRID_N_SIGMA, GRID_N_T, GRID_N_Z, GRID_RATES, REF_METHOD, REF_STEPS,
+from optionpricing.pricing.american.batch_binomial_tree import METHODS
+from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
+from optionpricing.ml.surrogate.tree.tree_evaluation import (GRID_N_SIGMA, GRID_N_T, GRID_N_Z, GRID_RATES, REF_METHOD, REF_STEPS,
                                           VIOLATION_TOL, check_reference, evaluate_grid, evaluate_test_split,
                                           print_report, teacher_settings)
 
 def add_arguments(parser):
-    parser.add_argument("--dataset_path", default="data/tree_put_dataset.npz", type=str,
+    parser.add_argument("--dataset_path", default="artifacts/data/tree_put_dataset.npz", type=str,
                         help="The tree put dataset the surrogate was trained on (its test split is scored).")
-    parser.add_argument("--checkpoint_path", default="checkpoints/put_surrogate.pth", type=str,
+    parser.add_argument("--checkpoint_path", default="artifacts/checkpoints/put_surrogate.pth", type=str,
                         help="The trained PutSurrogate checkpoint.")
     parser.add_argument("--split_ratio", default=0.8, type=float, help="Train/test split of the training run.")
     parser.add_argument("--seed", default=42, type=int, help="Seed of the training run's split.")
@@ -33,7 +33,7 @@ def run(args):
     for flag, path in [("--dataset_path", args.dataset_path), ("--checkpoint_path", args.checkpoint_path)]:
         if not Path(path).is_file():
             raise FileNotFoundError(f"{flag}: no file at {path} (generate the dataset with "
-                                    "`python -m ML.surrogate.tree.generate_tree_dataset`, then train the surrogate with "
+                                    "`python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`, then train the surrogate with "
                                     "`python main.py train-ml`).")
     # before any work: a reference with the teacher's settings would score how well the net copies it
     teacher = teacher_settings(args.dataset_path)

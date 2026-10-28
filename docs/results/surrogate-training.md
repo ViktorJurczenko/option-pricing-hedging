@@ -21,7 +21,7 @@ Protocol: 120 seeded random draws over the dataset domain plus a 21-point hard c
 
 ## Sampling: z instead of moneyness
 
-Sampling `m` log-uniform on (0.4, 1.6) puts 66% of the draws in the money (the range is asymmetric in log: ln 0.4 = -0.92, ln 1.6 = +0.47), and 67% of those are already past the exercise boundary: 44% of all rows would be exercised today, with labels known in closed form. The generator samples `z = ln(m) / (sigma sqrt(T))` instead (`map_to_domain` in `ML/surrogate/tree/generate_tree_dataset.py`).
+Sampling `m` log-uniform on (0.4, 1.6) puts 66% of the draws in the money (the range is asymmetric in log: ln 0.4 = -0.92, ln 1.6 = +0.47), and 67% of those are already past the exercise boundary: 44% of all rows would be exercised today, with labels known in closed form. The generator samples `z = ln(m) / (sigma sqrt(T))` instead (`map_to_domain` in `optionpricing/ml/surrogate/tree/generate_tree_dataset.py`).
 
 ## Learning curve: training steps, not data, were the limit
 
@@ -58,4 +58,4 @@ Protocol: 2^19 rows, seed 42, grid against BBSR-4000, $ at K = 100. The validati
 
 - **800 epochs priced worse** (early-stopped at 665, best 645, ~33 min): it halved the combined loss, but past 400 the delta error kept falling (-28%) while the premium error rose (+38%), and the sum picks the checkpoint.
 - 800 also had fewer violations (0.06% > 1e-4 vs 0.61%) and more payoff floors (490 grid points vs 179).
-- Single seed each. The seeded ablations (`python -m experiments.run_ablations`, output `runs/ablations/summary.md`) give the seed-to-seed spread.
+- Single seed each. The seeded ablations (`python -m optionpricing.ml.experiments.run_ablations`, output `artifacts/runs/ablations/summary.md`) give the seed-to-seed spread.

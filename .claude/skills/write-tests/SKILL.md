@@ -67,7 +67,7 @@ here for when that changes, e.g. a future data source or API integration.)
 
 Mirror source layout so anyone can find what tests what without searching:
 
-- One test file per source module: `AmericanOptionPricing/foo.py` →
+- One test file per source module: `optionpricing/pricing/american/foo.py` →
   `tests/unit/test_foo.py`. This repo already follows this convention
   (`test_gbm.py`, `test_black_scholes.py`, `test_longstaff_schwartz.py`, …) —
   keep new tests consistent with it rather than dumping multiple modules'
@@ -114,8 +114,8 @@ For this repo, candidates beyond what's already in `tests/integration/`:
   count, normalization keys, checkpoint format).
   `test_cli_smoke.py`'s `train-ml` → `test-ml` run is a starting point for this.
 - **Cross-module consistency**: a test that fails loudly if
-  `ML/surrogate/legacy/generate_lsm_dataset.py`'s normalization (log-sigma, log-T, raw-r)
-  and `ML/surrogate/legacy/lsm_dataset.py`'s ever
+  `optionpricing/ml/surrogate/legacy/generate_lsm_dataset.py`'s normalization (log-sigma, log-T, raw-r)
+  and `optionpricing/ml/surrogate/legacy/lsm_dataset.py`'s ever
   diverge — this is currently only enforced by a `CLAUDE.md` convention, not
   a test, and is exactly the kind of silent-mismatch bug integration tests
   exist for.

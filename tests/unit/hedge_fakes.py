@@ -2,16 +2,16 @@
 (not collected by pytest: no test_ prefix)."""
 import numpy as np
 
-import ML.rl.sac as hedge_module
-from ML.rl.sac import train
-from ML.rl.replay_buffer import ReplayBuffer
-from ML.rl.policy import RLPolicy
-from ML.rl.critic import Critic
+import optionpricing.ml.rl.sac as hedge_module
+from optionpricing.ml.rl.sac import train
+from optionpricing.ml.rl.replay_buffer import ReplayBuffer
+from optionpricing.ml.rl.policy import RLPolicy
+from optionpricing.ml.rl.critic import Critic
 
 
 # --- train() tests --------------------------------------------------------
 #
-# These target ML/rl/sac.py's two Stage 1/2 training-mechanics changes: the
+# These target optionpricing/ml/rl/sac.py's two Stage 1/2 training-mechanics changes: the
 # reward-shaping split (replay buffer gets `reward - risk_lambda*reward**2`
 # while episode bookkeeping keeps the raw reward) and grad_steps_per_update
 # (N gradient-update cycles per trigger instead of always 1). Real RLPolicy/

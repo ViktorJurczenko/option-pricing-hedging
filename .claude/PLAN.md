@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Project reorganisation](#project-reorganisation) | active | One `optionpricing/` package |
+| [Project reorganisation](#project-reorganisation) | active | README |
 | [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active (runs pending) | CLI-only ablations, 3 seeds |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
@@ -25,8 +25,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 - [x] Slim CLAUDE.md, detail to `docs/architecture.md`
 - [x] PLAN.md as a roadmap, `.claude/PLAN_ARCHIVE.md`, results to `docs/results/`
 - [x] BUGS.md with an index and area sections
-- [ ] One `optionpricing/` package
-  `git mv` the code into `optionpricing/{core,pricing/european,pricing/american,ml/{surrogate,rl,experiments},hedging}`, rewrite imports, add `pyproject.toml`, move generated outputs under `artifacts/` and personal notes under `notes/`, delete `AUDIT.md`, rewrite `docs/architecture.md` to the new layout.
+- [x] One `optionpricing/` package
 - [ ] README
   New paths and setup, a layout tree, a usage table pointing to `--help`, results linking to `docs/results/`, and the stale items fixed (test count, the `--reg_type` sentence, `HedgeEnv`, the tree-surrogate status).
 - [ ] ruff
@@ -41,11 +40,11 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 **Done so far:** the old LSM-trained surrogate had structural problems: call labels were exactly Black-Scholes (the net re-learnt a closed form), the fixed-width softplus target let the kink back for the ~33% of rows with `sigma*sqrt(T) < 0.12` (43% of labels negative), 1.9% of LSM put labels sat below the European price, and its ReLU net gave a staircase delta and no gamma. So the MLP surrogate was rebuilt on a binomial-tree teacher (BBSR, 1000 steps, chosen by a convergence study), with z-sampled Sobol data (2^19 rows), an early-exercise-premium target, a smooth SiLU MLP with delta in the loss, the `PutSurrogate` pricer with domain routing and a payoff floor, a training loop with cosine decay and late patience, a new `test-ml` evaluation (independent finer reference tree, buckets, implied-vol error, no-arbitrage violations), and the seeded ablation runner with a cached reference grid. A learning curve showed that training steps, not data, were the limit, which set 400 epochs. Numbers: `docs/results/surrogate-training.md`. Commits `fcc60f1`..`aeee6d5`.
 
 - [ ] CLI-only ablations, 3 seeds each (42, 43, 44)
-  `python -m experiments.run_ablations`. Every variant is the default config with one change: the baseline (the seed-to-seed spread), `--lambda_delta` 0 / 0.3 / 3 (the price/delta trade-off the 800-epoch run showed), `--output softplus` (the labels' slightly negative premiums may cost it), `--activation relu` (the old net's staircase delta and zero gamma on the new layout), `--lbfgs_steps 200` (whether the full-batch finish pays), `--lambda_shape 0.1` (~3.4x the step time, ~95 min a run; hurt every region on a 4k-row trial). 18 runs plus 3 slow ones, ~3 h in batches of 4, plus scoring.
+  `python -m optionpricing.ml.experiments.run_ablations`. Every variant is the default config with one change: the baseline (the seed-to-seed spread), `--lambda_delta` 0 / 0.3 / 3 (the price/delta trade-off the 800-epoch run showed), `--output softplus` (the labels' slightly negative premiums may cost it), `--activation relu` (the old net's staircase delta and zero gamma on the new layout), `--lbfgs_steps 200` (whether the full-batch finish pays), `--lambda_shape 0.1` (~3.4x the step time, ~95 min a run; hurt every region on a 4k-row trial). 18 runs plus 3 slow ones, ~3 h in batches of 4, plus scoring.
 - [ ] Dataset ablations (need code first)
   `T` from 1 week vs from 0.25 (same row density), both scored on a `T >= 0.25` grid, to check the longer range costs the old region nothing: needs a `--T_min` flag on the generator and a restricted grid. All exercised rows vs a thinned share (e.g. 1/4): needs a training-time row filter. Plan each once the CLI-only results are in.
 - [ ] Final model and write-up
-  Retrain the winning config (3 seeds, keep the median) as `checkpoints/put_surrogate.pth`. Record the numbers in `docs/results/`, the README results section for the tree surrogate, and REMINDER.md (fill chapter 11's table from `runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
+  Retrain the winning config (3 seeds, keep the median) as `artifacts/checkpoints/put_surrogate.pth`. Record the numbers in `docs/results/`, the README results section for the tree surrogate, and REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
 
 ## Backlog
 

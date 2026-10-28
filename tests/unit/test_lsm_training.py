@@ -3,8 +3,8 @@ tests/integration/test_lsm_pipeline.py)."""
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from ML.surrogate.legacy.lsm_model import LegacyMLP
-from ML.surrogate.legacy.lsm_training import fit_legacy_mlp
+from optionpricing.ml.surrogate.legacy.lsm_model import LegacyMLP
+from optionpricing.ml.surrogate.legacy.lsm_training import fit_legacy_mlp
 
 def _loader(n=8, seed=0):
     g = torch.Generator().manual_seed(seed)
@@ -27,7 +27,7 @@ def test_fit_legacy_mlp_early_stops_after_patience_epochs_without_improvement(tm
     # lr=0 => weights never change => validation MSE is identical every epoch (BatchNorm
     # running stats move, so eval MSE is made constant by patching the metric): epoch 1 saves,
     # epochs 2.. count as no-improvement, so with patience=2 training stops after epoch 3.
-    import ML.surrogate.legacy.lsm_training as ml
+    import optionpricing.ml.surrogate.legacy.lsm_training as ml
     calls = []
     def const_mse(pred, true):
         calls.append(1)
@@ -40,7 +40,7 @@ def test_fit_legacy_mlp_early_stops_after_patience_epochs_without_improvement(tm
 def test_fit_legacy_mlp_saves_only_on_validation_improvement(tmp_path, monkeypatch):
     # Validation MSE per epoch: 1.0 (save), 2.0 (worse), 0.5 (save), 0.7 (worse). The checkpoint
     # must hold the epoch-3 weights, not the final epoch's.
-    import ML.surrogate.legacy.lsm_training as ml
+    import optionpricing.ml.surrogate.legacy.lsm_training as ml
     per_epoch = iter([1.0, 2.0, 0.5, 0.7])
     state = {"cur": None, "n": 0}
     def scripted_mse(pred, true):
@@ -70,7 +70,7 @@ def test_fit_legacy_mlp_saves_only_on_validation_improvement(tmp_path, monkeypat
     assert not torch.equal(saved["layer1.weight"], mlp.layer1.weight)  # epoch 4 trained further
 
 def test_fit_legacy_mlp_steps_scheduler_with_validation_mse(tmp_path, monkeypatch):
-    import ML.surrogate.legacy.lsm_training as ml
+    import optionpricing.ml.surrogate.legacy.lsm_training as ml
     monkeypatch.setattr(ml, "mse_fn", lambda p, t: 0.25)
     seen = []
     class Sched:

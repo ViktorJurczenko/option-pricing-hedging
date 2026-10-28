@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 import torch
 
-import ML.surrogate.tree.generate_tree_dataset as gen
-from EuropeanOptionPricing.BlackScholes import black_scholes_delta, black_scholes_price
-from ML.surrogate.tree.tree_dataset import FEATURES, FeatureStats, TreePutDataset, build_features
+import optionpricing.ml.surrogate.tree.generate_tree_dataset as gen
+from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_price
+from optionpricing.ml.surrogate.tree.tree_dataset import FEATURES, FeatureStats, TreePutDataset, build_features
 from tests.helpers import write_tree_dataset
 
 # --- TreePutDataset and its features -----------------------------------------

@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from Hedging.option_value import binomial_value_fn
-from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz, least_squares
-from core.gbm import GBM
-from EuropeanOptionPricing.BlackScholes import BlackScholes
+from optionpricing.hedging.option_value import binomial_value_fn
+from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz, least_squares
+from optionpricing.core.gbm import GBM
+from optionpricing.pricing.european.black_scholes import BlackScholes
 
 def test_calculate_option_price_is_mean_of_time_zero_payoff():
     simulation = np.ones((3, 5)) * 100.0

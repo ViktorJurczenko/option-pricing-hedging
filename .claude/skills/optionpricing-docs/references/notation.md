@@ -60,7 +60,7 @@ Every entry was checked against the source when this table was written. Re-check
 - "Longstaff-Schwartz" or "LSM" (least-squares Monte-Carlo). "Binomial tree", not "lattice".
 - "Continuation value", "exercise region", "exercised today" (priced at its payoff at t = 0).
 - "Teacher" means the pricer that labels a dataset. "Reference" means the independent pricer used for scoring. Never score against the teacher.
-- "Surrogate" means the MLP pricer. Use "tree surrogate" (`PutSurrogate`, `ML/surrogate/tree/`) and "legacy surrogate" (`LegacyMLP`, `ML/surrogate/legacy/`), never just "the MLP" when both could be meant.
+- "Surrogate" means the MLP pricer. Use "tree surrogate" (`PutSurrogate`, `optionpricing/ml/surrogate/tree/`) and "legacy surrogate" (`LegacyMLP`, `optionpricing/ml/surrogate/legacy/`), never just "the MLP" when both could be meant.
 - "Per unit of strike" means K = 1. "×K" means a P&L or price divided by K.
 
 ## Known overloads (always disambiguate)

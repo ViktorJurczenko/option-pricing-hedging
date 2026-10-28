@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 import torch
 
-import ML.surrogate.tree.tree_training as training
-from EuropeanOptionPricing.BlackScholes import black_scholes_dT, black_scholes_vega
-from ML.surrogate.tree.tree_dataset import FEATURES, TreePutDataset, build_features
-from ML.surrogate.tree.generate_tree_dataset import DOMAIN
-from ML.surrogate.tree.tree_model import MLP
-from ML.surrogate.tree.tree_pricer import PutSurrogate
-from ML.surrogate.tree.tree_training import (SHAPE_CONDITIONS, LossScales, ShapePoints, TrainConfig, evaluate_labeled,
+import optionpricing.ml.surrogate.tree.tree_training as training
+from optionpricing.pricing.european.black_scholes import black_scholes_dT, black_scholes_vega
+from optionpricing.ml.surrogate.tree.tree_dataset import FEATURES, TreePutDataset, build_features
+from optionpricing.ml.surrogate.tree.generate_tree_dataset import DOMAIN
+from optionpricing.ml.surrogate.tree.tree_model import MLP
+from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
+from optionpricing.ml.surrogate.tree.tree_training import (SHAPE_CONDITIONS, LossScales, ShapePoints, TrainConfig, evaluate_labeled,
                                    labeled_loss, premium_and_delta, shape_violations, train_surrogate)
 from tests.helpers import write_tree_dataset
 

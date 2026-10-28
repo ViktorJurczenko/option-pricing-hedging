@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import torch
 
-from ML.rl.policy import checkpoint_action_dim
+from optionpricing.ml.rl.policy import checkpoint_action_dim
 from tests.helpers import ROOT, run_cli
 
 def _price(stdout, label):
@@ -74,14 +74,14 @@ def test_price_invalid_option_type_is_rejected():
     assert "invalid choice" in result.stderr.lower()
 
 def test_train_hedge_command_writes_a_loadable_checkpoint():
-    checkpoint = ROOT / "checkpoints" / "_smoke_test_policy.pth"
+    checkpoint = ROOT / "artifacts" / "checkpoints" / "_smoke_test_policy.pth"
     checkpoint.unlink(missing_ok=True)
     try:
         result = run_cli(
             "train-hedge",
             "--n_episodes", "2", "--nb_predictions", "200", "--sampling", "20",
             "--warmup_steps", "0",
-            "--checkpoint_path", "checkpoints/_smoke_test_policy.pth",
+            "--checkpoint_path", "artifacts/checkpoints/_smoke_test_policy.pth",
         )
         assert result.returncode == 0, result.stderr
         assert checkpoint.is_file()
@@ -94,7 +94,7 @@ def test_train_hedge_command_writes_a_loadable_checkpoint():
 def test_train_and_test_hedge_band_action_mode_round_trip():
     # A band policy has a 2-D action: train-hedge must build matching critics,
     # and test-hedge must size the network from the checkpoint to load it.
-    checkpoint = ROOT / "checkpoints" / "_smoke_test_policy_band.pth"
+    checkpoint = ROOT / "artifacts" / "checkpoints" / "_smoke_test_policy_band.pth"
     try:
         result = run_cli(
             "train-hedge",
@@ -136,19 +136,19 @@ def test_test_hedge_invalid_policy_choice_is_rejected():
     assert "invalid choice" in result.stderr.lower()
 
 def test_train_ml_with_missing_dataset_fails_naming_the_remedy():
-    result = run_cli("train-ml", "--dataset_path", "data/_does_not_exist.npz")
+    result = run_cli("train-ml", "--dataset_path", "artifacts/data/_does_not_exist.npz")
     assert result.returncode != 0
     assert "FileNotFoundError" in result.stderr and "_does_not_exist.npz" in result.stderr
 
 def test_test_ml_with_missing_files_fails_naming_the_flag():
-    result = run_cli("test-ml", "--dataset_path", "data/_does_not_exist.npz")
+    result = run_cli("test-ml", "--dataset_path", "artifacts/data/_does_not_exist.npz")
     assert result.returncode != 0
     assert "FileNotFoundError" in result.stderr and "--dataset_path" in result.stderr
 
 def test_test_ml_scores_a_saved_surrogate_on_the_test_split_and_the_grid(tmp_path):
-    from ML.surrogate.tree.tree_dataset import TreePutDataset
-    from ML.surrogate.tree.tree_model import MLP
-    from ML.surrogate.tree.tree_pricer import PutSurrogate
+    from optionpricing.ml.surrogate.tree.tree_dataset import TreePutDataset
+    from optionpricing.ml.surrogate.tree.tree_model import MLP
+    from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
     from tests.helpers import write_tree_dataset
 
     dataset = write_tree_dataset(tmp_path)
@@ -167,7 +167,7 @@ def test_test_ml_scores_a_saved_surrogate_on_the_test_split_and_the_grid(tmp_pat
     assert len(maes) == 5 and all(np.isfinite(maes)) and min(maes) >= 0
 
 def test_train_ml_then_test_ml_scores_the_surrogate_it_trained(tmp_path):
-    from ML.surrogate.tree.tree_pricer import PutSurrogate
+    from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
     from tests.helpers import write_tree_dataset
 
     dataset = write_tree_dataset(tmp_path)

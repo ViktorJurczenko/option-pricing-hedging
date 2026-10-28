@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from EuropeanOptionPricing.MonteCarlo import MonteCarlo
+from optionpricing.pricing.european.monte_carlo import MonteCarlo
 
 @pytest.fixture
 def predictions():

@@ -1,5 +1,5 @@
 """
-experiments/run_ablations.py end to end, as a subprocess (its runs are worker
+optionpricing/ml/experiments/run_ablations.py end to end, as a subprocess (its runs are worker
 processes): two variants, one seed, 2 epochs, a tiny dataset and grid. Checks
 the files each run leaves, the summary, that a rerun skips finished runs and
 that one with other settings is refused.
@@ -19,7 +19,7 @@ TIMEOUT = 600  # two trainings, their scoring and the processes' start-up
 def ablation(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("ablation")
     dataset, out = write_tree_dataset(tmp), tmp / "runs"
-    args = ["-m", "experiments.run_ablations", "--dataset_path", str(dataset), "--out_dir", str(out), *TINY]
+    args = ["-m", "optionpricing.ml.experiments.run_ablations", "--dataset_path", str(dataset), "--out_dir", str(out), *TINY]
     first = run_python(*args, timeout=TIMEOUT)
     return args, out, first
 

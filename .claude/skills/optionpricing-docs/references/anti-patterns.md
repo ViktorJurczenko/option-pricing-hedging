@@ -1,6 +1,6 @@
 # Anti-patterns
 
-Each item below was seen in this repo's docs during the audit (`AUDIT.md`). The fix says what to do instead.
+Each item below was seen in this repo's docs during a documentation audit. The fix says what to do instead.
 
 ## Accuracy
 
@@ -29,7 +29,7 @@ REMINDER.md exists to explain the logic of every feature and the reasons for the
 
 ## Explanation quality
 
-These are the author's rules from course/CRITIQUE.md, recast as things to avoid:
+These are the author's rules from notes/course/CRITIQUE.md, recast as things to avoid:
 
 - **Using a concept before teaching it**, or promising to explain it "later" instead [C 2.2].
 - **Steps hidden behind** "clearly", "it follows that" or "taking logs gives" [C 2.3].

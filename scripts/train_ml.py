@@ -4,14 +4,14 @@ from pathlib import Path
 
 import torch
 
-from ML.surrogate.tree.tree_model import ACTIVATIONS, OUTPUTS
-from ML.surrogate.tree.tree_training import TrainConfig, train_surrogate
+from optionpricing.ml.surrogate.tree.tree_model import ACTIVATIONS, OUTPUTS
+from optionpricing.ml.surrogate.tree.tree_training import TrainConfig, train_surrogate
 
 # One flag per TrainConfig field, defaults read from it, so the CLI and the library never drift apart.
 def add_arguments(parser):
-    parser.add_argument("--dataset_path", default="data/tree_put_dataset.npz", type=str,
-                        help="The tree put dataset (python -m ML.surrogate.tree.generate_tree_dataset).")
-    parser.add_argument("--checkpoint_path", default="checkpoints/put_surrogate.pth", type=str,
+    parser.add_argument("--dataset_path", default="artifacts/data/tree_put_dataset.npz", type=str,
+                        help="The tree put dataset (python -m optionpricing.ml.surrogate.tree.generate_tree_dataset).")
+    parser.add_argument("--checkpoint_path", default="artifacts/checkpoints/put_surrogate.pth", type=str,
                         help="Where the best PutSurrogate is saved (test-ml's default).")
     # network
     parser.add_argument("--depth", default=TrainConfig.depth, type=int, help="Hidden layers.")
@@ -54,7 +54,7 @@ def train_config(args) -> TrainConfig:
 def run(args):
     if not Path(args.dataset_path).is_file():
         raise FileNotFoundError(f"Dataset not found at {args.dataset_path}; generate it with "
-                                "`python -m ML.surrogate.tree.generate_tree_dataset` or pass --dataset_path.")
+                                "`python -m optionpricing.ml.surrogate.tree.generate_tree_dataset` or pass --dataset_path.")
     config = train_config(args)  # before any work: a bad flag fails here, not after loading the data
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Training on: {device}")

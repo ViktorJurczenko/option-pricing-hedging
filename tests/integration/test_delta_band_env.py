@@ -8,13 +8,13 @@ import numpy as np
 import pytest
 import torch
 
-from core.gbm import GBM
-from AmericanOptionPricing.LongstaffSchwartz import LongstaffSchwartz
-from Hedging.env import HedgingEnv
-from Hedging.baselines import delta_band
-from ML.rl.sac import deterministic_hedge
-from Hedging.evaluation import evaluate
-from ML.rl.policy import RLPolicy
+from optionpricing.core.gbm import GBM
+from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
+from optionpricing.hedging.env import HedgingEnv
+from optionpricing.hedging.baselines import delta_band
+from optionpricing.ml.rl.sac import deterministic_hedge
+from optionpricing.hedging.evaluation import evaluate
+from optionpricing.ml.rl.policy import RLPolicy
 
 FIXED_COST = 0.5
 

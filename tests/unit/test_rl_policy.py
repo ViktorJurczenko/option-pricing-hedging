@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 import torch
 
-from Hedging.env import HedgingEnv
-from ML.rl.policy import (
+from optionpricing.hedging.env import HedgingEnv
+from optionpricing.ml.rl.policy import (
     _DELTA_IDX, _INITIAL_BAND_FRACTION, _INITIAL_BAND_TARGET, _INITIAL_GAP_FRACTION, _POSITION_IDX,
     RLPolicy, checkpoint_action_dim,
 )
-from Hedging.baselines import delta_band
-from AmericanOptionPricing import LongstaffSchwartz
-from core.gbm import GBM
+from optionpricing.hedging.baselines import delta_band
+from optionpricing.pricing.american import LongstaffSchwartz
+from optionpricing.core.gbm import GBM
 from tests.helpers import make_state
 
 

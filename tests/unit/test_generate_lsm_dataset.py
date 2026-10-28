@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from ML.surrogate.legacy.lsm_model import smooth_intrinsic_value
-from core.gbm import GBM
-from ML.surrogate.chunks import chunk_file
-from ML.surrogate.legacy.generate_lsm_dataset import (gen_data, gen_rdm_params, generate_chunks, load_chunks,
+from optionpricing.ml.surrogate.legacy.lsm_model import smooth_intrinsic_value
+from optionpricing.core.gbm import GBM
+from optionpricing.ml.surrogate.chunks import chunk_file
+from optionpricing.ml.surrogate.legacy.generate_lsm_dataset import (gen_data, gen_rdm_params, generate_chunks, load_chunks,
                                                       process_sample)
-from EuropeanOptionPricing.BlackScholes import BlackScholes
+from optionpricing.pricing.european.black_scholes import BlackScholes
 
 NORM = dict(log_sigma_mean=np.log(0.2), log_sigma_std=0.5, r_mean=0.03, r_std=0.02,
             log_T_mean=0.0, log_T_std=0.5)
