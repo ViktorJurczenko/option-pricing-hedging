@@ -20,6 +20,7 @@ import json
 import math
 import os
 import statistics
+import sys
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -183,6 +184,66 @@ def summarize(results: dict) -> str:
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
+# SetThreadExecutionState flags (winbase.h): keep the setting until changed,
+# keep the system running, keep the display on
+ES_CONTINUOUS, ES_SYSTEM_REQUIRED, ES_DISPLAY_REQUIRED = 0x80000000, 0x00000001, 0x00000002
+
+def _set_execution_state(flags: int) -> None:
+    """The Win32 call, apart so tests can replace it."""
+    import ctypes
+    ctypes.windll.kernel32.SetThreadExecutionState(flags)
+
+@contextlib.contextmanager
+def keep_awake():
+    """
+    Keeps Windows from suspending the run while inside, and releases it
+    after (also on an error or Ctrl-C). On a Modern Standby PC (S0 low
+    power idle) turning the screen off is standby, which "sleep: never"
+    does not prevent: a first overnight run got ~30 min of compute in 9 h
+    (BUGS.md). So the display is held on too: dim it rather than turn it
+    off. Does nothing on other systems.
+    """
+    if sys.platform != "win32":
+        yield
+        return
+    _set_execution_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+    try:
+        yield
+    finally:
+        _set_execution_state(ES_CONTINUOUS)  # back to the normal power settings
+
+def run_jobs(jobs: list, args) -> list:
+    """
+    Computes the shared reference grid, then runs `jobs` in `args.jobs`
+    worker processes. Returns the names of the runs that failed (each one's
+    traceback is in its error.txt); the others are not stopped by them.
+    """
+    from ML.surrogate.tree.tree_evaluation import check_reference, grid_reference, teacher_settings
+
+    failed = []
+    # before the workers: one reference for every run (and a reference with the teacher's settings refused)
+    check_reference(teacher_settings(args.dataset_path), args.ref_method, args.ref_steps)
+    with np.load(args.dataset_path) as data:
+        domain = {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
+    grid_reference(domain, args.ref_steps, args.ref_method, args.n_z, args.n_sigma, args.n_T, args.rates,
+                   cache_path=Path(args.out_dir) / "reference_grid.npz")
+
+    with ProcessPoolExecutor(max_workers=args.jobs, initializer=_init_worker, initargs=(args.threads,)) as pool:
+        futures = {pool.submit(train_and_score, job): job for job in jobs}
+        bar = tqdm(as_completed(futures), total=len(jobs), desc="Ablation runs", unit="run")
+        for future in bar:
+            job = futures[future]
+            name = f"{job['variant']} seed {job['config']['seed']}"
+            try:
+                done = future.result()
+                bar.set_postfix(last=name, minutes=f"{done['train_seconds'] / 60:.1f}")
+            except Exception:
+                # one failed run must not stop the night: logged next to it, listed at the end
+                failed.append(name)
+                (Path(job["dir"]) / "error.txt").write_text(traceback.format_exc())
+                tqdm.write(f"FAILED: {name} (see {Path(job['dir']) / 'error.txt'})")
+    return failed
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -212,8 +273,6 @@ def make_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = make_parser().parse_args(argv)
-    from ML.surrogate.tree.tree_evaluation import check_reference, grid_reference, teacher_settings
-
     if not Path(args.dataset_path).is_file():
         raise FileNotFoundError(f"no dataset at {args.dataset_path} (python -m ML.surrogate.tree.generate_tree_dataset)")
     # the threads of the worker processes' BLAS (the tree pricer's numpy); set before they start
@@ -239,27 +298,9 @@ def main(argv=None) -> int:
 
     failed = []
     if jobs:
-        # before the workers: one reference for every run (and a reference with the teacher's settings refused)
-        check_reference(teacher_settings(args.dataset_path), args.ref_method, args.ref_steps)
-        with np.load(args.dataset_path) as data:
-            domain = {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
-        grid_reference(domain, args.ref_steps, args.ref_method, args.n_z, args.n_sigma, args.n_T, args.rates,
-                       cache_path=Path(args.out_dir) / "reference_grid.npz")
-
-        with ProcessPoolExecutor(max_workers=args.jobs, initializer=_init_worker, initargs=(args.threads,)) as pool:
-            futures = {pool.submit(train_and_score, job): job for job in jobs}
-            bar = tqdm(as_completed(futures), total=len(jobs), desc="Ablation runs", unit="run")
-            for future in bar:
-                job = futures[future]
-                name = f"{job['variant']} seed {job['config']['seed']}"
-                try:
-                    done = future.result()
-                    bar.set_postfix(last=name, minutes=f"{done['train_seconds'] / 60:.1f}")
-                except Exception:
-                    # one failed run must not stop the night: logged next to it, listed at the end
-                    failed.append(name)
-                    (Path(job["dir"]) / "error.txt").write_text(traceback.format_exc())
-                    tqdm.write(f"FAILED: {name} (see {Path(job['dir']) / 'error.txt'})")
+        # held for the whole run: on a Modern Standby PC the screen turning off suspends it
+        with keep_awake():
+            failed = run_jobs(jobs, args)
 
     # the summary of every finished run of the requested variants and seeds
     results = {}

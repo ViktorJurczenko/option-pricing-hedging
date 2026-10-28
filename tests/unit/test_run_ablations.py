@@ -86,3 +86,31 @@ def test_summary_leaves_tolerances_a_run_was_not_scored_at_empty():
 def test_mean_sd_ignores_nan_values():
     assert ra._mean_sd([math.nan, 1.0, 3.0], ".1f") == "2.0 +- 1.4"
     assert ra._mean_sd([math.nan], ".1f") == "-"
+
+# --- keep_awake ---
+
+def _recorded_states(monkeypatch, platform):
+    calls = []
+    monkeypatch.setattr(ra.sys, "platform", platform)
+    monkeypatch.setattr(ra, "_set_execution_state", calls.append)
+    return calls
+
+def test_keep_awake_holds_the_system_and_display_on_windows_then_releases(monkeypatch):
+    # Regression: on a Modern Standby PC the screen turning off suspended an overnight run (BUGS.md)
+    calls = _recorded_states(monkeypatch, "win32")
+    with ra.keep_awake():
+        assert calls == [ra.ES_CONTINUOUS | ra.ES_SYSTEM_REQUIRED | ra.ES_DISPLAY_REQUIRED]
+    assert calls[-1] == ra.ES_CONTINUOUS and len(calls) == 2
+
+def test_keep_awake_releases_even_when_the_run_fails(monkeypatch):
+    calls = _recorded_states(monkeypatch, "win32")
+    with pytest.raises(KeyboardInterrupt):
+        with ra.keep_awake():
+            raise KeyboardInterrupt  # Ctrl-C mid-run
+    assert calls[-1] == ra.ES_CONTINUOUS
+
+def test_keep_awake_does_nothing_elsewhere(monkeypatch):
+    calls = _recorded_states(monkeypatch, "linux")
+    with ra.keep_awake():
+        pass
+    assert calls == []

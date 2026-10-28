@@ -6,6 +6,29 @@ See `.claude/CLAUDE.md`'s "Bug tracking" section for the policy. New
 feature implementation that isn't a bug or a fix does not belong here; see
 `.claude/PLAN.md` for that.
 
+## Overnight ablation run suspended by Modern Standby (fixed)
+
+**Symptom:** the first overnight `python -m experiments.run_ablations`
+(started 01:49) had no finished run by 10:57: the 4 running trainings
+showed 98-300 s per epoch on their progress bars instead of ~4-14 s.
+
+**Root cause:** this PC's only standby state is Modern Standby
+(`powercfg /a`: "Standby (S0 Low Power Idle)"). There, the screen
+turning off *is* standby, whatever the sleep timeout ("never" was
+set), and desktop programs are suspended. The System event log shows
+standby entered at 01:59, when the 10-minute screen timeout ran out,
+with only short wakes until 10:57: ~30 min of compute in 9 h. The bars
+count wall-clock time, hence the absurd per-epoch figures.
+
+**Impact:** a night lost; no run finished, so none had to be discarded.
+
+**Fix:** `keep_awake()` in `experiments/run_ablations.py` holds
+`SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED |
+ES_DISPLAY_REQUIRED)` for the whole run and releases it after, also on
+an error or Ctrl-C. The display stays on (dim it): on Modern Standby
+there is no reliable way to keep a program running with the screen
+off. Pinned by the `keep_awake` tests in `tests/unit/test_run_ablations.py`.
+
 ## Early stopping cut longer cosine schedules short (fixed)
 
 **Symptom:** in step 9's data-vs-steps check, `train-ml --epochs 400`
