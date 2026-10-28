@@ -26,7 +26,7 @@ Docs here are read by two kinds of people: the author, months from now, who need
 
 5. **Reuse the notation** in `references/notation.md`. Use its symbols and code names. Do not invent a new symbol for something the table already names. If a new symbol is unavoidable, define it where it first appears, and tell the user it should be added to the table.
 
-6. **Write the current state, not the history.** Explanation and reference docs say what the code does now and why. How the work got there belongs in `.claude/PLAN.md` (the plan log) and `.claude/BUGS.md` (problems and fixes). See `references/anti-patterns.md`.
+6. **Write the current state, not the history.** Explanation and reference docs say what the code does now and why. How the work got there belongs in `.claude/PLAN.md` (the roadmap) and `.claude/PLAN_ARCHIVE.md` (finished plans), `.claude/BUGS.md` (problems and fixes) and `docs/results/` (measured results). See `references/anti-patterns.md`.
 
 7. **Check the identifiers mechanically.** Run `python .claude/skills/optionpricing-docs/scripts/check_doc_claims.py <doc.md>` from the project root. It checks that every backticked path exists and every code name appears in the source, and it skips math symbols (those in `references/notation.md` and anything that looks like a formula). Fix every missing path or name it reports, unless the doc quotes a wrong or old name on purpose (an audit, a caveat, a BUGS.md entry); leave those and say so. Paths it lists as "generated, not checked" are run outputs (`data/`, `checkpoints/`): make sure the command that creates each one is named. Add `--strict` to also list short filenames that should be written as full paths. The script cannot judge meaning, such as whether a default value is right, so the checklist still applies.
 
@@ -43,7 +43,7 @@ Rules from the project's `CLAUDE.md` still apply. A bug found while documenting 
 | Module / API reference | Docstrings; a section of the README architecture | What each public function and class takes, returns and raises, in which units | `templates/module-reference.md` |
 | How-to | A README Usage subsection, or its own section | Steps to reach one goal with the CLI | `templates/how-to.md` |
 | Decision record | `docs/decisions/<slug>.md` | One design decision, from symptom to evidence to fix | `templates/decision-record.md` |
-| Incident / plan / results log | `.claude/BUGS.md`, `.claude/PLAN.md`, README Results | Dated record of a problem, a plan, or a measured result | `templates/log-entries.md` |
+| Incident / plan / results log | `.claude/BUGS.md`, `.claude/PLAN.md` (+ `PLAN_ARCHIVE.md`), `docs/results/`, README Results | Dated record of a problem, a plan, or a measured result | `templates/log-entries.md` |
 
 There is no CHANGELOG. Git history plus PLAN.md and BUGS.md serve that purpose. Don't create one unless the user asks.
 

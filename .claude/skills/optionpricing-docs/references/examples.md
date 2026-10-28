@@ -62,7 +62,7 @@ The evidence section rules out the alternative explanation:
 
 ## Incident: .claude/BUGS.md
 
-A typical entry is `## Early stopping cut longer cosine schedules short (fixed)`, with the parts `**Symptom:**` (with numbers), `**Root cause:**`, `**Impact:**` and `**Fix:**` (naming the file and the test that pins it, and saying that the test fails if the fix is removed).
+A typical entry is `### B-031 Early stopping cut longer cosine schedules short`, with its `Status: · Found: · Files:` line, then the parts `**Symptom:**` (with numbers), `**Root cause:**`, `**Impact:**` and `**Fix:**` (naming the file and the test that pins it, and saying that the test fails if the fix is removed). The file's header holds the template and the rules for IDs and the index.
 
 ## Writing rules: course/CRITIQUE.md §2
 

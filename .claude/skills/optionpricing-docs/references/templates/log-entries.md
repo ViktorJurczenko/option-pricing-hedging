@@ -2,35 +2,13 @@
 
 These are dated records. History belongs here, not in explanation docs.
 
-## `.claude/BUGS.md` entry (newest first, under the file's intro)
+## `.claude/BUGS.md` entry
 
-```markdown
-## <Symptom in a short sentence> (fixed | open, for later)
+The template and the rules (next free ID `B-0NN`, a row in the index, the entry at the top of its area's section, titles never renamed) are in the header of `.claude/BUGS.md` itself; follow that, it is the single source.
 
-**Symptom:** <what went wrong, with numbers and the command or test that showed it>.
+## `.claude/PLAN.md` entry and `.claude/PLAN_ARCHIVE.md` summary
 
-**Root cause:** <the mechanism>.
-
-**Impact:** <what was affected, and which earlier results are invalid>.
-
-**Fix:** <the change and its file(s)>; pinned by `<test_name>`, which fails if the fix is removed.
-```
-
-For an open problem, replace **Fix:** with **Status:**, giving what is known and the next thing to try.
-
-## `.claude/PLAN.md` entry (newest on top)
-
-```markdown
-## <Feature or issue>
-
-<Context: the problem, the options considered, and which one was chosen and why.>
-
-- [ ] <Step title>
-  <What it does and why.>
-- [x] <Done step title>
-```
-
-When a step is done, drop its description, unless it records measured results that later steps need (for example the step-9 learning curve).
+The roadmap's format (a table row per workstream; **Goal** then `- [ ]` steps for active work; **Goal** / **Done so far** / **Next** for the backlog) is in the header of `.claude/PLAN.md`, and the archive's summary format in the header of `.claude/PLAN_ARCHIVE.md`. Measured results never stay in a plan step: they go to `docs/results/<topic>.md` (format below) and the step links them.
 
 ## Experiment / results write-up (README Results subsection or an ablation summary)
 

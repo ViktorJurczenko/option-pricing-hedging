@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Project reorganisation](#project-reorganisation) | active | BUGS.md index and areas |
+| [Project reorganisation](#project-reorganisation) | active | One `optionpricing/` package |
 | [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active (runs pending) | CLI-only ablations, 3 seeds |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
@@ -24,8 +24,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 - [x] Slim CLAUDE.md, detail to `docs/architecture.md`
 - [x] PLAN.md as a roadmap, `.claude/PLAN_ARCHIVE.md`, results to `docs/results/`
-- [ ] BUGS.md with an index and area sections
-  IDs `B-001...` in chronological order, a fixed header block per entry (status, date found, files), entries grouped by area; titles unchanged so existing references keep working.
+- [x] BUGS.md with an index and area sections
 - [ ] One `optionpricing/` package
   `git mv` the code into `optionpricing/{core,pricing/european,pricing/american,ml/{surrogate,rl,experiments},hedging}`, rewrite imports, add `pyproject.toml`, move generated outputs under `artifacts/` and personal notes under `notes/`, delete `AUDIT.md`, rewrite `docs/architecture.md` to the new layout.
 - [ ] README
