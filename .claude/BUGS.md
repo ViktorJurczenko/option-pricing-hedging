@@ -32,6 +32,7 @@ Open and deferred issues first, then newest first.
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
 | [B-002](#b-002) | Price-vs-Binomial-Tree drift comparisons are noisy across seeds | Pricing | deferred | 2026-09-29 |
+| [B-034](#b-034) | Formatting the code broke two mutants' source patterns | Tooling and tests | fixed | 2026-10-29 |
 | [B-033](#b-033) | Smoke tests looked for checkpoints outside artifacts/ after the package move | Tooling and tests | fixed | 2026-10-28 |
 | [B-032](#b-032) | Overnight ablation run suspended by Modern Standby | Tooling and tests | fixed | 2026-10-28 |
 | [B-031](#b-031) | Early stopping cut longer cosine schedules short | Surrogate | fixed | 2026-10-27 |
@@ -1288,6 +1289,22 @@ deterministic evaluation action was updated to match
 (`AmericanHedging/Hedge.py`, `scripts/test_hedge.py`).
 
 ## Tooling and tests
+
+<a id="b-034"></a>
+
+### B-034 Formatting the code broke two mutants' source patterns
+
+Status: fixed · Found: 2026-10-29 · Files: `tests/mutation/tree_evaluation_mutants.py`
+
+**Symptom:** after `ruff format .` over the repo, `python -m tests.mutation.tree_evaluation_mutants` stopped at "PDE's 1/2 dropped": "its original text occurs 0 times, expected once". A scan of every mutant against the formatted source found a second stale one, "floor rate counts the wrong route". The unit and integration suites still passed.
+
+**Root cause:** each mutant finds its target by exact source text. The formatter rewrote `sc ** 2` as `sc**2` and split the `floored=..., gamma_err=...` call arguments onto separate lines, so neither pattern occurred any more.
+
+**Impact:** none on results: the runner refuses a mutant whose text is missing instead of skipping it, so nothing passed silently. It does mean any reformatting of `optionpricing/ml/surrogate/tree/tree_evaluation.py` can break the runner.
+
+**Fix:** both patterns rewritten to the formatted source (`- 0.5 * sc**2`; `floored=res.route == "payoff_floor",\n        gamma_err`). 14/14 mutants killed again.
+
+**Regression test:** the runner itself, which fails loudly on a pattern that no longer occurs exactly once.
 
 <a id="b-033"></a>
 

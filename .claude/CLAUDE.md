@@ -64,6 +64,7 @@ python -m pytest tests/              # everything
 
 ## Conventions
 
+- **Style:** `python -m ruff format .` and `python -m ruff check .` must both be clean (config and the reasons for each ignored rule in `pyproject.toml`). Don't silence a finding with `# noqa` without the reason on the same line.
 - Run from the project root. Run modules with `python -m package.module`, never by file path: imports are absolute against the root.
 - Validate arguments eagerly with `ValueError` (e.g. `option_type` in `{call, put}`), never with silent fallbacks.
 - Paths (datasets, checkpoints) are CLI and constructor arguments with relative defaults, never hardcoded.

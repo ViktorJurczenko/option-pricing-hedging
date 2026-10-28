@@ -14,3 +14,26 @@ dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
 include = ["optionpricing*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+extend-exclude = ["notes", "artifacts", "course"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+    # The formatter already wraps code at line-length; what it leaves longer
+    # is string literals (argparse help, error messages) and comments, which
+    # read better whole than split mid-sentence.
+    "E501",
+    # zip(..., strict=True) raises on a length mismatch: adding it would
+    # change runtime behaviour, which a lint fix must not do. Revisit per call.
+    "B905",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ files re-export their modules' public names.
+"__init__.py" = ["F401"]
+# Small lambdas are the idiomatic way to write test stubs and transforms.
+"tests/**" = ["E731"]

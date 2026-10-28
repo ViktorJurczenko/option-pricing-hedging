@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Project reorganisation](#project-reorganisation) | active | ruff |
+| [Project reorganisation](#project-reorganisation) | active | Hooks |
 | [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active (runs pending) | CLI-only ablations, 3 seeds |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
@@ -28,8 +28,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 - [x] One `optionpricing/` package
 - [x] README
 - [x] Review without duplicate test runs
-- [ ] ruff
-  Add it pinned, configure it in `pyproject.toml`, format and fix the whole repo in one `style:` commit, add the rule to CLAUDE.md.
+- [x] ruff
 - [ ] Hooks
   `.claude/settings.json` with Python hooks: ruff and the matching unit test after a `.py` edit; a commit gate (unit suite and message format); the roadmap printed at session start; a reminder at stop when code changed but no living doc did. Each hook unit-tested.
 
