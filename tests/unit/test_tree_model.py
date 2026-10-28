@@ -14,7 +14,7 @@ def test_mlp_default_is_four_silu_layers_of_128_on_the_dataset_features():
     assert [l.weight.shape[1] for l in linears] == [len(FEATURES), 128, 128, 128, 128]
     assert linears[-1].out_features == 1
     assert sum(isinstance(l, torch.nn.SiLU) for l in mlp.net) == 4
-    # (6*128 + 128) + 3 * (128*128 + 128) + (128 + 1): the ~50k weights of REMINDER.md
+    # (6*128 + 128) + 3 * (128*128 + 128) + (128 + 1): the default net's ~50k weights
     assert sum(p.numel() for p in mlp.parameters()) == 50561
 
 def test_mlp_rows_are_independent_and_train_mode_changes_nothing():

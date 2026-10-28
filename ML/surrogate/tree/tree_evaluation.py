@@ -1,6 +1,5 @@
 """
-How good a trained PutSurrogate is, as `test-ml` reports it (REMINDER.md,
-"How it will be judged").
+How good a trained PutSurrogate is, as `test-ml` reports it.
 
 - A factorial grid (z x sigma x T x a few rates, inside the training domain)
   against an *independent*, finer tree than the teacher: scoring against the
@@ -14,7 +13,8 @@ How good a trained PutSurrogate is, as `test-ml` reports it (REMINDER.md,
 - No-arbitrage violation rates on the w-scaled measure training penalizes
   with (training.scaled_violations), continuation and exercised rows apart:
   around the exercised rows' true zeros any wobble counts, which swamped
-  the rate when they were mixed in (REMINDER.md, step 6).
+  the rate when they were mixed in (.claude/BUGS.md, "Shape-violation rate
+  inflated by exercised points").
 - How often the payoff floor fires, the theta check (the net's -dV/dT
   against the Black-Scholes PDE from its own price, delta and gamma; 0 on
   exercised rows), the routing outside the domain, and the time per price.
@@ -76,7 +76,7 @@ MIN_IV_VEGA = 1e-2
 
 # A scaled violation counts above this: a price change of 1e-4 K, about
 # the trained net's price error, so smaller violations are fit noise. The
-# shape-penalty study used the same threshold (REMINDER.md, step 6).
+# shape-penalty study used the same threshold.
 VIOLATION_TOL = 1e-4
 
 # ---------------------------------------------------------------------------
@@ -159,7 +159,8 @@ Z_INSET = 1e-9
 # disturbed by other processes, and 3 is enough at ~15 ms a run.
 TIMING_REPEATS = 3
 # Single queries: the median of 20, robust to the odd slow call (each
-# costs ~1.3 ms, mostly autograd overhead, REMINDER.md step 5).
+# costs ~1 ms, mostly the fixed overhead of the two autograd passes that
+# give delta and gamma).
 TIMING_SINGLE = 20
 # The teacher tree is timed on this many grid points (~0.6 s): enough to
 # average out per-call overhead, too few to slow the report.
@@ -492,7 +493,7 @@ def time_pricers(surrogate: PutSurrogate, grid: Grid) -> dict:
     """
     Seconds per option: the surrogate on the whole grid at once (best of
     TIMING_REPEATS) and one query at a time (median of TIMING_SINGLE calls;
-    its fixed autograd overhead dominates, REMINDER.md step 5), against the
+    the fixed overhead of the delta and gamma autograd passes dominates), against the
     teacher-grade tree on the first TIMING_TREE grid points.
     """
     n = len(grid.m)

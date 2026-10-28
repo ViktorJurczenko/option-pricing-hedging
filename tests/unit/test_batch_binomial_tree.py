@@ -34,8 +34,8 @@ def test_crr_matches_binomial_tree_option_by_option():
 
 
 def test_hand_computed_three_step_tree():
-    # REMINDER.md, "The batch binomial tree", sections 4 and 8: the 3-step
-    # tree worked by hand (early exercise at level 2's lowest node).
+    # A 3-step tree small enough to work by hand (dt = 0.25, u = 1.161834,
+    # p = 0.504342); early exercise happens only at level 2's lowest node.
     res = binomial_put_batch(1.0, 0.75, 0.05, 0.3, nb_steps=3, method="crr")
     assert res.price == pytest.approx(0.09540, abs=5e-5)
     assert res.delta == pytest.approx(-0.42326, abs=5e-5)

@@ -51,8 +51,9 @@ class TrainConfig:
         those penalties); 0 disables a term. lambda_shape defaults to 0: on
         a first small run it tripled the price error, about equally in
         every region, for a small drop in violations, and made each step
-        ~3x slower than with the delta loss alone (see REMINDER.md); the
-        ablation on the full dataset decides.
+        ~3x slower than with the delta loss alone (.claude/BUGS.md, "Shape
+        penalty's convexity term ~3000x too big"); the ablation on the full
+        dataset decides.
     seed: seeds the split, the weights' initialization, the batch order and
         the shape points.
 
@@ -61,7 +62,7 @@ class TrainConfig:
             outside [0, lr], valid_ratio outside (0, 1), negative lambdas
             or lbfgs_steps.
     """
-    # ~50k weights: enough for a smooth function of 6 inputs, microseconds to evaluate (REMINDER.md)
+    # ~50k weights: enough for a smooth function of 6 inputs, microseconds to evaluate
     depth: int = 4
     width: int = 128
     activation: str = "silu"    # smooth, so the autograd delta and gamma are meaningful (ReLU's gamma is 0)
