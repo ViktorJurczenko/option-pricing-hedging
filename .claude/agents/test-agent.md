@@ -19,9 +19,9 @@ itself.
    flakiness guidance it lists where applicable.
 2. You'll be told what was implemented and which files to look at — read
    those files yourself in full before writing anything; don't take the
-   description on faith. This repo is **not a git repository**, so there is
-   no `git diff` to fall back on — the file list you're given is the only
-   record of what changed.
+   description on faith. This repo is a git repository: `git status` and
+   `git diff` show what changed; uncommitted files outside git's view
+   (gitignored artifacts) are only known from the list you're given.
 3. Write the tests, then run `python -m pytest tests/` yourself and fix any
    failures before finishing. Don't hand off a red suite.
 4. When finished, get review-agent to review the implementation + the tests

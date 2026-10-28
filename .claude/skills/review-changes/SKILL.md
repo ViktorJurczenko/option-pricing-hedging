@@ -52,13 +52,16 @@ it.
    `float` year fraction?). Check signatures the diff actually touches, not
    the whole file.
 
-3. **Documentation present where it's actually needed.**
-   Same bar as this project's comment policy in `CLAUDE.md`: a docstring is
-   owed wherever a caller could reasonably get it wrong without being told —
+3. **Documentation present and useful.**
+   This project's convention (`CLAUDE.md`, "Conventions"): every module and
+   public function/class has a docstring — prose on what and why, then
+   `Args:`/`Returns:`/`Raises:` when it takes arguments. Check above all
+   that it says what a caller could reasonably get wrong without being told:
    required call order (e.g. `predict_payoff()` before
    `calculate_option_price()`), units, array shapes, non-obvious return
-   values, side effects. Don't require a docstring that just restates what
-   the signature already says.
+   values, side effects. Comments explain why, not what; a measured number
+   cites where it was measured (a `.claude/BUGS.md` entry or a tracked doc,
+   never the gitignored `REMINDER.md`).
 
 4. **No code smells.**
    Duplicated logic that should be a shared helper — but weigh this against
@@ -97,9 +100,9 @@ it.
 8. **Error handling and edge cases are covered.**
    New code should handle its stated failure modes explicitly, matching this
    project's existing pattern (raising `ValueError`/`AttributeError` rather
-   than silently falling back — see `CLAUDE.md`'s "follow that pattern rather
-   than adding silent fallbacks"). Edge cases relevant to the change (empty
-   input, boundary values, zero/negative inputs where meaningful) should be
+   than silently falling back — see `CLAUDE.md`'s "Validate arguments
+   eagerly with `ValueError` ... never with silent fallbacks"). Edge cases
+   relevant to the change (empty input, boundary values, zero/negative inputs where meaningful) should be
    exercised by a test, not just handled in the implementation and left
    unverified.
 

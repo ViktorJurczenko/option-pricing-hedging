@@ -1156,5 +1156,5 @@ generation and reconstruction). Used consistently everywhere the component
 is added back to reconstruct the true price. The width was picked by
 sweeping a few values against a fixed benchmark, with training runs fully
 seeded (model init, data split, batch shuffling). The general pattern this
-generalizes to is documented in `.claude/CLAUDE.md`, "Softplus
+generalizes to is documented in `docs/architecture.md`, "Softplus
 reparameterization".

@@ -48,6 +48,8 @@ Assumptions and failure modes are stated, together with the guard that enforces 
 No decision record is in the repo now; this one was removed and its incident moved to `.claude/BUGS.md`, "ML surrogate pricer's target had a self-inflicted kink at ATM". Its shape is still the model for a new one. Its sections were `## Symptom`, `## Root cause`, `## How this was confirmed (not undertraining)` and `## Fix`. The first paragraph links the general pattern it is an instance of:
 > Background and the reusable pattern this generalizes to live in `.claude/CLAUDE.md` under "Softplus reparameterization…". This file is the incident this pattern was extracted from.
 
+(The pattern itself has since moved to `docs/architecture.md`, "Softplus reparameterization"; a new record links it there.)
+
 The evidence section rules out the alternative explanation:
 > more epochs fixing everything *except* the kink region rules out "just needs more training."
 
