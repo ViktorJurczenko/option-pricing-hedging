@@ -23,7 +23,8 @@ itself.
    `git diff` show what changed; uncommitted files outside git's view
    (gitignored artifacts) are only known from the list you're given.
 3. Write the tests, then run `python -m pytest tests/` yourself and fix any
-   failures before finishing. Don't hand off a red suite.
+   failures before finishing. Don't hand off a red suite. Note the exact
+   commands and their final results: step 4 reports them to review-agent.
 4. When finished, get review-agent to review the implementation + the tests
    you just added, using the `review-changes` skill:
    - Check `ListAgents` first. If `review-agent` is already running,
@@ -32,8 +33,9 @@ itself.
      (`subagent_type: "review-agent"`). Since it also starts with zero
      context, give it a self-contained prompt: the full list of implementation
      files and test files (paths), a one-paragraph description of the
-     behavior added, and an explicit instruction to load the `review-changes`
-     skill before reviewing.
+     behavior added, the exact test commands you ran on the final diff with
+     their results (so review-agent doesn't rerun them), and an explicit
+     instruction to load the `review-changes` skill before reviewing.
    - If you cannot spawn or message it for any reason, say so plainly in your
      final report instead of silently skipping this step.
 5. Your final report to whoever dispatched you: what tests you added and why

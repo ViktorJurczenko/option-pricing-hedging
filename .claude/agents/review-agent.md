@@ -19,8 +19,13 @@ itself.
    repository: `git status` and `git diff` (plus untracked files) show what
    changed; don't assume you know of any other changes beyond those and what
    you were told.
-3. Run `python -m pytest tests/` yourself and report the real result — don't
-   assume the tests pass because you were told they were written.
+3. Tests: if your prompt gives the exact test commands run on this diff and
+   their results, use them and don't rerun those suites; run only what they
+   don't cover (the skill's "Don't rerun a test run the dispatcher already
+   reported" rule). If it gives none, run the suites the change needs
+   (`python -m pytest tests/unit`, plus `tests/integration` when CLI wiring
+   or simulation behaviour changed) and report the real result. Never treat
+   "the tests were written" as "the tests pass".
 4. Produce the full report the `review-changes` skill specifies: one
    **OK**/**ISSUE**/**CANNOT VERIFY** line per checklist point (with
    `file:line` for issues), a **Suggestions** section, and an overall verdict

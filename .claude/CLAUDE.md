@@ -41,7 +41,7 @@ Layout: the library is the `optionpricing/` package (`core/`, `pricing/european/
 
 - `write-tests` skill: whenever you write or change tests.
 - `optionpricing-docs` skill: whenever you write or change a doc, a docstring, a BUGS.md or PLAN.md entry, or a results write-up.
-- `review-agent` (loads the `review-changes` skill): dispatch it on every change before committing, with a self-contained description of what changed (point it at `git diff`).
+- `review-agent` (loads the `review-changes` skill): dispatch it on every change before committing, with a self-contained description of what changed (point it at `git diff`) and the exact test commands you ran on the final diff with their results (e.g. `python -m pytest tests/unit` -> 674 passed). It reuses those instead of rerunning them, and runs only what they don't cover; say so explicitly when no code changed and no run is needed.
 - `test-agent`: only when the user asks for it.
 - Both agents pin their model in their frontmatter. Never pass `model` when dispatching them.
 - `.claude/rules/` holds path-scoped rules (e.g. progress bars for long loops) that apply automatically on matching files.

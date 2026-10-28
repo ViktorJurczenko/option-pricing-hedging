@@ -24,7 +24,24 @@ it.
   binary/generated and unreadable, the diff is too large to read in full, you
   have no way to confirm CI status — say so explicitly for that point instead
   of assuming it's fine. "Cannot verify — did not run the tests" is a
-  required, valid answer when true; do not mark something OK on faith.
+  required, valid answer when true and no run was reported to you (see the
+  next rule); do not mark something OK on faith.
+- **Don't rerun a test run the dispatcher already reported.** The one
+  exception to "verify it yourself": when the prompt gives the exact test
+  commands run on the current diff and their results (e.g.
+  `python -m pytest tests/unit` -> 674 passed), use them and do not rerun
+  that suite; it costs minutes and repeats a check already done. Say in
+  point 6 that the result is the dispatcher's. Check the report against
+  `git status` and `git diff`: a file the report doesn't account for, or
+  one changed after the run, is not covered. Only test results may be
+  reused this way, never a description of the diff. Run tests yourself only for
+  what the report does not cover: a suite it does not mention (e.g.
+  integration when CLI wiring changed), files changed after the reported
+  run, or a specific test you have a concrete reason to doubt (it looks
+  skipped, deselected or unable to fail). Run just those, not the whole
+  suite. With no test results in the prompt, run the suites the change
+  needs, as before. Reading the tests to judge their quality is never
+  skipped.
 - **Report format:** go through the checklist below in order, one point at a
   time, each marked **OK** or **ISSUE**. Every ISSUE needs a one-line reason
   and a `file:line` pointer. Anything you could not check gets **CANNOT
@@ -85,9 +102,13 @@ it.
 6. **Tests actually test something, and pass.**
    Tests must assert real behavior, not just a count, a non-null check, or
    "no exception was raised" when there's a meaningful return value or state
-   change to check instead. If you can execute the suite, run it and report
-   pass/fail with a summary; if you cannot execute it, mark this **CANNOT
-   VERIFY** rather than assuming green. For the full standard this repo holds
+   change to check instead. For pass/fail, use the test results the
+   dispatcher reported for this diff (say so: "reported by the dispatcher:
+   ...") and run only what they do not cover (see "Don't rerun a test run
+   the dispatcher already reported" above); with no reported results, run
+   the suites the change needs and report pass/fail with a summary. If you
+   cannot execute a needed run, mark this **CANNOT VERIFY** rather than
+   assuming green. For the full standard this repo holds
    new tests to (unit-first, real coverage, test doubles for any network I/O,
    regression tests for fixed bugs), see `.claude/skills/write-tests/SKILL.md`
    — use it as the bar when judging whether tests in this diff meet it.
