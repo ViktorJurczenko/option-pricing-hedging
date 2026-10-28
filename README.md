@@ -82,7 +82,7 @@ with the default degree-3 polynomial fit, delta landed outside that range
 **up to 91.6% of the time** at the very last timestep before expiry
 (depending on random seed), with values reaching into the tens — or, at a
 higher regression degree, the thousands. This matters in practice:
-`HedgeEnv` feeds this delta straight into the hedging policy's state, and
+`HedgingEnv` feeds this delta straight into the hedging policy's state, and
 `optionpricing/hedging/baselines.py`'s `delta_hedge` baseline trades on it
 directly and unclamped — a negative "delta" near expiry could execute as an
 actual short position, the wrong trade direction. Switching to the Laguerre
@@ -156,8 +156,13 @@ This section is about the *legacy* surrogate, `LegacyMLP`, trained on
 Longstaff-Schwartz labels. It is kept as a library in `optionpricing/ml/surrogate/legacy/`
 and no CLI command runs it any more. `train-ml`/`test-ml` now train and score
 its replacement, a smooth MLP trained on binomial-tree labels (see Usage).
-That replacement has no results here yet: they come with its first full
-generation run (`.claude/PLAN.md`). The legacy pipeline is still runnable:
+Its measured results so far (the teacher's convergence study, a learning
+curve over 2^15-2^19 rows, the training-length study) are in
+`docs/results/surrogate-training.md`: with the 400-epoch default on 2^19
+rows, the grid error near the money (`|z| < 1`) is $0.0012 at K = 100,
+about 1.75 bp of implied volatility, against a 4000-step reference tree
+(single seed, not re-verified since 2026-10-27; the seeded ablations and the final model are still to come,
+`.claude/PLAN.md`). The legacy pipeline is still runnable:
 
 ```
 python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset   # the LSM training set (~40 min at defaults)
@@ -197,10 +202,10 @@ as a fraction of `K`) was picked by sweeping several values against a fixed
 LSM benchmark — see the function's docstring for the sweep.
 
 **3. More paths per label (`--path_per_sim`, 5,000 → 10,000)** reduces
-label noise. The LSM "teacher" also switched to the Laguerre basis
-(`--reg_type`, default `laguerre`), but at degree 3 that produces the same
-labels as the simple basis (see "Which regression basis?" above), so it
-had no effect.
+label noise. The LSM "teacher" was briefly switched to the Laguerre basis
+and back to the simple one (`--reg_type`, default `simple`); at degree 3
+the two produce the same labels (see "Which regression basis?" above), so
+neither switch had an effect.
 
 Net effect, benchmarked live against a fresh LSM run (put) across a grid of
 `(S0, K, σ, r, T)`, with a fixed seed and 20,000 paths per benchmark point:
@@ -217,9 +222,11 @@ its maturity (see the pricing section above). The labels are biased low by
 up to 0.0012·K (-3.4% ATM, more in relative terms deep OTM, shrinking with
 `T`), while the benchmark LSM now runs on the full horizon. The "Now" row
 is this checkpoint measured against the corrected benchmark, so part of
-its ATM/OTM error is that label bias. Regenerating the dataset is planned
-together with a mixed call/put dataset (`.claude/PLAN.md`). The moneyness
-breakdown below was measured against the old benchmark.
+its ATM/OTM error is that label bias. The dataset was never regenerated:
+the tree-trained surrogate replaced this pipeline first
+(`.claude/PLAN_ARCHIVE.md`, "ML surrogate: simple basis, calls and puts,
+regenerated LSM dataset"). The moneyness breakdown below was measured
+against the old benchmark.
 
 ITM improved by an order of magnitude (mostly from fixing the data gap), ATM
 stayed about the same, and OTM got a bit worse — genuinely worse, not just a
@@ -308,8 +315,10 @@ python main.py test-hedge  --prop_tc 0.01 --policy delta_band --band 0.1 --band_
 
 With a 0.1% cost, daily delta hedging is already close to optimal. With
 larger costs, rebalancing to delta every day spends most of the P&L on
-small trades. The classical fix is a **no-trade band** (`--policy
-delta_band`): hold the position until it drifts more than `b` from delta,
+small trades (the baselines over a grid of proportional and fixed costs are
+in `docs/results/hedging-costs.md`). The classical fix is a **no-trade
+band** (`--policy delta_band`): hold the position until it drifts more
+than `b` from delta,
 then rebalance to delta (best under fixed costs) or only back to the
 band's edge (best under proportional costs). Under costs the band, not
 daily delta, is the bar for RL. The comparison is on CVaR rather than std,
@@ -380,22 +389,29 @@ trade on top:
 python -m pytest tests/
 ```
 
-398 tests pass: 320 unit tests (closed-form formulas, basis-function analytic
-derivatives checked against finite differences, dataset splitting, hedging
-environment reward arithmetic, the policy's action modes, the baselines, the
-SAC training loop) and 78 integration tests (Monte-Carlo/LSM convergence to
-their closed-form/tree counterparts, CLI argument wiring, seeded policy
-comparisons, plus CLI smoke tests for every subcommand).
+771 tests pass (2026-10-29, `pytest --collect-only -q`): 674 unit tests
+(closed-form formulas, basis-function analytic derivatives checked against
+finite differences, the batch tree against hand-worked trees, the surrogate's
+dataset, model, pricer, training loop and evaluation, hedging environment
+reward arithmetic, the policy's action modes, the baselines, the SAC
+training loop) in ~30 s, and 97 integration tests (Monte-Carlo/LSM
+convergence to their closed-form/tree counterparts, CLI argument wiring,
+seeded policy comparisons, the ablation runner, plus CLI smoke tests for
+every subcommand) in ~2.5 min. `python -m tests.mutation.tree_evaluation_mutants`
+checks that the surrogate evaluation's tests catch 14 plausible bugs.
 
 ## Setup
 
 ```
 pip install -r requirements.txt
+pip install -e .        # optional: makes `optionpricing` importable from anywhere
 ```
 
 Pinned versions match the environment this was developed against (Python
 3.13, PyTorch 2.11 CPU build). No GPU is required — training loops check
-`torch.cuda.is_available()` and fall back to CPU automatically.
+`torch.cuda.is_available()` and fall back to CPU automatically. Generated
+datasets, checkpoints, logs and experiment runs are written under
+`artifacts/` (gitignored).
 
 ## Usage
 
@@ -427,7 +443,7 @@ python main.py test-ml
 
 ```
 python -m optionpricing.ml.surrogate.tree.generate_tree_dataset [--n_rows N] [--chunk_size N] [--nb_steps N] \
-    [--method crr|bbs|bbsr] [--nb_jobs N] [--seed N] [--output_dir data]
+    [--method crr|bbs|bbsr] [--nb_jobs N] [--seed N] [--output_dir artifacts/data]
 ```
 
 Each row is an American put labelled by a vectorized binomial tree.
@@ -452,7 +468,7 @@ above) is generated the same way, chunks in `artifacts/data/chunks/`:
 ```
 python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] \
     [--nb_jobs N] [--sampling N] [--option_type call|put|both] [--reg_type simple|laguerre] [--max_degree N] \
-    [--output_dir data] [--seed N] [--chunk_size N]
+    [--output_dir artifacts/data] [--seed N] [--chunk_size N]
 ```
 
 It parallelizes LSM pricing across randomly sampled `(S0, K, σ, r, T)`
@@ -469,9 +485,26 @@ python -m pytest tests/integration      # convergence checks + CLI smoke tests; 
 
 ## Architecture
 
+```
+optionpricing/          the library, one importable package
+  core/                 GBM simulator, pricer base class, generic metrics
+  pricing/european/     Black-Scholes, Monte-Carlo
+  pricing/american/     binomial trees, Longstaff-Schwartz, basis functions
+  hedging/              hedging env, option values, baselines, P&L evaluation
+  ml/surrogate/         MLP surrogate pricer (tree/, legacy/)
+  ml/rl/                SAC hedging agent
+  ml/experiments/       research drivers (ablation runner)
+main.py                 the CLI entry point
+scripts/                one module per main.py command
+tests/                  unit/, integration/, mutation/
+docs/                   architecture.md (module reference), results/
+artifacts/              generated datasets, checkpoints, logs, runs (gitignored)
+```
+
 Pricers are grouped by option class, everything that is learned lives in
 `optionpricing/ml/`, and the hedging problem the learners are trained in lives in
-`optionpricing/hedging/`:
+`optionpricing/hedging/`. Dependencies point one way: `core` <- `pricing` <-
+`hedging` <- `ml`.
 
 - **`optionpricing/core/`** — the foundation every pricer depends on: `gbm.py` (GBM path
   simulator) and `base.py` (the `OptionPricing` ABC).
@@ -526,10 +559,13 @@ Pricers are grouped by option class, everything that is learned lives in
     any policy) and `cvar()`.
 - **`scripts/`** — one module per CLI subcommand, wired into `main.py`'s
   `argparse` subparsers.
-- **`artifacts/data/`, `artifacts/checkpoints/`** — generated artifacts only (gitignored): the
-  dataset/normalization `.npz` files and trained model `.pth` weights.
+- **`optionpricing/ml/experiments/`** — `run_ablations.py`, the seeded
+  surrogate ablations (`python -m optionpricing.ml.experiments.run_ablations`,
+  outputs in `artifacts/runs/ablations/`).
+- **`artifacts/`** — generated outputs only (gitignored): datasets in
+  `artifacts/data/`, model weights in `artifacts/checkpoints/`, plus
+  `artifacts/logs/` and `artifacts/runs/`.
 
-See `.claude/CLAUDE.md` for the full architectural notes (invariants like
-"call `predict_payoff()` before `calculate_option_price()`", normalization
-consistency requirements, etc.) used when developing this project with Claude
-Code.
+`docs/architecture.md` is the full module reference: every module's API and
+invariants (like "call `predict_payoff()` before `calculate_option_price()`"),
+the command reference with every flag, the test layout, and design notes.

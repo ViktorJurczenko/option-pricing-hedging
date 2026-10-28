@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Project reorganisation](#project-reorganisation) | active | README |
+| [Project reorganisation](#project-reorganisation) | active | Review without duplicate test runs |
 | [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active (runs pending) | CLI-only ablations, 3 seeds |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
@@ -26,8 +26,9 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 - [x] PLAN.md as a roadmap, `.claude/PLAN_ARCHIVE.md`, results to `docs/results/`
 - [x] BUGS.md with an index and area sections
 - [x] One `optionpricing/` package
-- [ ] README
-  New paths and setup, a layout tree, a usage table pointing to `--help`, results linking to `docs/results/`, and the stale items fixed (test count, the `--reg_type` sentence, `HedgeEnv`, the tree-surrogate status).
+- [x] README
+- [ ] Review without duplicate test runs
+  `review-changes` skill and `review-agent.md`: when the dispatching agent reports the test commands it ran and their results (suite, counts, for the current diff), the reviewer uses them instead of rerunning the suite, and only reruns what was not reported, what the diff touched after that run, or a test whose result it doubts. Saves the ~3 min a full rerun costs per review. The dispatch prompts must then always state the exact commands and results; CLAUDE.md's done bar says so.
 - [ ] ruff
   Add it pinned, configure it in `pyproject.toml`, format and fix the whole repo in one `style:` commit, add the rule to CLAUDE.md.
 - [ ] Hooks
