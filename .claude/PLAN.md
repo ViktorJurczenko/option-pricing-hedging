@@ -5,6 +5,29 @@ entry on top. See `.claude/CLAUDE.md`'s "Planning" section for how this file
 is used: each step starts as `- [ ] Title` with a description, and collapses
 to `- [x] Title` (description dropped) once done.
 
+## Rewrite REMINDER.md into up-to-date chapters
+
+REMINDER.md (gitignored notes) had grown as a log: commit-dated headers,
+"as built (step N)" sections, a summary part duplicating the training
+and loss sections, statements made stale by step 9 ("nothing trained
+yet", patience 20), and no explanation of the foundations it builds on
+(GBM, Black-Scholes, LSM, the hedging env, SAC). Decided with the user:
+restructure into numbered chapters that each explain the current code,
+add the missing foundations, keep the measured evidence behind each
+choice but drop process notes (they are in BUGS.md), move the legacy
+"is the MLP useful?" analysis to an appendix, and leave an ablation
+chapter to fill. Written with the `optionpricing-docs` skill; a backup
+of the old file is kept outside the repo.
+
+- [x] Part I, foundations
+- [x] Part II, the surrogate
+- [x] Part III, hedging
+- [x] Legacy appendix, then check
+- [ ] Fill chapter 11 once the ablation runs are done
+  Copy the per-variant numbers from `runs/ablations/summary.md` into
+  REMINDER.md's chapter 11 table, write the findings, and update the
+  final-model paragraph of chapter 10.
+
 ## Restructure: ML/ for everything learned, Hedging/ for the hedging problem
 
 ML code was spread over `AmericanOptionPricing/` (`ML.py`, `evaluation.py`),
