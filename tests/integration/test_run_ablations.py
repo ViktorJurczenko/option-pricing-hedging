@@ -1,8 +1,8 @@
 """
 optionpricing/ml/experiments/run_ablations.py end to end, as a subprocess (its runs are worker
 processes): two variants, one seed, 2 epochs, a tiny dataset and grid. Checks
-the files each run leaves, the summary, that a rerun skips finished runs and
-that one with other settings is refused.
+the files each run leaves, the summary, that a rerun skips finished runs and keeps every
+variant's row, and that one with other settings is refused.
 """
 
 import json
@@ -72,7 +72,7 @@ def test_each_run_leaves_its_model_history_report_and_metrics(ablation):
 
 def test_the_summary_has_a_row_per_variant(ablation):
     _, out, first = ablation
-    summary = (out / "summary.md").read_text()
+    summary = (out / "summary.md").read_text(encoding="utf-8")
     assert "| baseline | 1 |" in summary and "| softplus_output | 1 |" in summary
     assert "| baseline | 1 |" in first.stdout
 
@@ -84,6 +84,12 @@ def test_a_rerun_skips_finished_runs_and_other_settings_are_refused(ablation):
     assert again.returncode == 0, again.stderr
     assert "0 runs to do, 2 already done" in again.stdout
     assert (out / "baseline" / "seed_1" / "metrics.json").stat().st_mtime_ns == before
+
+    # Regression: a rerun of a subset rewrote summary.md with only that subset's rows (BUGS.md, B-035)
+    i = args.index("--variants")
+    subset = run_python(*args[: i + 1], "baseline", *args[i + 3 :], timeout=TIMEOUT)
+    assert subset.returncode == 0, subset.stderr
+    assert "| softplus_output | 1 |" in (out / "summary.md").read_text(encoding="utf-8")
 
     i = args.index("--epochs")
     other = run_python(*args[: i + 1], "3", *args[i + 2 :], timeout=TIMEOUT)  # the same runs, 3 epochs

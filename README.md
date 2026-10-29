@@ -157,12 +157,13 @@ Longstaff-Schwartz labels. It is kept as a library in `optionpricing/ml/surrogat
 and no CLI command runs it any more. `train-ml`/`test-ml` now train and score
 its replacement, a smooth MLP trained on binomial-tree labels (see Usage).
 Its measured results so far (the teacher's convergence study, a learning
-curve over 2^15-2^19 rows, the training-length study) are in
-`docs/results/surrogate-training.md`: with the 400-epoch default on 2^19
-rows, the grid error near the money (`|z| < 1`) is $0.0012 at K = 100,
-about 1.75 bp of implied volatility, against a 4000-step reference tree
-(single seed, not re-verified since 2026-10-27; the seeded ablations and the final model are still to come,
-`.claude/PLAN.md`). The legacy pipeline is still runnable:
+curve over 2^15-2^19 rows, the training-length study, the seeded
+ablations) are in `docs/results/surrogate-training.md`: with the defaults
+on 2^19 rows, the grid error near the money (`|z| < 1`) is
+$0.0012 ± 0.0001 at K = 100 over 3 seeds (1.4 bp mean implied-vol error
+over the whole grid), against a 4000-step reference tree; `lambda_delta` 0.3 brings
+it to $0.0009 (measured 2026-10-29, not re-verified; the final model is
+still to come, `.claude/PLAN.md`). The legacy pipeline is still runnable:
 
 ```
 python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset   # the LSM training set (~40 min at defaults)

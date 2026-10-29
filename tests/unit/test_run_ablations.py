@@ -17,9 +17,24 @@ def test_every_variant_differs_from_the_baseline_in_one_setting_only():
     # an ablation compares one change; two at once would confound them
     base = ra.run_config("baseline", 42)
     assert base == {f.name: getattr(TrainConfig(seed=42), f.name) for f in fields(TrainConfig)}
-    for name in ra.VARIANTS:
+    for name in ra.VARIANTS.keys() - ra.COMBINED.keys():
         diff = {k for k, v in ra.run_config(name, 42).items() if v != base[k]}
         assert len(diff) == (0 if name == "baseline" else 1), (name, diff)
+
+
+@pytest.mark.parametrize("name", list(ra.COMBINED))
+def test_a_combined_variant_changes_exactly_its_parts_settings(name):
+    # anything beyond its parts' changes would make it no test of whether their gains add up
+    base = ra.run_config("baseline", 42)
+    config = ra.run_config(name, 42)
+    parts = ra.COMBINED[name]
+    assert len(parts) >= 2 and all(part not in ra.COMBINED for part in parts)
+    for part in parts:
+        part_config = ra.run_config(part, 42)
+        changed = {k for k, v in part_config.items() if v != base[k]}
+        assert {k: config[k] for k in changed} == {k: part_config[k] for k in changed}
+    expected = {k for part in parts for k, v in ra.run_config(part, 42).items() if v != base[k]}
+    assert {k for k, v in config.items() if v != base[k]} == expected
 
 
 def test_run_config_sets_the_seed_and_an_epochs_override():
@@ -93,8 +108,8 @@ def test_summary_is_the_mean_and_sample_sd_over_seeds_in_report_units():
     assert lines[0].startswith("| variant | seeds |") and len(lines) == 4
     base = lines[2].split(" | ")
     # price MAE in $ at K = 100: mean of 0.001 and 0.003, sample sd 0.0014
-    assert base[1] == "2" and base[2] == "0.0020 +- 0.0014"
-    assert base[-1].rstrip(" |") == "15.0 +- 7.1"  # minutes
+    assert base[1] == "2" and base[2] == "0.0020 ± 0.0014"
+    assert base[-1].rstrip(" |") == "15.0 ± 7.1"  # minutes
     relu = lines[3].split(" | ")
     assert relu[2] == "0.0020"  # one seed: no spread
 
@@ -106,8 +121,25 @@ def test_summary_leaves_tolerances_a_run_was_not_scored_at_empty():
     assert row[header.index("viol. > 0.0001 %")] == "1.00"
 
 
+def test_collect_results_reads_every_finished_run_of_every_variant(tmp_path):
+    # Regression: a rerun with --variants shape_0.1 rewrote summary.md with that one row (BUGS.md, B-035)
+    for variant, seeds in (("baseline", (42, 43)), ("softplus_output", (42,)), ("lambda_delta_0.3_softplus", (44,))):
+        for seed in seeds:
+            _finish(ra.run_dir(tmp_path, variant, seed), ra.run_config(variant, seed))
+    ra.run_dir(tmp_path, "relu", 42).mkdir(parents=True)  # started, never finished: no metrics.json
+    _finish(tmp_path / "not_a_variant" / "seed_42", {})  # a folder the runner did not make
+    results = ra.collect_results(tmp_path)
+    assert list(results) == ["baseline", "softplus_output", "lambda_delta_0.3_softplus"]  # VARIANTS order
+    assert [m["config"]["seed"] for m in results["baseline"]] == [42, 43]
+
+
+def test_collect_results_of_an_empty_out_dir_is_empty(tmp_path):
+    assert ra.collect_results(tmp_path) == {}
+    assert len(ra.summarize({}).splitlines()) == 2  # header and separator only
+
+
 def test_mean_sd_ignores_nan_values():
-    assert ra._mean_sd([math.nan, 1.0, 3.0], ".1f") == "2.0 +- 1.4"
+    assert ra._mean_sd([math.nan, 1.0, 3.0], ".1f") == "2.0 ± 1.4"
     assert ra._mean_sd([math.nan], ".1f") == "-"
 
 

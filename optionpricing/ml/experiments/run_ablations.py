@@ -1,6 +1,7 @@
 """
 Step 10's seeded ablations (`.claude/PLAN.md`): each variant is the default
-TrainConfig with one change, trained once per seed on the tree dataset and
+TrainConfig with one change (or, in COMBINED, the union of two such
+variants' changes), trained once per seed on the tree dataset and
 scored like `test-ml` (test split and grid, at several violation
 tolerances). Run from the project root:
 
@@ -11,8 +12,9 @@ history, the full text report, the training progress (log.txt) and
 metrics.json, written last: a run with a metrics.json is done and is
 skipped by a rerun (one whose stored settings differ is refused). The grid's
 reference tree is computed once into `<out_dir>/reference_grid.npz`.
-At the end, `<out_dir>/summary.md` holds mean +- standard deviation over
-the seeds of each variant's key numbers.
+At the end, `<out_dir>/summary.md` holds mean ± standard deviation over
+the seeds of each variant's key numbers, for every finished run in
+`<out_dir>`, not only the ones this invocation asked for.
 """
 
 import argparse
@@ -46,6 +48,13 @@ VARIANTS = {
     "lbfgs_200": {"lbfgs_steps": 200},
     "shape_0.1": {"lambda_shape": 0.1},
 }
+# name -> the one-change variants it joins: the winners on different metrics
+# (lambda_delta 0.3 on price, softplus on violations), to check that their
+# gains add up (docs/results/surrogate-training.md)
+COMBINED = {
+    "lambda_delta_0.3_softplus": ("lambda_delta_0.3", "softplus_output"),
+}
+VARIANTS |= {name: {k: v for part in parts for k, v in VARIANTS[part].items()} for name, parts in COMBINED.items()}
 # three seeds: enough for a spread to compare variants against
 SEEDS = (42, 43, 44)
 # the default threshold and a 10x stricter one (the 2^19 net's error is ~1.4e-5 K)
@@ -199,20 +208,38 @@ SUMMARY_COLUMNS = (
 
 
 def _mean_sd(values: list, spec: str) -> str:
-    """'mean +- sd' (sample sd over the seeds), the mean alone for one value."""
+    """'mean ± sd' (sample sd over the seeds), the mean alone for one value."""
     values = [v for v in values if not math.isnan(v)]
     if not values:
         return "-"
     mean = statistics.fmean(values)
     if len(values) == 1:
         return format(mean, spec)
-    return f"{format(mean, spec)} +- {format(statistics.stdev(values), spec)}"
+    return f"{format(mean, spec)} ± {format(statistics.stdev(values), spec)}"
+
+
+def collect_results(out_dir) -> dict:
+    """
+    {variant: [metrics of each finished run]} for every variant with a
+    finished run in `out_dir`, whatever `--variants` and `--seeds` the
+    current invocation asked for: a rerun of a subset rewrites summary.md
+    with every row, not only that subset's (BUGS.md, B-035). It does not
+    compare settings: a run made with others (a smoke run's `--epochs`)
+    left in `out_dir` is summarized with the rest, so give those their
+    own `--out_dir`.
+    """
+    results = {}
+    for variant in VARIANTS:
+        paths = sorted((Path(out_dir) / variant).glob("seed_*/metrics.json"))
+        if paths:
+            results[variant] = [json.loads(p.read_text()) for p in paths]
+    return results
 
 
 def summarize(results: dict) -> str:
     """
     {variant: [metrics of each seed's run]} as a markdown table, one row
-    per variant: mean +- standard deviation over its seeds.
+    per variant: mean ± standard deviation over its seeds.
     """
     header = ["variant", "seeds", *(h for h, _, _ in SUMMARY_COLUMNS)]
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
@@ -392,18 +419,8 @@ def main(argv=None) -> int:
         with keep_awake():
             failed = run_jobs(jobs, args)
 
-    # the summary of every finished run of the requested variants and seeds
-    results = {}
-    for variant in args.variants:
-        runs = [
-            json.loads((run_dir(args.out_dir, variant, s) / "metrics.json").read_text())
-            for s in args.seeds
-            if (run_dir(args.out_dir, variant, s) / "metrics.json").is_file()
-        ]
-        if runs:
-            results[variant] = runs
-    table = summarize(results)
-    (Path(args.out_dir) / "summary.md").write_text(table + "\n")
+    table = summarize(collect_results(args.out_dir))
+    (Path(args.out_dir) / "summary.md").write_text(table + "\n", encoding="utf-8")
     print("\n" + table)
     if failed:
         print(f"\n{len(failed)} run(s) failed: {', '.join(failed)}")

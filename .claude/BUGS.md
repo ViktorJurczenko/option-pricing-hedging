@@ -32,6 +32,7 @@ Open and deferred issues first, then newest first.
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
 | [B-002](#b-002) | Price-vs-Binomial-Tree drift comparisons are noisy across seeds | Pricing | deferred | 2026-09-29 |
+| [B-035](#b-035) | A rerun of some variants dropped the others from summary.md | Tooling and tests | fixed | 2026-10-29 |
 | [B-034](#b-034) | Formatting the code broke two mutants' source patterns | Tooling and tests | fixed | 2026-10-29 |
 | [B-033](#b-033) | Smoke tests looked for checkpoints outside artifacts/ after the package move | Tooling and tests | fixed | 2026-10-28 |
 | [B-032](#b-032) | Overnight ablation run suspended by Modern Standby | Tooling and tests | fixed | 2026-10-28 |
@@ -1289,6 +1290,22 @@ deterministic evaluation action was updated to match
 (`AmericanHedging/Hedge.py`, `scripts/test_hedge.py`).
 
 ## Tooling and tests
+
+<a id="b-035"></a>
+
+### B-035 A rerun of some variants dropped the others from summary.md
+
+Status: fixed · Found: 2026-10-29 · Files: `optionpricing/ml/experiments/run_ablations.py`
+
+**Symptom:** after all 24 ablation runs had finished, `artifacts/runs/ablations/summary.md` held a single row, `shape_0.1`. The other 7 variants were run first with `--variants baseline lambda_delta_0 ... lbfgs_200`, then `shape_0.1` on its own with `--variants shape_0.1`, and the second invocation rewrote the summary.
+
+**Root cause:** `main` built the summary from `args.variants` and `args.seeds`, the current invocation's selection, not from what was finished in `--out_dir`. Each run's `metrics.json` was intact, so only the table was wrong.
+
+**Impact:** none on the runs; a rerun of the runner with no `--variants` (0 runs to do) rewrote the full table. Any run of a single new variant, such as the combined one, would have dropped the rest again.
+
+**Fix:** a new `collect_results(out_dir)` reads every `seed_*/metrics.json` of every variant in `VARIANTS` under `--out_dir`, whatever was requested, and `main` summarizes that.
+
+**Regression test:** `test_collect_results_reads_every_finished_run_of_every_variant` (unit), and in `test_a_rerun_skips_finished_runs_and_other_settings_are_refused` (integration), a rerun with `--variants baseline` that must keep the `softplus_output` row; it fails with the old subset-only summary.
 
 <a id="b-034"></a>
 
