@@ -1,12 +1,14 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 *.egg-info/
 .venv/
 
 # Editor and Claude Code session-local state (machine-specific, not project content)
 .vscode/
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
 
 # Generated outputs: datasets, checkpoints, logs, experiment runs
 artifacts/
