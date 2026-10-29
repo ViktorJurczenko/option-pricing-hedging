@@ -11,6 +11,16 @@ Entry format:
 **Links:** commits `abc1234`..., BUGS entries, docs/results, README section.
 ```
 
+## Project reorganisation (2026-10-28 -> 2026-10-29, done)
+- CLAUDE.md cut from 207 lines to a short agent guide; its module detail moved verbatim to `docs/architecture.md`, then rewritten for the new layout.
+- PLAN.md turned into a roadmap (status table, active, backlog with "done so far"), finished plans summarised here, measured tables moved to `docs/results/`; BUGS.md given IDs, an index and area sections.
+- All code moved into one `optionpricing/` package (`git mv`, CamelCase modules renamed), generated outputs to `artifacts/`, personal notes to `notes/`, `AUDIT.md` deleted, `pyproject.toml` added; README revised.
+- Review rule: review-agent reuses the dispatcher's reported test runs instead of rerunning them.
+- ruff configured and run once over the repo; hooks in `.claude/settings.json`: ruff + matching unit test after edits, a commit gate (message format, ruff, unit suite, mutation check when its inputs change), the roadmap at session start, a living-docs reminder at stop.
+
+**Outcome:** 771 tests (674 unit + 97 integration) pass after the move and the formatting, as before; 14/14 mutants killed; each phase approved by review-agent. Moving `course/` into `notes/` was left to the user (it was the session's working directory).
+**Links:** `9a218a1`, `5b7b041`, `3b004a8`, `e5a190a`, `30c8442`, `5a353d9`, `611da60`, `865933c`, plus the hooks commit; BUGS B-033, B-034.
+
 ## Rewrite REMINDER.md into up-to-date chapters (2026-10-28, done)
 - REMINDER.md (gitignored notes) had grown as a log: commit-dated headers, "as built (step N)" sections, a duplicated summary, stale statements and no foundations.
 - Restructured with the user into numbered chapters that each explain the current code: Part I foundations (GBM, Black-Scholes, LSM, the hedging env, SAC), Part II the surrogate, Part III hedging, and a legacy appendix ("is the MLP useful?").

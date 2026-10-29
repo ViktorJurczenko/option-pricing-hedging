@@ -11,26 +11,11 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Project reorganisation](#project-reorganisation) | active | Hooks |
 | [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active (runs pending) | CLI-only ablations, 3 seeds |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 
 ## Active
-
-### Project reorganisation
-
-**Goal:** make the project easier to navigate. CLAUDE.md was 207 lines of module detail, PLAN.md and BUGS.md were unstructured logs, and the root mixed 9 code folders, generated outputs and personal notes. Decided with the user: a short agent guide, a roadmap plus an archive, an indexed BUGS.md, one `optionpricing/` package, then the README, ruff and hooks. Each phase is reviewed by `review-agent` and committed on its own.
-
-- [x] Slim CLAUDE.md, detail to `docs/architecture.md`
-- [x] PLAN.md as a roadmap, `.claude/PLAN_ARCHIVE.md`, results to `docs/results/`
-- [x] BUGS.md with an index and area sections
-- [x] One `optionpricing/` package
-- [x] README
-- [x] Review without duplicate test runs
-- [x] ruff
-- [ ] Hooks
-  `.claude/settings.json` with Python hooks: ruff and the matching unit test after a `.py` edit; a commit gate (unit suite and message format); the roadmap printed at session start; a reminder at stop when code changed but no living doc did. Each hook unit-tested.
 
 ### Surrogate ablations and final model
 

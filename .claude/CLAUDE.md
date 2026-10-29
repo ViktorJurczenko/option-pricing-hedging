@@ -46,6 +46,14 @@ Layout: the library is the `optionpricing/` package (`core/`, `pricing/european/
 - Both agents pin their model in their frontmatter. Never pass `model` when dispatching them.
 - `.claude/rules/` holds path-scoped rules (e.g. progress bars for long loops) that apply automatically on matching files.
 
+## Hooks
+
+`.claude/settings.json` runs the scripts in `.claude/hooks/` (unit-tested in `tests/unit/test_hooks.py`):
+- **After every `.py` edit:** `ruff format` + `ruff check --fix` on the file, then its `tests/unit/test_<module>.py` if one exists. A failure comes back to you right away: fix it before moving on.
+- **Before every `git commit`:** the commit is blocked unless the message follows the Git rules above, `ruff format --check .` and `ruff check .` are clean and `pytest tests/unit` passes; the mutation check (`python -m tests.mutation.tree_evaluation_mutants`) also runs when `tree_evaluation.py`, its tests or the runner changed. It takes ~30 s (~2 min with the mutation check); a check that hangs past its time limit blocks the commit. Pass the message as `-F - <<'EOF'` ... `EOF`, `-m "$(cat <<'EOF'` ... `EOF` `)"`, or one or more `-m "..."` (joined into paragraphs, as git does); any other form is blocked as "message not found" (`--no-edit` excepted). The integration suite is not part of the gate: run it yourself when CLI wiring or simulation behaviour changed.
+- **At session start:** the roadmap table, the open plan steps and `git status -s` are printed.
+- **At stop:** if code under `optionpricing/` changed but no living doc did, you are asked once to update them or to say why not.
+
 ## Tests
 
 Production code ships with tests that make sense and are useful:

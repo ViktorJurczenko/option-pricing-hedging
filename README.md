@@ -389,13 +389,14 @@ trade on top:
 python -m pytest tests/
 ```
 
-771 tests pass (2026-10-29, `pytest --collect-only -q`): 674 unit tests
+828 tests pass (2026-10-29, `pytest --collect-only -q`): 731 unit tests
 (closed-form formulas, basis-function analytic derivatives checked against
 finite differences, the batch tree against hand-worked trees, the surrogate's
 dataset, model, pricer, training loop and evaluation, hedging environment
 reward arithmetic, the policy's action modes, the baselines, the SAC
-training loop) in ~30 s, and 97 integration tests (Monte-Carlo/LSM
-convergence to their closed-form/tree counterparts, CLI argument wiring,
+training loop, the Claude Code hooks' decisions) in ~30 s, and 97
+integration tests (Monte-Carlo/LSM convergence to their closed-form/tree
+counterparts, CLI argument wiring,
 seeded policy comparisons, the ablation runner, plus CLI smoke tests for
 every subcommand) in ~2.5 min. `python -m tests.mutation.tree_evaluation_mutants`
 checks that the surrogate evaluation's tests catch 14 plausible bugs.
