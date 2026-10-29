@@ -55,7 +55,7 @@ def test_smooth_intrinsic_is_above_exact_payoff_and_close_far_from_the_strike(op
 
 @pytest.mark.parametrize("option_type", ["call", "put"])
 def test_smooth_intrinsic_has_no_overflow_or_nan_at_extreme_moneyness(option_type):
-    # exp(z) with z = +-1e5/6 would overflow in a naive softplus; the stable form must not.
+    # exp(z) with z = ±1e5/6 would overflow in a naive softplus; the stable form must not.
     S = np.array([1e-6, 1.0, 1e5, 1e8])
     with np.errstate(over="raise", invalid="raise", divide="raise"):
         out = smooth_intrinsic_value(S, 100.0, option_type)

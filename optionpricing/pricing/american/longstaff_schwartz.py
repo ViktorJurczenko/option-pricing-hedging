@@ -152,7 +152,7 @@ class LongstaffSchwartz(OptionPricing):
           price is added back to the fit.
         - Delta (only with compute_greeks): its own regression, over all paths, of the pathwise delta
           (the derivative of each path's discounted cashflow with respect to
-          S_index: +-S_stop/S_index discounted, if the path pays off). Gamma is
+          S_index: ±S_stop/S_index discounted, if the path pays off). Gamma is
           the derivative of that fit. Differentiating the continuation fit
           instead extrapolates the ITM-only polynomial to out-of-the-money
           paths, where it gave deltas in the tens (see BUGS.md).

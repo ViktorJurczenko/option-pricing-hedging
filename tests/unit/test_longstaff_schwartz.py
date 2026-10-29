@@ -249,7 +249,7 @@ def test_control_variate_false_matches_omitting_the_argument():
 def test_put_with_control_variate_runs_and_prices_near_tree_price():
     # Put still gets a sane value: between the European price and a band around the
     # binomial reference (CRR(500) put = 6.0888). Uses 20000 paths (seed 42): measured
-    # error vs the tree is -0.04 here and at most 0.14 over seeds 1-4, so +-0.3 is ~2x worst.
+    # error vs the tree is -0.04 here and at most 0.14 over seeds 1-4, so ±0.3 is ~2x worst.
     sim = GBM(sigma=SIGMA, start_price=100.0, risk_free_rate=R, seed=42).simulate_paths(20000, T, N_STEPS)
     lsm = LongstaffSchwartz(sim, K, R, T, "put", "simple", 3, sigma=SIGMA, control_variate=True)
     lsm.predict_payoff()

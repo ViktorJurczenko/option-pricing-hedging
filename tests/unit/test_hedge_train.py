@@ -110,7 +110,7 @@ def test_auto_alpha_moves_in_the_direction_the_entropy_gap_implies(monkeypatch, 
     )
 
     final_alpha = float(postfix_log[0]["alpha"])
-    assert direction * (final_alpha - initial_alpha) > 0.02  # 5 Adam steps of lr 0.05 on log_alpha: ~+-0.05
+    assert direction * (final_alpha - initial_alpha) > 0.02  # 5 Adam steps of lr 0.05 on log_alpha: ~±0.05
 
 
 def test_without_auto_alpha_postfix_omits_alpha_key(monkeypatch, tmp_path):

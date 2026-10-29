@@ -34,7 +34,7 @@ def _metrics(stdout):
 
 
 def _assert_sane_pnl_report(stdout):
-    # P&L is scaled by the strike, so a hedged or unhedged 1-year call stays well inside +-1.
+    # P&L is scaled by the strike, so a hedged or unhedged 1-year call stays well inside ±1.
     mean, std, var95, cvar95 = _metrics(stdout)
     assert 0.0 < std < 1.0
     assert abs(mean) < 1.0
@@ -58,7 +58,7 @@ def test_price_eu_and_us_call_prices_are_close_to_black_scholes():
     bs = _price(result.stdout, "Black and Scholes")
     assert bs == pytest.approx(10.45, abs=0.005)  # S=K=100, r=5%, sigma=20%, T=1
     # Measured with the default seed: tree 10.41 (50 steps), MC 11.02, LSM 10.93 with 500 paths
-    # (standard error ~0.6), so +-1.5 is ~2.6x the worst deviation; the tree has no sampling noise.
+    # (standard error ~0.6), so ±1.5 is ~2.6x the worst deviation; the tree has no sampling noise.
     assert _price(result.stdout, "Binomial tree") == pytest.approx(bs, abs=0.1)
     assert _price(result.stdout, "Monte-Carlo") == pytest.approx(bs, abs=1.5)
     assert _price(result.stdout, "Longstaff-Schwartz") == pytest.approx(bs, abs=1.5)
@@ -85,7 +85,7 @@ def test_price_put_option_type_reports_put_prices_with_early_exercise_premium():
     assert bs == pytest.approx(5.57, abs=0.005)
     assert tree == pytest.approx(6.09, abs=0.02)  # CRR(500), measured 6.0888
     assert tree > bs + 0.3  # American put premium ~0.5
-    # Measured with the default seed: MC 5.55, LSM 6.05 (5000 paths); +-0.4 is several times that error.
+    # Measured with the default seed: MC 5.55, LSM 6.05 (5000 paths); ±0.4 is several times that error.
     assert _price(result.stdout, "Monte-Carlo") == pytest.approx(bs, abs=0.4)
     assert _price(result.stdout, "Longstaff-Schwartz") == pytest.approx(tree, abs=0.4)
 

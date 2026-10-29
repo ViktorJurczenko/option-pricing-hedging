@@ -293,7 +293,7 @@ def tree_prices(m, T, r, sigma, nb_steps: int, method: str, desc: str = "Tree") 
 def tree_vega(m, T, r, sigma) -> np.ndarray:
     """
     dV/dsigma per unit of strike: a central difference of teacher-grade
-    trees at sigma (1 +- VEGA_BUMP), one pass over both bumps.
+    trees at sigma (1 ± VEGA_BUMP), one pass over both bumps.
     """
     h = VEGA_BUMP * sigma
 
