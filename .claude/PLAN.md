@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active (runs pending) | Combined variant, 3 seeds |
+| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Dataset ablations (need code first) |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 
@@ -24,12 +24,11 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 **Done so far:** the old LSM-trained surrogate had structural problems: call labels were exactly Black-Scholes (the net re-learnt a closed form), the fixed-width softplus target let the kink back for the ~33% of rows with `sigma*sqrt(T) < 0.12` (43% of labels negative), 1.9% of LSM put labels sat below the European price, and its ReLU net gave a staircase delta and no gamma. So the MLP surrogate was rebuilt on a binomial-tree teacher (BBSR, 1000 steps, chosen by a convergence study), with z-sampled Sobol data (2^19 rows), an early-exercise-premium target, a smooth SiLU MLP with delta in the loss, the `PutSurrogate` pricer with domain routing and a payoff floor, a training loop with cosine decay and late patience, a new `test-ml` evaluation (independent finer reference tree, buckets, implied-vol error, no-arbitrage violations), and the seeded ablation runner with a cached reference grid. A learning curve showed that training steps, not data, were the limit, which set 400 epochs. Numbers: `docs/results/surrogate-training.md`. Commits `fcc60f1`..`aeee6d5`.
 
 - [x] CLI-only ablations, 3 seeds each (42, 43, 44)
-- [ ] Combined variant, 3 seeds
-  `python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus` (3 runs, ~30 min each, run at the same time). The one-change winners improve different metrics: `lambda_delta` 0.3 the price, softplus the violations, at a cost in the worst-case error (`docs/results/surrogate-training.md`). This checks whether their gains add up before choosing the final config.
+- [x] Combined variant, 3 seeds
 - [ ] Dataset ablations (need code first)
-  `T` from 1 week vs from 0.25 (same row density), both scored on a `T >= 0.25` grid, to check the longer range costs the old region nothing: needs a `--T_min` flag on the generator and a restricted grid. All exercised rows vs a thinned share (e.g. 1/4): needs a training-time row filter. Plan each once the CLI-only results are in.
+  `T` from 1 week vs from 0.25 (same row density), both scored on a `T >= 0.25` grid, to check the longer range costs the old region nothing: needs a `--T_min` flag on the generator and a restricted grid. All exercised rows vs a thinned share (e.g. 1/4): needs a training-time row filter. Plan each now that the CLI-only results are in.
 - [ ] Final model and write-up
-  Retrain the winning config (3 seeds, keep the median) as `artifacts/checkpoints/put_surrogate.pth`. Record the numbers in `docs/results/`, the README results section for the tree surrogate, and REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
+  Retrain `lambda_delta_0.3_softplus`, the config the ablations chose (`docs/results/surrogate-training.md`), with 3 seeds, and keep the median as `artifacts/checkpoints/put_surrogate.pth`. Compare the seeds' grid maximum too: on this config it ranged from $0.016 to $0.062. Record the numbers in `docs/results/`, the README results section for the tree surrogate, and REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
 
 ## Backlog
 
