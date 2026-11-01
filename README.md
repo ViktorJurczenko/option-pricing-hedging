@@ -254,8 +254,9 @@ dollars (table above). The accepted cost: beyond 3 months, the error is
   with `r` < 0.2% (2.5% of them) carry the largest errors: $0.0015-0.0020 on
   average and up to $0.11, with 3-5% above $0.01, against at most $0.044 for
   `r` >= 0.5%. The worst ones are long-dated puts deep in the money, at low
-  to moderate volatility. The grid's rates (2% and 6%) never reach that edge of the domain. Not
-  investigated yet (`.claude/PLAN.md`).
+  to moderate volatility. The grid's rates (2% and 6%) never reach that edge
+  of the domain. Not planned: rates are not expected back near zero soon,
+  so this edge is accepted as a known limitation.
 - **Not re-verified.** The numbers come from the seeded ablation runs of this
   configuration (`artifacts/runs/ablations/lambda_delta_0.3_softplus/`,
   measured 2026-10-31; the rate breakdown 2026-11-01). The final checkpoint,

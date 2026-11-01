@@ -11,9 +11,11 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Errors near zero rates |
+| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Wider network and more seeds: code |
+| [README reorganization](#readme-reorganization) | backlog | Move the legacy surrogate out of the README |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
+| [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 
 ## Active
 
@@ -27,12 +29,28 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 - [x] Combined variant, 3 seeds
 - [x] Dataset ablations: code
 - [x] Dataset ablations: runs
-- [ ] Errors near zero rates
-  On the test split, puts with `r` < 0.002 carry errors up to $0.11 at K = 100 (3-5% above $0.01, against at most $0.044 elsewhere), and the grid's rates (0.02, 0.06) never reach that edge (`docs/results/surrogate-training.md`, "The chosen model near zero rates"). Add a low rate to the grid, then find the cause (the net at the domain edge, the raw `r` feature, the labels) before the final retrain.
+- [ ] Wider network and more seeds: code
+  Add a one-change `width_256` variant (`{"width": 256}`) and the `COMBINED` entry `lambda_delta_0.3_softplus_width_256` (parts `lambda_delta_0.3`, `softplus_output`, `width_256`). Rank wider networks first in `run_cost`: add a term of 2 when the config's width is above `TrainConfig`'s default width (compared with the default, not a hardcoded 128), since a width-256 step costs ~2.5x a width-128 one, more than the L-BFGS finish (1) and close to the shape penalty (2); otherwise the width-256 runs tie with the width-128 ones at 0 and can end up alone at the end of a run. Tests in `tests/unit/test_run_ablations.py`: the combined variant changes exactly its three parts' settings (the existing parametrized test covers it once the entry exists), and the cost ranking puts the wider variant first.
+- [ ] Wider network and more seeds: runs
+  `python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus lambda_delta_0.3_softplus_width_256 --seeds 42 43 44 45 46` (full grid, default `--out_dir`: the three finished width-128 seeds are skipped). That is 2 new width-128 runs (~25 min each) and 5 width-256 runs (~60 min each: 31.4 ms per training step against 12.5 ms at width 128, `docs/results/surrogate-training.md`, "Training cost by network width", measured on one process, so 4 concurrent runs may shift the ratio), about 2-2.5 h at 4 runs at a time. Scored on the full grid only, as decided (no `T >= 0.25` grid); the results are the two rows of `artifacts/runs/ablations/summary.md`. Questions: does a 4x larger network (199k weights) lower the error, above all beyond 3 months (the full grid's `T >= 3 months` bucket, where the T-range ablation found the wide range costs accuracy) and on the seed-dependent worst point; and, with 5 seeds, how wide the chosen configuration's worst-point spread really is. Width 256 is adopted only if it beats width 128 by more than ~2 seed sd on the near-the-money error, the implied-vol error or the worst point, weighed against ~2.5x the training time and a slower batch price (the timing column). Caveat: 400 epochs were chosen at width 128; a wider network might want another length. Afterwards, the chosen configuration's README numbers (3 seeds today) are refreshed with its 5 seeds, whichever width wins.
 - [ ] Final model and write-up
-  The configuration is chosen (`lambda_delta_0.3_softplus`, every exercised row, `T` from 1 week to 5 years) and its results are in the README. Make it `TrainConfig`'s default, train it (3 seeds, keep the median) as `artifacts/checkpoints/put_surrogate.pth`, check that `test-ml` reproduces the README numbers, and update REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
+  The configuration is chosen (`lambda_delta_0.3_softplus`, every exercised row, `T` from 1 week to 5 years; width 128 unless the width ablation says otherwise) and its results are in the README. Make it `TrainConfig`'s default, train it (3 seeds, keep the median) as `artifacts/checkpoints/put_surrogate.pth`, check that `test-ml` reproduces the README numbers, and update REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
 
 ## Backlog
+
+### README reorganization
+
+**Goal:** make the README a document about the project as it is now: what it does, how to use it, the current models' results and the choices behind them. The history (the legacy LSM-trained surrogate, reverted fixes, superseded numbers) moves to `docs/results/` and `.claude/BUGS.md`, where the README links to it. Done after the final model, so the surrogate section is rewritten once.
+
+**Done so far:** nothing. The tree surrogate's results and choices are in the README ("MLP surrogate"); the legacy surrogate's section ("Legacy MLP surrogate vs. Longstaff-Schwartz") still follows it.
+
+**Next:**
+- [ ] Move the legacy surrogate out of the README
+  Its section, as it is, into `docs/results/legacy-surrogate.md` (with its commands and its "not re-verified" status); the README keeps a one-line pointer.
+- [ ] Trim every README section to the current state
+  Keep each section's current result and the choice it supports; move incident histories (e.g. "First fix, later reverted" in the LSM Greeks section) to their `.claude/BUGS.md` entries or `docs/results/`, linking to them. Check each remaining number against its command, and mark the ones not rerun "not re-verified".
+- [ ] Update the links
+  `docs/architecture.md`, the results docs and `CLAUDE.md` pointers to moved sections.
 
 ### Deep Hedging
 
@@ -59,6 +77,17 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
   A new module under the RL package and a `train-deep-hedge` command, reusing validation checkpointing on held-out paths; evaluated through `evaluate()` via `test-hedge`.
 - [ ] Compare against SAC and the baselines
   The README protocol (2000 seed-999 episodes, 4 training seeds, call and put): 0.1% cost against delta and SAC; 1% and 1% + $0.05 fixed against the best fixed band and the learned band.
+
+### Benchmark against fast American-put methods
+
+**Goal:** find out whether the MLP surrogate is worth it against the classic fast pricers of American puts: analytic approximations (Barone-Adesi-Whaley, Ju-Zhong) and the integral-equation method of Andersen-Lake-Offengeim, compared on accuracy against the reference tree and on time per option, single and in batch.
+
+**Done so far:** nothing. Kept for later: it needs theory the user does not have yet.
+
+**Next:**
+- [ ] Explain the theory to the user before writing any code
+  The early-exercise boundary and the integral equation it satisfies, the quadratic approximation behind Barone-Adesi-Whaley and Ju-Zhong, and the fixed-point scheme of Andersen-Lake-Offengeim.
+- [ ] Decide with the user which method to implement and how to compare it
 
 ### Dividend-paying stocks
 

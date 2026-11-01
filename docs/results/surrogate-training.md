@@ -135,4 +135,15 @@ Protocol: each of the 3 `lambda_delta_0.3_softplus` checkpoints priced its own t
 | 0.02-0.08 | ~78700 | 0.0004-0.0006 | 0.038-0.044 | 0.12-0.16% |
 
 - **The largest errors sit at the domain's low rate edge**, on long-dated (`T` 1.6-5 years) puts deep in the money (`m` 0.42-0.76), at `sigma` 0.06-0.22: all 12 worst test rows of seed 43 have `r` < 0.0005. The grid's rates (0.02 and 0.06) never reach this edge, so its maxima understate the worst case.
-- Not investigated: whether the net, the features (`r` enters raw) or the labels near `r = 0` cause it.
+- Not investigated, and not planned: rates are not expected back near zero soon, so this edge is accepted as a known limitation (README). The cause (the net at the domain edge, the raw `r` feature, the labels near `r = 0`) is unknown.
+
+## Training cost by network width
+
+Protocol: one training step (premium + 0.3 x delta loss, `labeled_loss`, then an Adam step) on a random batch of 1024 rows, SiLU, softplus output, `torch.set_num_threads(2)`, timed over 200 steps after 20 warm-up steps in one process; an ad hoc script, not in the repo, measured 2026-11-01. The width-128 figure matches the real runs: ~24 min for 400 epochs of 328 steps (`lambda_delta_0.3_softplus` above), ~11 ms per step with 3-4 runs at a time.
+
+| network | weights | ms per step | estimated run (400 epochs) |
+|---|---|---|---|
+| depth 4, width 128 | 50561 | 12.5 | ~25 min |
+| depth 4, width 256 | 199425 | 31.4 | ~60 min |
+| depth 4, width 512 | 792065 | 113.5 | ~3.5-4 h |
+| depth 6, width 128 | 83585 | 18.7 | ~37 min |
