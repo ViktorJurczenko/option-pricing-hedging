@@ -1,6 +1,6 @@
 # Tree surrogate: teacher, training-length and ablation results
 
-Measured results behind the tree MLP surrogate's defaults (`binomial_put_batch`'s `method="bbsr"`, `nb_steps=1000`; `TrainConfig.epochs = 400`). Moved from `.claude/PLAN.md`, where they were recorded as the work went. **Not re-verified** since they were measured (2026-10-22 to 2026-10-31); rerun before quoting them as current.
+Measured results behind the tree MLP surrogate's defaults (`binomial_put_batch`'s `method="bbsr"`, `nb_steps=1000`; `TrainConfig.epochs = 400`). Moved from `.claude/PLAN.md`, where they were recorded as the work went. **Not re-verified** since they were measured (2026-10-22 to 2026-11-01); rerun before quoting them as current.
 
 ## Choice of teacher: BBSR at N = 1000
 
@@ -93,3 +93,46 @@ Protocol: 2^19 rows, 400 epochs, seeds 42, 43, 44; each variant is the default `
 - **Combined, the mean-error gains add up.** `lambda_delta` 0.3 + softplus keeps the price of `lambda_delta` 0.3 (0.0009 near the money) and the violations of softplus (0.02% > 1e-4, 0.04% > 1e-5). It has the lowest IV error (0.59 ± 0.04 bp, against 0.97 for `lambda_delta` 0.3 and 0.80 for softplus, about 1 sd of the latter) and test MAE (0.0005, against 0.0008 for the baseline), and matches or slightly improves the all-grid MAE (0.0006) and delta (1.56e-4).
 - **Its worst point depends on the seed.** Grid maximum per seed: 0.0620, 0.0264, 0.0163 (seeds 42, 43, 44). Seed 42's is in the exercised rows, hence the large spread of both maxima. The median seed (0.0264) is close to `lambda_delta` 0.3 alone (median 0.0243) and below softplus alone (0.0332), but above the baseline (0.0211). Softplus alone also has its worst point in the exercised rows on seed 42 (0.0372). The combined variant has the weakest mean worst point of the three (grid max 0.0349, against 0.0263 and 0.0331), and three seeds cannot tell whether seed 42 is typical.
 - **Chosen as the final configuration** for its price, IV and violation gains, accepting the worst-point risk: the final model's three seeds should be compared on the grid maximum as well as the median.
+
+## Dataset ablations: keep every exercised row; a `T >= 0.25` model is better there
+
+```
+python -m optionpricing.ml.surrogate.tree.generate_tree_dataset --T_min 0.25 --output_dir artifacts/data/T0.25
+python -m optionpricing.ml.surrogate.tree.generate_tree_dataset --exercised_keep 0.25 --output_dir artifacts/data/exercised_0.25
+python -m optionpricing.ml.experiments.run_ablations --variants exercised_0.25
+python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus T_from_0.25 --grid_T_min 0.25 --out_dir artifacts/runs/ablations_T0.25
+```
+
+Protocol: both variants train `lambda_delta_0.3_softplus` (seeds 42, 43, 44, 400 epochs) on a regenerated dataset of 2^19 rows (BBSR-1000 labels, Sobol seed 42), so the number of steps matches and only the data differs. `T_from_0.25`: `T` log-uniform on [0.25, 5] instead of [1 week, 5], so ~1.9x the rows per unit of log `T` in that range. `exercised_0.25`: a 2^20-row pool, every continuation row and every 4th exercised row, the first 2^19 kept: 8.9% of rows exercised instead of 28%. Measured 2026-11-01, $ at K = 100, mean ± sample sd over the 3 seeds. Retraining `lambda_delta_0.3_softplus` in the T run's `--out_dir` reproduced the earlier runs exactly (same best epochs, validation terms and worst points).
+
+On the `T >= 0.25` grid (the default grid with its 8 maturities log-spaced over 0.25-5 years), `artifacts/runs/ablations_T0.25/summary.md`:
+
+| trained on | \|z\|<1 MAE | all MAE | grid max | exercised max | IV err bp | delta MAE \|z\|<1 | viol. > 1e-4 % |
+|---|---|---|---|---|---|---|---|
+| `T` 1 week - 5 y | 0.0012 ± 0.0002 | 0.0008 ± 0.0002 | 0.0349 ± 0.0240 | 0.0297 ± 0.0280 | 0.64 ± 0.05 | 1.97e-4 ± 2.9e-5 | 0.02 ± 0.04 |
+| `T` 0.25 - 5 y | 0.0008 ± 0.0001 | 0.0006 ± 0.0001 | 0.0128 ± 0.0022 | 0.0105 ± 0.0023 | 0.50 ± 0.02 | 1.41e-4 ± 2.5e-5 | 0.05 ± 0.04 |
+
+On the full grid, against the `lambda_delta_0.3_softplus` row above, `artifacts/runs/ablations/summary.md`:
+
+| exercised rows | \|z\|<1 MAE | all MAE | grid max | exercised max | IV err bp | delta MAE \|z\|<1 | viol. > 1e-4 % |
+|---|---|---|---|---|---|---|---|
+| all (28%) | 0.0009 ± 0.0001 | 0.0006 ± 0.0002 | 0.0349 ± 0.0240 | 0.0297 ± 0.0280 | 0.59 ± 0.04 | 1.56e-4 ± 1.5e-5 | 0.02 ± 0.04 |
+| 1/4 kept (8.9%) | 0.0010 ± 0.0002 | 0.0008 ± 0.0001 | 0.0445 ± 0.0079 | 0.0445 ± 0.0079 | 0.65 ± 0.04 | 1.43e-4 ± 1.1e-5 | 0.06 ± 0.06 |
+
+- **Covering short maturities costs the longer ones accuracy.** On `T >= 0.25`, the narrow model's near-the-money error is lower on every seed (per seed 0.00071-0.00085 against 0.00100-0.00135, no overlap; likewise 1 <= \|z\| < 2), and its worst point stays at 0.0105-0.0148 where the wide model's is 0.0163-0.0620. Part of the gain may come from its higher row density there, though the learning curve above found the row count barely matters at equal steps.
+- **The range stays 1 week - 5 years**, for simplicity: a `T >= 0.25` model would route every shorter put to the tree or need a second network, and the wide model is most accurate at short maturities (README, "MLP surrogate").
+- **Thinning the exercised rows does not help.** The continuation error does not fall (near the money 0.00075-0.00113 per seed against 0.00076-0.00092), and the worst point, in the exercised rows on every seed, rises to 0.038-0.053. The thinned runs stopped early at ~338 of 400 epochs (best epochs 309-319) as their validation loss stopped improving, so they took fewer steps than the reference. Every exercised row stays.
+
+## The chosen model near zero rates
+
+Protocol: each of the 3 `lambda_delta_0.3_softplus` checkpoints priced its own test split (104858 rows, `split_ratio` 0.8 and the run's seed) through `PutSurrogate.price`, against the teacher's labels (Black-Scholes plus the dataset's premium, as `evaluate_test_split` rebuilds them), grouped by `r`; measured 2026-11-01 with an ad hoc script that is not in the repo (`PutSurrogate.load` on each run's `model.pth`, `TreePutDataset(..., is_train=False, seed=<run seed>, stats=surrogate.stats)`), $ at K = 100, ranges over the 3 seeds.
+
+| `r` | rows | MAE | max | share > $0.01 |
+|---|---|---|---|---|
+| < 0.002 | ~2600 | 0.0015-0.0020 | 0.096-0.111 | 3.0-4.7% |
+| 0.002-0.005 | ~3900 | 0.0005-0.0007 | 0.014-0.018 | 0.2-0.4% |
+| 0.005-0.02 | ~19600 | 0.0004-0.0005 | 0.014-0.017 | 0.02-0.04% |
+| 0.02-0.08 | ~78700 | 0.0004-0.0006 | 0.038-0.044 | 0.12-0.16% |
+
+- **The largest errors sit at the domain's low rate edge**, on long-dated (`T` 1.6-5 years) puts deep in the money (`m` 0.42-0.76), at `sigma` 0.06-0.22: all 12 worst test rows of seed 43 have `r` < 0.0005. The grid's rates (0.02 and 0.06) never reach this edge, so its maxima understate the worst case.
+- Not investigated: whether the net, the features (`r` enters raw) or the labels near `r = 0` cause it.

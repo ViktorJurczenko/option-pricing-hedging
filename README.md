@@ -17,7 +17,7 @@ PyTorch, rather than pulled from an existing quant or RL library.
 |---|---|
 | **European pricing** | Closed-form Black-Scholes and Monte-Carlo simulation, cross-checked against each other. |
 | **American pricing** | Cox-Ross-Rubinstein binomial tree and Longstaff-Schwartz least-squares Monte-Carlo (LSM), with simple-polynomial or Laguerre-polynomial regression bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
-| **ML surrogate pricer** | A small smooth MLP trained on binomial-tree prices of American puts, pricing them (with delta and gamma) in microseconds. Standalone — not currently wired into the hedging environment below, which prices and computes Greeks via `LongstaffSchwartz` directly. |
+| **ML surrogate pricer** | A small smooth MLP trained on binomial-tree prices of American puts, pricing them (with delta and gamma) in ~5 µs each in batches, ~300x faster than the tree, to a fraction of a cent. Standalone — not currently wired into the hedging environment below, which prices and computes Greeks via `LongstaffSchwartz` directly. |
 | **RL delta-hedging** | A Soft Actor-Critic (SAC) agent trained in a custom Gym-style environment to hedge an American option's exposure over its (path-dependent) exercise horizon, under proportional and fixed trading costs, using `LongstaffSchwartz`'s delta/gamma as state features. It is compared against delta-hedge, no-trade-band and no-hedge baselines. |
 
 ## Results
@@ -150,20 +150,125 @@ The basis is therefore a non-choice at the degree-3 default. `price`,
 `train-hedge`, `test-hedge` and the legacy LSM dataset generator all
 default to `simple`; switching any of them changes nothing.
 
-### MLP surrogate vs. Longstaff-Schwartz
+### MLP surrogate: the tree-trained American put pricer
+
+```
+python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # 2^19 tree-priced puts
+python main.py train-ml --lambda_delta 0.3 --output softplus      # the chosen configuration, ~25 min
+python main.py test-ml
+```
+
+**What it learns.** Per unit of strike, an American put's price depends on
+the moneyness `m = S/K`, the maturity `T`, the rate `r` and the volatility
+`σ`. The network learns only the early-exercise premium, the American price
+minus the European one, from 2^19 puts priced by a 1000-step BBSR binomial
+tree. The price is Black-Scholes plus that premium, and delta and gamma come
+from automatic differentiation through the same sum. The training domain is
+`T` from 1 week to 5 years, `σ` 5-60% and `r` 0-8%. Moneyness is sampled
+through `z = ln(m)/(σ√T)`, the distance to the strike in standard deviations,
+in [-3.5, 3] (and `m` in [0.4, 2.5]). Queries outside the domain are not
+extrapolated: they go to Black-Scholes far out of the money, to the payoff
+deep in it, or to the tree. A payoff floor keeps every price at or above
+`max(1 - m, 0)`.
+
+**The chosen configuration** is 4 hidden layers of 128 SiLU units with a
+softplus output (the premium is never negative), trained on the premium error
+plus 0.3 times the delta error, with Adam and a cosine decay over 400 epochs.
+Each choice was tested against its alternatives: the network and data
+choices over 3 seeds, the training length and the teacher tree in single
+studies (`docs/results/surrogate-training.md`):
+
+| Choice | Tested against | Evidence |
+|---|---|---|
+| Delta error in the loss, weight 0.3 | 0, 1, 3 | best price; without it, delta is ~7x worse |
+| Softplus output | linear | shape violations 0.73% -> 0.06% |
+| SiLU activations | ReLU | ReLU: ~25x the error, and its gamma is 0 almost everywhere (piecewise linear) |
+| No shape penalty, no L-BFGS finish | shape weight 0.1, 200 L-BFGS steps | worse or within noise, and slower |
+| 400 epochs | 200, 800 (one seed) | 800 lowers the delta error but raises the price error |
+| BBSR teacher tree, 1000 steps | CRR, BBS; 500 and 2000 steps | lowest mean price error; 2000 steps halve the maximum at 3.5x the cost |
+| Every exercised-today row kept | 1/4 of them, refilled with other puts | no gain, worst exercised error $0.030 -> $0.045 |
+| One model from 1 week to 5 years | `T` from 3 months only | simpler; see below |
+
+**Results.** Scored against an independent 4000-step BBSR tree on a factorial
+grid of 2342 puts (27 `z` x 6 `σ` x 8 maturities from 1 week to 5 years x
+`r` in {2%, 6%}, inside the moneyness cap). Mean ± standard deviation over
+seeds 42, 43 and 44, $ at K = 100; the implied-vol error is how far `σ` would
+have to move for the true price to reach the surrogate's:
+
+| Puts | Points | Mean error $ | Worst error $ | Implied-vol error (bp) | Delta error |
+|---|---|---|---|---|---|
+| `T` < 1 month | 494 | 0.00014 ± 0.00006 | 0.0012 ± 0.0006 | 0.48 ± 0.20 | 6.6e-5 |
+| `T` 1-3 months | 455 | 0.00022 ± 0.00004 | 0.0022 ± 0.0004 | 0.52 ± 0.04 | 5.2e-5 |
+| `T` >= 3 months | 690 | 0.00098 ± 0.00013 | 0.0209 ± 0.0051 | 0.69 ± 0.06 | 1.6e-4 |
+| exercised today | 703 | 0.00083 ± 0.00062 | 0.0297 ± 0.0280 | - | 1.2e-4 |
+| all | 2342 | 0.00061 ± 0.00016 | 0.0349 ± 0.0240 | 0.59 ± 0.04 | 1.1e-4 |
+
+The first three rows are the puts not exercised today. By distance to the
+strike, those within one standard deviation (`|z| < 1`, 646 points) have a
+mean error of $0.00087 and 0.42 bp, those between 1 and 2 standard deviations
+$0.00044, and those beyond $0.00009. The grid's worst errors understate the
+true worst case, which lies at rates near zero, outside the grid (see Known
+limitations).
+
+- **The typical error is a fraction of a cent**: $0.0006 on average, 0.6 bp
+  of implied volatility, far below a listed option's tick.
+- **Short maturities are the most accurate in dollars**: $0.00014 on average
+  under 1 month, $0.00022 at 1-3 months, against $0.00098 beyond 3 months.
+- **The worst point depends on the seed**: $0.062, $0.026 and $0.016 for
+  seeds 42, 43 and 44 (seed 42's is an exercised-today put). This is the
+  weak spot of the configuration.
+- **No-arbitrage shape**: on the puts not exercised today, the raw
+  network's price decreases and is convex in `m` and increases with `σ` at
+  every grid point, and increases with `T` at every point for seeds 42 and
+  43 and at all but 0.06% of them for seed 44 (counting violations above
+  1e-4 K).
+- **The payoff floor** answers about half of the exercised-today points
+  (52% ± 27%), where the true price is the payoff itself, and under 1% of
+  the others.
+- **Speed**: 4.5-6.7 µs per option when the grid is priced in one call,
+  against 1.6 ms for the 1000-step tree it learned from (~300x), both timed
+  by `test-ml` (the tree on 256 grid puts; an earlier timing study on random
+  puts measured 2.71 ms). One option
+  per call takes ~1 ms (the autograd passes for delta and gamma dominate),
+  barely faster than the tree, so the gain needs batches.
+
+**Why one model from 1 week to 5 years: simplicity.** A dataset ablation
+trained the same configuration on puts with `T` >= 3 months only (also 2^19
+rows) and scored both models on a `T` >= 3-month grid. The narrower model is
+more accurate there: $0.0008 against $0.0012 near the money, a worst point
+of $0.013 against $0.035, 0.50 against 0.64 bp, and its worst point varies
+much less across the 3 seeds ($0.011-0.015 against $0.016-0.062). Covering
+short maturities therefore costs the longer ones some accuracy, though part
+of the gap may come from the narrow model's ~1.9x more rows per unit of
+log `T` in that range. We keep the single model anyway. A model from 3 months
+would send every shorter put to the tree, at milliseconds instead of
+microseconds, or need a second network with its own training, checkpoint and
+routing rule. One network over the whole range is simpler to train, ship and
+use, and it stays accurate at short maturities, its most accurate region in
+dollars (table above). The accepted cost: beyond 3 months, the error is
+1.3-2.7x what a dedicated model reaches (1.3x on average over that grid,
+1.5x near the money, 2.7x on the worst point).
+
+**Known limitations.**
+- **Rates near zero.** On the test split (105k held-out tree prices), puts
+  with `r` < 0.2% (2.5% of them) carry the largest errors: $0.0015-0.0020 on
+  average and up to $0.11, with 3-5% above $0.01, against at most $0.044 for
+  `r` >= 0.5%. The worst ones are long-dated puts deep in the money, at low
+  to moderate volatility. The grid's rates (2% and 6%) never reach that edge of the domain. Not
+  investigated yet (`.claude/PLAN.md`).
+- **Not re-verified.** The numbers come from the seeded ablation runs of this
+  configuration (`artifacts/runs/ablations/lambda_delta_0.3_softplus/`,
+  measured 2026-10-31; the rate breakdown 2026-11-01). The final checkpoint,
+  `artifacts/checkpoints/put_surrogate.pth`, is still to be trained, and
+  `train-ml`'s defaults are still a delta weight of 1 and a linear output,
+  hence the two flags in the command above.
+
+### Legacy MLP surrogate vs. Longstaff-Schwartz
 
 This section is about the *legacy* surrogate, `LegacyMLP`, trained on
 Longstaff-Schwartz labels. It is kept as a library in `optionpricing/ml/surrogate/legacy/`
-and no CLI command runs it any more. `train-ml`/`test-ml` now train and score
-its replacement, a smooth MLP trained on binomial-tree labels (see Usage).
-Its measured results so far (the teacher's convergence study, a learning
-curve over 2^15-2^19 rows, the training-length study, the seeded
-ablations) are in `docs/results/surrogate-training.md`: with the defaults
-on 2^19 rows, the grid error near the money (`|z| < 1`) is
-$0.0012 ± 0.0001 at K = 100 over 3 seeds (1.4 bp mean implied-vol error
-over the whole grid), against a 4000-step reference tree; `lambda_delta` 0.3 brings
-it to $0.0009 (measured 2026-10-29, not re-verified; the final model is
-still to come, `.claude/PLAN.md`). The legacy pipeline is still runnable:
+and no CLI command runs it any more: the tree-trained surrogate above
+replaced it. The legacy pipeline is still runnable:
 
 ```
 python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset   # the LSM training set (~40 min at defaults)
