@@ -445,7 +445,7 @@ python main.py test-ml
 
 ```
 python -m optionpricing.ml.surrogate.tree.generate_tree_dataset [--n_rows N] [--chunk_size N] [--nb_steps N] \
-    [--method crr|bbs|bbsr] [--nb_jobs N] [--seed N] [--output_dir artifacts/data]
+    [--method crr|bbs|bbsr] [--nb_jobs N] [--seed N] [--T_min T] [--exercised_keep F] [--output_dir artifacts/data]
 ```
 
 Each row is an American put labelled by a vectorized binomial tree.
@@ -454,7 +454,11 @@ Parameters come from a scrambled Sobol sequence (`--n_rows` and
 `z = ln(m)/(σ√T)`, so every maturity and volatility gets the same coverage
 around the strike. It writes raw columns (parameters, American and European
 prices, delta, gamma, an `exercised` flag) and its settings to
-`artifacts/data/tree_put_dataset.npz`. `train-ml` and `test-ml` must be given the same
+`artifacts/data/tree_put_dataset.npz`. Two flags make the datasets of the
+dataset ablations, each still `--n_rows` rows: `--T_min` starts the
+maturities later (e.g. 0.25 years instead of 1 week), and `--exercised_keep`
+keeps only that share of the rows exercised today, refilling with
+continuation rows from a pool twice as large. `train-ml` and `test-ml` must be given the same
 `--split_ratio`/`--seed` (the defaults match), or `test-ml`'s test split
 overlaps the rows trained on.
 
@@ -563,7 +567,8 @@ Pricers are grouped by option class, everything that is learned lives in
   `argparse` subparsers.
 - **`optionpricing/ml/experiments/`** — `run_ablations.py`, the seeded
   surrogate ablations (`python -m optionpricing.ml.experiments.run_ablations`,
-  outputs in `artifacts/runs/ablations/`).
+  outputs in `artifacts/runs/ablations/`): config variants, and dataset
+  variants that train the chosen config on another dataset.
 - **`artifacts/`** — generated outputs only (gitignored): datasets in
   `artifacts/data/`, model weights in `artifacts/checkpoints/`, plus
   `artifacts/logs/` and `artifacts/runs/`.

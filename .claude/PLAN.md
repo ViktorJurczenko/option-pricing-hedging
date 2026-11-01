@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Dataset ablations (need code first) |
+| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Dataset ablations: runs |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 
@@ -25,8 +25,9 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 - [x] CLI-only ablations, 3 seeds each (42, 43, 44)
 - [x] Combined variant, 3 seeds
-- [ ] Dataset ablations (need code first)
-  `T` from 1 week vs from 0.25 (same row density), both scored on a `T >= 0.25` grid, to check the longer range costs the old region nothing: needs a `--T_min` flag on the generator and a restricted grid. All exercised rows vs a thinned share (e.g. 1/4): needs a training-time row filter. Plan each now that the CLI-only results are in.
+- [x] Dataset ablations: code
+- [ ] Dataset ablations: runs
+  `T_from_0.25` against `lambda_delta_0.3_softplus` on the `T >= 0.25` grid (own `--out_dir`), to check whether covering 1 week - 3 months costs the longer maturities anything at a fixed data budget. `exercised_0.25` against the existing `lambda_delta_0.3_softplus` runs on the full grid, to check whether replacing 3/4 of the exercised rows (28% of rows, priced by the payoff floor anyway) with continuation rows helps the continuation region without hurting the exercised-region maximum. A difference counts above ~2 seed sd; test-split metrics come from different datasets and are not compared.
 - [ ] Final model and write-up
   Retrain `lambda_delta_0.3_softplus`, the config the ablations chose (`docs/results/surrogate-training.md`), with 3 seeds, and keep the median as `artifacts/checkpoints/put_surrogate.pth`. Compare the seeds' grid maximum too: on this config it ranged from $0.016 to $0.062. Record the numbers in `docs/results/`, the README results section for the tree surrogate, and REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
 

@@ -88,6 +88,54 @@ def map_to_domain(u: np.ndarray, domain: dict = DOMAIN) -> dict:
     return {"m": np.exp(z * vol), "T": T, "r": r, "sigma": sigma, "z": z}
 
 
+def domain_from(T_min: float | None = None, domain: dict = DOMAIN) -> dict:
+    """
+    A copy of `domain` whose T range starts at `T_min` (unchanged if None),
+    for a dataset that leaves the short maturities out, e.g. the T-range
+    ablation's `T >= 0.25` dataset (`.claude/PLAN.md`).
+
+    Raises:
+        ValueError: if `T_min` is not inside the domain's T range. It only
+            narrows the domain: below 1 week, the z range's bounds and the
+            teacher's convergence study were never checked, and at or
+            above the end no maturity is left.
+    """
+    T_low, T_high = domain["T_range"]
+    if T_min is None:
+        return dict(domain)
+    if not T_low <= T_min < T_high:
+        raise ValueError(f"T_min must be in [{T_low:g}, {T_high:g}), got {T_min}")
+    return {**domain, "T_range": (T_min, T_high)}
+
+
+def thin_exercised(exercised: np.ndarray, keep: float, n_rows: int) -> np.ndarray:
+    """
+    The indices of a dataset that keeps every continuation row and a share
+    `keep` of the rows exercised today, then its first `n_rows`, all in the
+    rows' (Sobol) order. Exercised rows are priced by the payoff floor
+    anyway, so the exercised-row ablation (`.claude/PLAN.md`) spends their
+    place on continuation rows: the pool is labelled with more rows than
+    kept, so the thinned dataset has as many rows as the full one.
+
+    The j-th exercised row (from 0) is kept when floor((j + 1) keep) >
+    floor(j keep): one in every 1 / keep, evenly spaced along the
+    sequence, for any keep. At keep = 1 every row is kept, so the result
+    is the first `n_rows` rows.
+
+    Raises:
+        ValueError: if `keep` is not in (0, 1], or fewer than `n_rows` rows
+            are kept (label a larger pool).
+    """
+    if not 0 < keep <= 1:
+        raise ValueError(f"the kept share of exercised rows must be in (0, 1], got {keep}")
+    exercised = np.asarray(exercised, dtype=bool)
+    j = np.cumsum(exercised) - 1  # each exercised row's rank among them
+    kept = np.flatnonzero(~exercised | (np.floor((j + 1) * keep) > np.floor(j * keep)))
+    if len(kept) < n_rows:
+        raise ValueError(f"only {len(kept)} of the {len(exercised)} rows are kept, fewer than the {n_rows} wanted")
+    return kept[:n_rows]
+
+
 def check_teacher(nb_steps: int, method: str, domain: dict = DOMAIN) -> None:
     """
     Checks, before any work starts, that the teacher (`binomial_put_batch`
@@ -148,16 +196,16 @@ def label_puts(params: dict, nb_steps: int, method: str) -> dict:
     }
 
 
-def generate_chunk(path: Path, u: np.ndarray, nb_steps: int, method: str) -> None:
-    """Labels one chunk of Sobol points and saves it to `path`."""
-    save_chunk(path, **label_puts(map_to_domain(u), nb_steps, method))
+def generate_chunk(path: Path, u: np.ndarray, nb_steps: int, method: str, domain: dict = DOMAIN) -> None:
+    """Labels one chunk of Sobol points, mapped to `domain`, and saves it to `path`."""
+    save_chunk(path, **label_puts(map_to_domain(u, domain), nb_steps, method))
 
 
 def generate_tree_chunks(
-    u: np.ndarray, chunk_dir: Path, chunk_size: int, nb_steps: int, method: str, n_jobs: int
+    u: np.ndarray, chunk_dir: Path, chunk_size: int, nb_steps: int, method: str, n_jobs: int, domain: dict = DOMAIN
 ) -> None:
     """
-    Labels the points `u` in chunks of `chunk_size`, one joblib job per chunk,
+    Labels the points `u` (mapped to `domain`) in chunks of `chunk_size`, one joblib job per chunk,
     each saved to `chunk_dir` as it finishes; chunks already there are skipped,
     so an interrupted run resumes. The progress bar counts finished chunks
     (shown in rows) and starts at the ones already done.
@@ -172,7 +220,7 @@ def generate_tree_chunks(
     with tqdm_joblib(bar):
         Parallel(n_jobs=n_jobs, backend="loky")(
             delayed(generate_chunk)(
-                chunk_file(chunk_dir, i), u[i * chunk_size : (i + 1) * chunk_size], nb_steps, method
+                chunk_file(chunk_dir, i), u[i * chunk_size : (i + 1) * chunk_size], nb_steps, method, domain
             )
             for i in todo
         )
@@ -208,13 +256,32 @@ def main(argv=None):
     parser.add_argument(
         "--seed", default=42, type=int, help="Seed of the Sobol scrambling; a resumed run must use the same one."
     )
+    parser.add_argument(
+        "--T_min",
+        default=None,
+        type=float,
+        help=f"Shortest maturity in years (default {DOMAIN['T_range'][0]:.4g}, 1 week): the T-range ablation's narrower dataset.",
+    )
+    parser.add_argument(
+        "--exercised_keep",
+        default=1.0,
+        type=float,
+        help="Share of the rows exercised today to keep, in (0, 1]. Below 1, twice --n_rows points are labelled and the first --n_rows kept rows saved, so the dataset keeps its size.",
+    )
     parser.add_argument("--output_dir", default="artifacts/data", type=str, help="Directory to write the dataset to.")
     args = parser.parse_args(argv)
 
     for name in ("n_rows", "chunk_size"):
         if not is_power_of_two(getattr(args, name)):
             raise ValueError(f"--{name} must be a power of 2, got {getattr(args, name)}")
-    check_teacher(args.nb_steps, args.method)
+    if not 0 < args.exercised_keep <= 1:
+        raise ValueError(f"--exercised_keep must be in (0, 1], got {args.exercised_keep}")
+    sampling_domain = domain_from(args.T_min)
+    check_teacher(args.nb_steps, args.method, sampling_domain)
+    # a thinned dataset needs more points labelled than kept; twice is enough
+    # while under 2/3 of the rows are exercised at keep = 1/4 (28% in the
+    # default dataset, `.claude/PLAN.md`)
+    pool_rows = args.n_rows if args.exercised_keep == 1 else 2 * args.n_rows
     start_time = time.time()
 
     output_dir = Path(args.output_dir)
@@ -226,14 +293,18 @@ def main(argv=None):
         "seed": args.seed,
         "sampler": "sobol",
         "n_rows": args.n_rows,
+        "exercised_keep": args.exercised_keep,
+        "pool_rows": pool_rows,
     }
     # lists, not tuples: the stored config comes back from JSON with lists
-    domain = {k: list(v) for k, v in DOMAIN.items()}
+    domain = {k: list(v) for k, v in sampling_domain.items()}
     prepare_chunk_dir(chunk_dir, {**settings, "chunk_size": args.chunk_size, **domain})
 
-    u = sobol_points(args.n_rows, len(SAMPLED), args.seed)
-    generate_tree_chunks(u, chunk_dir, args.chunk_size, args.nb_steps, args.method, args.nb_jobs)
-    data = load_tree_chunks(chunk_dir, n_chunks_for(args.n_rows, args.chunk_size))
+    u = sobol_points(pool_rows, len(SAMPLED), args.seed)
+    generate_tree_chunks(u, chunk_dir, args.chunk_size, args.nb_steps, args.method, args.nb_jobs, sampling_domain)
+    pool = load_tree_chunks(chunk_dir, n_chunks_for(pool_rows, args.chunk_size))
+    kept = thin_exercised(pool["exercised"], args.exercised_keep, args.n_rows)
+    data = {col: values[kept] for col, values in pool.items()}
 
     path = output_dir / "tree_put_dataset.npz"
     # raw columns only: features and their normalization are built at load time

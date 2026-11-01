@@ -4,11 +4,14 @@ The runner end to end (processes, training, scoring) is in tests/integration/tes
 import json
 import math
 from dataclasses import fields
+from pathlib import Path
 
 import pytest
 
 from optionpricing.ml.experiments import run_ablations as ra
+from optionpricing.ml.surrogate.tree.generate_tree_dataset import domain_from
 from optionpricing.ml.surrogate.tree.tree_training import TrainConfig
+from tests.helpers import write_tree_dataset
 
 EVAL = {"ref_steps": 100, "ref_method": "bbsr", "n_z": 3, "n_sigma": 1, "n_T": 2, "rates": [0.04], "tols": [1e-4, 1e-5]}
 
@@ -174,3 +177,91 @@ def test_keep_awake_does_nothing_elsewhere(monkeypatch):
     with ra.keep_awake():
         pass
     assert calls == []
+
+
+# --- dataset variants and the grid they are scored on ---
+
+
+@pytest.mark.parametrize("name", list(ra.DATASET_VARIANTS))
+def test_a_dataset_variant_trains_its_base_config_on_its_own_dataset(name):
+    # anything but the data differing from its base would confound the data's effect
+    base, subdir = ra.DATASET_VARIANTS[name]
+    assert base in ra.VARIANTS and name not in ra.VARIANTS
+    assert ra.run_config(name, 7, epochs=3) == ra.run_config(base, 7, epochs=3)
+    default = Path("somewhere") / "tree_put_dataset.npz"
+    assert ra.dataset_path_for(name, default) == Path("somewhere") / subdir / "tree_put_dataset.npz"
+    assert ra.dataset_path_for(base, default) == default
+
+
+def test_collect_results_reads_dataset_variants_after_the_config_ones(tmp_path):
+    for variant in ("T_from_0.25", "baseline"):
+        _finish(ra.run_dir(tmp_path, variant, 42), ra.run_config(variant, 42))
+    assert list(ra.collect_results(tmp_path)) == ["baseline", "T_from_0.25"]
+
+
+def test_evaluation_settings_hold_the_grid_t_min_only_when_given():
+    # without the flag, runs finished before it existed must still compare equal (is_done)
+    plain = ra.evaluation_settings(ra.make_parser().parse_args([]))
+    assert set(plain) == {"ref_steps", "ref_method", "n_z", "n_sigma", "n_T", "rates", "tols"}
+    narrow = ra.evaluation_settings(ra.make_parser().parse_args(["--grid_T_min", "0.25"]))
+    assert narrow == {**plain, "grid_T_min": 0.25}
+
+
+def test_runs_scored_before_grid_t_min_existed_still_count_as_done_without_it(tmp_path):
+    # the 27 finished ablation runs store the evaluation settings as they were before the
+    # flag; a plain rerun must skip them, and one on the narrow grid must refuse to mix them in
+    args = ra.make_parser().parse_args([])
+    stored = {k: getattr(args, k) for k in ("ref_steps", "ref_method", "n_z", "n_sigma", "n_T", "rates", "tols")}
+    config = ra.run_config("baseline", 42)
+    directory = ra.run_dir(tmp_path, "baseline", 42)
+    _finish(directory, config, stored)
+    assert ra.is_done(directory, config, ra.evaluation_settings(args))
+    narrow = ra.evaluation_settings(ra.make_parser().parse_args(["--grid_T_min", "0.25"]))
+    with pytest.raises(ValueError, match="other settings"):
+        ra.is_done(directory, config, narrow)
+
+
+def test_dataset_variants_run_only_when_named():
+    # they need datasets of their own, which a plain run must not require
+    assert ra.make_parser().parse_args([]).variants == list(ra.VARIANTS)
+    assert ra.make_parser().parse_args(["--variants", "T_from_0.25"]).variants == ["T_from_0.25"]
+
+
+@pytest.fixture(scope="module")
+def datasets(tmp_path_factory):
+    """A tiny default dataset and a T >= 0.25 one next to it, where T_from_0.25 looks."""
+    root = tmp_path_factory.mktemp("datasets")
+    default = write_tree_dataset(root, n_rows=64)
+    write_tree_dataset(root / "T0.25", n_rows=64, extra=("--T_min", "0.25"))
+    return default
+
+
+def test_check_dataset_accepts_a_dataset_covering_the_grid(datasets):
+    narrow_grid = domain_from(0.25, ra.dataset_domain(datasets))
+    ra.check_dataset("baseline", datasets, narrow_grid, "bbsr", 400)  # the wide dataset covers the narrow grid
+    ra.check_dataset("T_from_0.25", ra.dataset_path_for("T_from_0.25", datasets), narrow_grid, "bbsr", 400)
+
+
+def test_check_dataset_refuses_a_grid_beyond_the_dataset_domain(datasets):
+    # its 1 week - 3 months points would be routed, so the T >= 0.25 model needs --grid_T_min
+    full_grid = ra.dataset_domain(datasets)
+    with pytest.raises(ValueError, match="T_range .*--grid_T_min"):
+        ra.check_dataset("T_from_0.25", ra.dataset_path_for("T_from_0.25", datasets), full_grid, "bbsr", 400)
+
+
+def test_check_dataset_names_the_command_for_a_missing_dataset(datasets, tmp_path):
+    with pytest.raises(FileNotFoundError, match="generate_tree_dataset .* --output_dir"):
+        ra.check_dataset("exercised_0.25", tmp_path / "none.npz", ra.dataset_domain(datasets), "bbsr", 400)
+
+
+def test_check_dataset_refuses_a_reference_with_the_teachers_settings(datasets):
+    with pytest.raises(ValueError, match="teacher"):  # the helper's datasets are 50-step BBSR
+        ra.check_dataset("baseline", datasets, ra.dataset_domain(datasets), "bbsr", 50)
+
+
+def test_dataset_info_records_the_generator_settings_and_domain(datasets):
+    info = ra.dataset_info(ra.dataset_path_for("T_from_0.25", datasets))
+    assert info["T_range"] == (0.25, 5.0) and info["n_rows"] == 64 and info["nb_steps"] == 50
+    assert info["exercised_keep"] == 1.0 and info["path"].endswith("tree_put_dataset.npz")
+    assert "m" not in info and "price" not in info  # settings only, not the columns
+    json.dumps(info)  # stored in metrics.json

@@ -3,9 +3,13 @@ Step 10's seeded ablations (`.claude/PLAN.md`): each variant is the default
 TrainConfig with one change (or, in COMBINED, the union of two such
 variants' changes), trained once per seed on the tree dataset and
 scored like `test-ml` (test split and grid, at several violation
-tolerances). Run from the project root:
+tolerances). A dataset variant (DATASET_VARIANTS) trains another
+variant's config on its own dataset, to test the data's design. Run
+from the project root:
 
     python -m optionpricing.ml.experiments.run_ablations [--variants ...] [--seeds ...] [--jobs 4 --threads 2]
+    # models trained on different T ranges, scored on the same T >= 0.25 grid
+    python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus T_from_0.25 --grid_T_min 0.25 --out_dir artifacts/runs/ablations_T0.25
 
 Runs go to `<out_dir>/<variant>/seed_<seed>/`: the model, its training
 history, the full text report, the training progress (log.txt) and
@@ -33,6 +37,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
+from optionpricing.ml.surrogate.tree.generate_tree_dataset import COLUMNS, domain_from
 from optionpricing.ml.surrogate.tree.tree_training import TrainConfig
 from optionpricing.pricing.american.batch_binomial_tree import METHODS
 
@@ -55,6 +60,16 @@ COMBINED = {
     "lambda_delta_0.3_softplus": ("lambda_delta_0.3", "softplus_output"),
 }
 VARIANTS |= {name: {k: v for part in parts for k, v in VARIANTS[part].items()} for name, parts in COMBINED.items()}
+# name -> (the variant whose config it trains, the directory next to
+# --dataset_path's that holds its tree_put_dataset.npz): the chosen config
+# on a dataset made another way, each 2^19 rows so only the data differs
+# (.claude/PLAN.md, dataset ablations). Generated with generate_tree_dataset's
+# --T_min 0.25 and --exercised_keep 0.25.
+DATASET_VARIANTS = {
+    "T_from_0.25": ("lambda_delta_0.3_softplus", "T0.25"),
+    "exercised_0.25": ("lambda_delta_0.3_softplus", "exercised_0.25"),
+}
+ALL_VARIANTS = (*VARIANTS, *DATASET_VARIANTS)
 # three seeds: enough for a spread to compare variants against
 SEEDS = (42, 43, 44)
 # the default threshold and a 10x stricter one (the 2^19 net's error is ~1.4e-5 K)
@@ -62,10 +77,14 @@ TOLS = (1e-4, 1e-5)
 
 
 def run_config(variant: str, seed: int, epochs=None) -> dict:
-    """The variant's TrainConfig fields, as a dict, with `seed` (and `epochs` if given) set."""
-    if variant not in VARIANTS:
-        raise ValueError(f"unknown variant {variant!r}, expected one of {list(VARIANTS)}")
-    overrides = {**VARIANTS[variant], "seed": seed}
+    """
+    The variant's TrainConfig fields (a dataset variant's base variant's),
+    as a dict, with `seed` (and `epochs` if given) set.
+    """
+    if variant not in ALL_VARIANTS:
+        raise ValueError(f"unknown variant {variant!r}, expected one of {list(ALL_VARIANTS)}")
+    base = DATASET_VARIANTS[variant][0] if variant in DATASET_VARIANTS else variant
+    overrides = {**VARIANTS[base], "seed": seed}
     if epochs is not None:
         overrides["epochs"] = epochs
     return asdict(TrainConfig(**overrides))  # validated here, before any run starts
@@ -78,6 +97,55 @@ def run_cost(config: dict) -> int:
 
 def run_dir(out_dir, variant: str, seed: int) -> Path:
     return Path(out_dir) / variant / f"seed_{seed}"
+
+
+def dataset_path_for(variant: str, dataset_path) -> Path:
+    """The dataset `variant` trains on: a dataset variant's own, next to `dataset_path`, else `dataset_path`."""
+    if variant in DATASET_VARIANTS:
+        return Path(dataset_path).parent / DATASET_VARIANTS[variant][1] / "tree_put_dataset.npz"
+    return Path(dataset_path)
+
+
+def dataset_domain(dataset_path) -> dict:
+    """The tree dataset's sampling domain: {"<param>_range": (low, high)}."""
+    with np.load(dataset_path) as data:
+        return {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
+
+
+def dataset_info(dataset_path) -> dict:
+    """The dataset's path, generator settings and domain, recorded with each run so its data can be traced."""
+    with np.load(dataset_path) as data:
+        settings = {k: data[k].item() for k in data.files if k not in COLUMNS and not k.endswith("_range")}
+    return {"path": str(dataset_path), **settings, **dataset_domain(dataset_path)}
+
+
+def check_dataset(variant: str, dataset_path, grid: dict, ref_method: str, ref_steps: int) -> None:
+    """
+    Checks, before any run, that `variant`'s dataset exists, can be scored
+    against the reference tree, and covers the grid every run is scored on.
+
+    Raises:
+        FileNotFoundError: if the dataset is missing (naming the command that makes it).
+        ValueError: if the reference has the dataset's teacher settings
+            (check_reference), or the grid leaves the dataset's domain: its
+            points there would be routed, not priced by the net.
+    """
+    from optionpricing.ml.surrogate.tree.tree_evaluation import check_reference, teacher_settings
+
+    path = Path(dataset_path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"no dataset for {variant} at {path} "
+            f"(python -m optionpricing.ml.surrogate.tree.generate_tree_dataset ... --output_dir {path.parent})"
+        )
+    check_reference(teacher_settings(path), ref_method, ref_steps)
+    domain = dataset_domain(path)
+    for key, (low, high) in grid.items():
+        if low < domain[key][0] or high > domain[key][1]:
+            raise ValueError(
+                f"{variant}'s dataset {path} has {key} {domain[key]}, narrower than the grid's {(low, high)}: "
+                "score it on a grid inside its domain (--grid_T_min)"
+            )
 
 
 def is_done(directory: Path, config: dict, evaluation: dict) -> bool:
@@ -151,6 +219,7 @@ def train_and_score(job: dict) -> dict:
             ev["rates"],
             tols,
             job["reference_cache"],
+            domain=job["grid_domain"],
         )
     with open(directory / "report.txt", "w", encoding="utf-8") as report, contextlib.redirect_stdout(report):
         print_report(grid, test)
@@ -162,6 +231,7 @@ def train_and_score(job: dict) -> dict:
         "seed": config["seed"],
         "config": config,
         "evaluation": ev,
+        "dataset": dataset_info(job["dataset_path"]),
         "train_seconds": train_seconds,
         "best": best,
         "test": test,
@@ -229,7 +299,7 @@ def collect_results(out_dir) -> dict:
     own `--out_dir`.
     """
     results = {}
-    for variant in VARIANTS:
+    for variant in ALL_VARIANTS:
         paths = sorted((Path(out_dir) / variant).glob("seed_*/metrics.json"))
         if paths:
             results[variant] = [json.loads(p.read_text()) for p in paths]
@@ -282,21 +352,19 @@ def keep_awake():
         _set_execution_state(ES_CONTINUOUS)  # back to the normal power settings
 
 
-def run_jobs(jobs: list, args) -> list:
+def run_jobs(jobs: list, args, grid: dict) -> list:
     """
-    Computes the shared reference grid, then runs `jobs` in `args.jobs`
-    worker processes. Returns the names of the runs that failed (each one's
-    traceback is in its error.txt); the others are not stopped by them.
+    Computes the shared reference on the grid built over the `grid` domain,
+    then runs `jobs` in `args.jobs` worker processes. Returns the names of
+    the runs that failed (each one's traceback is in its error.txt); the
+    others are not stopped by them.
     """
-    from optionpricing.ml.surrogate.tree.tree_evaluation import check_reference, grid_reference, teacher_settings
+    from optionpricing.ml.surrogate.tree.tree_evaluation import grid_reference
 
     failed = []
-    # before the workers: one reference for every run (and a reference with the teacher's settings refused)
-    check_reference(teacher_settings(args.dataset_path), args.ref_method, args.ref_steps)
-    with np.load(args.dataset_path) as data:
-        domain = {k: tuple(float(v) for v in data[k]) for k in data.files if k.endswith("_range")}
+    # before the workers: one reference for every run
     grid_reference(
-        domain,
+        grid,
         args.ref_steps,
         args.ref_method,
         args.n_z,
@@ -346,7 +414,13 @@ def make_parser() -> argparse.ArgumentParser:
         type=str,
         help="Where the runs, the reference cache and summary.md go.",
     )
-    parser.add_argument("--variants", default=list(VARIANTS), nargs="+", choices=list(VARIANTS))
+    parser.add_argument(
+        "--variants",
+        default=list(VARIANTS),
+        nargs="+",
+        choices=list(ALL_VARIANTS),
+        help="Default: every config variant. Dataset variants (T_from_0.25, exercised_0.25) run only when named.",
+    )
     parser.add_argument("--seeds", default=list(SEEDS), nargs="+", type=int)
     parser.add_argument("--jobs", default=4, type=int, help="Runs at a time, one process each.")
     parser.add_argument(
@@ -361,6 +435,12 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n_z", default=GRID_N_Z, type=int)
     parser.add_argument("--n_sigma", default=GRID_N_SIGMA, type=int)
     parser.add_argument("--n_T", default=GRID_N_T, type=int)
+    parser.add_argument(
+        "--grid_T_min",
+        default=None,
+        type=float,
+        help="Score every run on a grid whose T starts here (0.25 for the T-range ablation); use its own --out_dir.",
+    )
     parser.add_argument("--rates", default=list(GRID_RATES), nargs="+", type=float)
     parser.add_argument(
         "--tols",
@@ -372,15 +452,11 @@ def make_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv=None) -> int:
-    args = make_parser().parse_args(argv)
-    if not Path(args.dataset_path).is_file():
-        raise FileNotFoundError(
-            f"no dataset at {args.dataset_path} (python -m optionpricing.ml.surrogate.tree.generate_tree_dataset)"
-        )
-    # the threads of the worker processes' BLAS (the tree pricer's numpy); set before they start
-    os.environ["OMP_NUM_THREADS"] = os.environ["MKL_NUM_THREADS"] = str(args.threads)
-
+def evaluation_settings(args) -> dict:
+    """
+    The scoring settings every run of this invocation shares, stored in its
+    metrics.json: a finished run with other ones is refused (is_done).
+    """
     evaluation = {
         "ref_steps": args.ref_steps,
         "ref_method": args.ref_method,
@@ -390,9 +466,28 @@ def main(argv=None) -> int:
         "rates": args.rates,
         "tols": args.tols,
     }
-    # every config validated and every finished run checked before any work
+    # only when set, so the runs scored before the flag existed still count as done
+    if args.grid_T_min is not None:
+        evaluation["grid_T_min"] = args.grid_T_min
+    return evaluation
+
+
+def main(argv=None) -> int:
+    args = make_parser().parse_args(argv)
+    if not Path(args.dataset_path).is_file():
+        raise FileNotFoundError(
+            f"no dataset at {args.dataset_path} (python -m optionpricing.ml.surrogate.tree.generate_tree_dataset)"
+        )
+    # the threads of the worker processes' BLAS (the tree pricer's numpy); set before they start
+    os.environ["OMP_NUM_THREADS"] = os.environ["MKL_NUM_THREADS"] = str(args.threads)
+
+    evaluation = evaluation_settings(args)
+    grid = domain_from(args.grid_T_min, dataset_domain(args.dataset_path))
+    # every config and dataset validated and every finished run checked before any work
     jobs, skipped = [], 0
     for variant in args.variants:
+        dataset_path = dataset_path_for(variant, args.dataset_path)
+        check_dataset(variant, dataset_path, grid, args.ref_method, args.ref_steps)
         for seed in args.seeds:
             config = run_config(variant, seed, args.epochs)
             directory = run_dir(args.out_dir, variant, seed)
@@ -405,7 +500,8 @@ def main(argv=None) -> int:
                     "dir": str(directory),
                     "config": config,
                     "evaluation": evaluation,
-                    "dataset_path": args.dataset_path,
+                    "dataset_path": str(dataset_path),
+                    "grid_domain": grid,
                     "reference_cache": str(Path(args.out_dir) / "reference_grid.npz"),
                 }
             )
@@ -417,7 +513,7 @@ def main(argv=None) -> int:
     if jobs:
         # held for the whole run: on a Modern Standby PC the screen turning off suspends it
         with keep_awake():
-            failed = run_jobs(jobs, args)
+            failed = run_jobs(jobs, args, grid)
 
     table = summarize(collect_results(args.out_dir))
     (Path(args.out_dir) / "summary.md").write_text(table + "\n", encoding="utf-8")

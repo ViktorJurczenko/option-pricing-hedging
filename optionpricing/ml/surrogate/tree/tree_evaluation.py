@@ -632,11 +632,15 @@ def evaluate_grid(
     rates: Sequence[float] = GRID_RATES,
     tols: Sequence[float] = (VIOLATION_TOL,),
     reference_cache: str | os.PathLike | None = None,
+    domain: dict | None = None,
 ) -> dict:
     """
-    Scores the surrogate on evaluation_grid(surrogate.domain, ...) against
-    a `ref_method` tree of `ref_steps` steps (see the module docstring),
+    Scores the surrogate on evaluation_grid(domain, ...) against a
+    `ref_method` tree of `ref_steps` steps (see the module docstring),
     loaded from / saved to `reference_cache` if given (grid_reference).
+    `domain` is the surrogate's own by default; a narrower one scores
+    models trained on different domains on the same points (the T-range
+    ablation, `.claude/PLAN.md`).
 
     Returns:
         dict: n (points), by_z, by_T, by_r (bucket_metrics rows),
@@ -645,8 +649,17 @@ def evaluate_grid(
         routing_queries: n, mae, max against the reference), timing
         (time_pricers plus "reference_tree", measured when the reference
         was computed).
+
+    Raises:
+        ValueError: if `domain` leaves the surrogate's: those points would be
+            routed to the closed forms, not priced by the net.
     """
-    reference = grid_reference(surrogate.domain, ref_steps, ref_method, n_z, n_sigma, n_T, rates, reference_cache)
+    domain = surrogate.domain if domain is None else domain
+    for key in DOMAIN_KEYS:
+        (low, high), (net_low, net_high) = domain[key], surrogate.domain[key]
+        if low < net_low or high > net_high:
+            raise ValueError(f"the grid's {key} {domain[key]} leaves the surrogate's {surrogate.domain[key]}")
+    reference = grid_reference(domain, ref_steps, ref_method, n_z, n_sigma, n_T, rates, reference_cache)
     grid, ref, vega = reference.grid, reference.tree, reference.vega
 
     # the surrogate as a user gets it (routes and floor included), and the raw net's diagnostics

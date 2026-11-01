@@ -408,3 +408,24 @@ def test_evaluate_grid_scores_the_same_with_a_cached_reference(tmp_path):
     cached = te.evaluate_grid(sur, reference_cache=cache, **kw)  # reads it
     for key in ("n", "by_z", "by_T", "by_r", "violations", "routes"):
         assert cached[key] == plain[key], key
+
+
+# --- a grid narrower than the surrogate's domain ---
+
+
+def test_evaluate_grid_on_a_narrower_domain_scores_only_its_points():
+    # the T-range ablation scores models trained on different T ranges on the same T >= 0.25 points
+    sur = _surrogate(zero_net=True)
+    kw = dict(ref_steps=200, ref_method="bbsr", n_z=3, n_sigma=1, n_T=3, rates=(0.0,))
+    narrow = te.evaluate_grid(sur, domain={**DOMAIN, "T_range": (0.25, 5.0)}, **kw)
+    by_T = {row["name"]: row["n"] for row in narrow["by_T"]}
+    assert by_T["T < 1 month"] == by_T["1-3 months"] == 0 and by_T["T >= 3 months"] == narrow["n"] > 0
+    full = {row["name"]: row["n"] for row in te.evaluate_grid(sur, **kw)["by_T"]}
+    assert full["T < 1 month"] > 0  # by default the grid starts at the surrogate's own 1 week
+
+
+def test_evaluate_grid_refuses_a_domain_beyond_the_surrogates():
+    # the points beyond would be routed to the closed forms, so the net would not be what is scored
+    sur = _surrogate(domain={**DOMAIN, "T_range": (0.25, 5.0)})
+    with pytest.raises(ValueError, match="T_range .* leaves the surrogate's"):
+        te.evaluate_grid(sur, ref_steps=200, ref_method="bbsr", n_z=3, n_sigma=1, n_T=2, rates=(0.04,), domain=DOMAIN)

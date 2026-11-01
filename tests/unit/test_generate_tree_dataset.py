@@ -7,11 +7,13 @@ from optionpricing.ml.surrogate.tree.generate_tree_dataset import (
     COLUMNS,
     DOMAIN,
     SAMPLED,
+    domain_from,
     generate_tree_chunks,
     label_puts,
     load_tree_chunks,
     map_to_domain,
     sobol_points,
+    thin_exercised,
 )
 from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_price
@@ -187,3 +189,117 @@ def test_interrupted_main_resumes_with_the_same_flags_and_refuses_other_ones(tmp
         gen.main([*args, "--nb_steps", "60"])  # argparse keeps the last value
     gen.main(args)
     assert np.load(tmp_path / "tree_put_dataset.npz")["price"].shape == (32,)
+
+
+# --- the dataset ablations' datasets: a narrower T range, thinned exercised rows ---
+
+
+def test_domain_from_narrows_only_the_t_range_and_the_draws_follow_it():
+    narrow = domain_from(0.25)
+    assert narrow["T_range"] == (0.25, DOMAIN["T_range"][1])
+    assert {k: v for k, v in narrow.items() if k != "T_range"} == {k: v for k, v in DOMAIN.items() if k != "T_range"}
+    assert DOMAIN["T_range"] == (1 / 52, 5.0)  # a copy: the module's default domain is untouched
+    assert domain_from(None) == DOMAIN
+    T = map_to_domain(sobol_points(4096, N_DIMS, seed=1), narrow)["T"]
+    assert T.min() >= 0.25 and T.max() <= 5.0
+    # log-uniform on the new range: T is below its geometric middle exactly when its
+    # uniform is below 1/2, which a 2^k-point Sobol column hits for exactly half the rows
+    assert np.sum(T < np.sqrt(0.25 * 5.0)) == 2048
+
+
+@pytest.mark.parametrize("T_min", [0.0, 0.01, 5.0, 6.0])
+def test_domain_from_rejects_a_t_min_outside_the_t_range(T_min):
+    # below 1 week would widen the domain past what was checked; 5 years or more leaves no maturity
+    with pytest.raises(ValueError, match="T_min must be in"):
+        domain_from(T_min)
+
+
+def test_domain_from_accepts_the_t_range_start_itself():
+    assert domain_from(DOMAIN["T_range"][0]) == DOMAIN
+
+
+def test_thin_exercised_keeps_every_continuation_row_and_every_4th_exercised_one_in_order():
+    exercised = np.array([0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0], dtype=bool)
+    # exercised rows 1, 2, 4, 5, 6, 8, 9, 10, 11 have ranks 0-8; ranks 3 and 7 (rows 5 and 10) are kept
+    np.testing.assert_array_equal(thin_exercised(exercised, 0.25, 6), [0, 3, 5, 7, 10, 12])
+    np.testing.assert_array_equal(thin_exercised(exercised, 0.25, 4), [0, 3, 5, 7])  # the first n_rows
+
+
+@pytest.mark.parametrize("keep", [0.25, 1 / 3, 0.5])
+def test_thin_exercised_keeps_the_share_evenly_spaced(keep):
+    exercised = np.random.default_rng(0).random(10_000) < 0.28
+    kept = thin_exercised(exercised, keep, 7000)
+    kept_exercised = np.flatnonzero(exercised[: kept[-1] + 1])
+    ranks = np.flatnonzero(np.isin(kept_exercised, kept))  # kept exercised rows' ranks among the exercised
+    # floor((j + 1) keep) > floor(j keep) holds for exactly floor(n keep) of the ranks j < n
+    assert len(ranks) == int(np.floor(len(kept_exercised) * keep))
+    # evenly spaced: one in every 1 / keep (the gap rounds either way when 1 / keep is not whole)
+    assert set(np.diff(ranks)) <= {int(np.floor(1 / keep)), int(np.ceil(1 / keep))}
+    assert np.all(~exercised[kept] | np.isin(kept, kept_exercised[ranks]))
+    assert np.sum(~exercised[: kept[-1] + 1]) == np.sum(~exercised[kept])  # no continuation row dropped
+
+
+def test_thin_exercised_keeping_everything_is_the_first_n_rows():
+    # keep = 1 is the default dataset, which must not change
+    exercised = np.random.default_rng(1).random(64) < 0.3
+    np.testing.assert_array_equal(thin_exercised(exercised, 1.0, 32), np.arange(32))
+
+
+def test_thin_exercised_refuses_a_pool_too_small_for_n_rows():
+    with pytest.raises(ValueError, match="fewer than the 4 wanted"):
+        thin_exercised(np.array([0, 1, 1, 1, 1, 0], dtype=bool), 0.25, 4)  # keeps 3 rows
+
+
+@pytest.mark.parametrize("keep", [0.0, -0.25, 1.5])
+def test_thin_exercised_rejects_a_share_outside_0_1(keep):
+    with pytest.raises(ValueError, match="in \\(0, 1\\]"):
+        thin_exercised(np.zeros(8, dtype=bool), keep, 4)
+
+
+def test_main_with_t_min_labels_the_narrower_domain_and_stores_it(tmp_path):
+    gen.main(
+        ["--n_rows", "64", "--chunk_size", "16", "--seed", "5", "--T_min", "0.25", "--output_dir", str(tmp_path), *TINY]
+    )
+    data = np.load(tmp_path / "tree_put_dataset.npz")
+    expected = label_puts(
+        map_to_domain(sobol_points(64, N_DIMS, seed=5), domain_from(0.25)), nb_steps=50, method="bbsr"
+    )
+    for col in COLUMNS:
+        np.testing.assert_array_equal(data[col], expected[col], err_msg=col)
+    np.testing.assert_array_equal(data["T_range"], [0.25, 5.0])
+    assert data["exercised_keep"] == 1.0 and data["pool_rows"] == 64
+
+
+def test_main_with_exercised_keep_thins_a_pool_twice_as_large_to_the_same_size(tmp_path):
+    gen.main(
+        [
+            "--n_rows",
+            "64",
+            "--chunk_size",
+            "16",
+            "--seed",
+            "5",
+            "--exercised_keep",
+            "0.25",
+            "--output_dir",
+            str(tmp_path),
+            *TINY,
+        ]
+    )
+    data = np.load(tmp_path / "tree_put_dataset.npz")
+    pool = label_puts(map_to_domain(sobol_points(128, N_DIMS, seed=5)), nb_steps=50, method="bbsr")
+    kept = thin_exercised(pool["exercised"], 0.25, 64)
+    for col in COLUMNS:
+        np.testing.assert_array_equal(data[col], pool[col][kept], err_msg=col)
+    assert len(data["m"]) == 64 and data["pool_rows"] == 128 and data["exercised_keep"] == 0.25
+    assert data["exercised"].mean() < pool["exercised"][:64].mean()  # the unthinned dataset's share
+    for name, bounds in DOMAIN.items():  # thinning leaves the domain as it is
+        np.testing.assert_array_equal(data[name], bounds)
+
+
+@pytest.mark.parametrize("flag, value", [("--exercised_keep", "0"), ("--exercised_keep", "1.5"), ("--T_min", "0.01")])
+def test_bad_dataset_ablation_flags_fail_before_the_config_is_written(tmp_path, flag, value):
+    # a config left behind would refuse the corrected re-run as "other settings"
+    with pytest.raises(ValueError):
+        gen.main(["--n_rows", "64", flag, value, "--output_dir", str(tmp_path), *TINY])
+    assert not (tmp_path / "tree_chunks").exists()
