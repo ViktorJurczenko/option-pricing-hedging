@@ -58,6 +58,27 @@ def test_slow_variants_are_ranked_first():
     assert costs["shape_0.1"] > costs["lbfgs_200"] > costs["baseline"] == 0
 
 
+def test_wider_networks_are_ranked_before_their_default_width_twins():
+    # a width-256 step costs ~2.5x a width-128 one, so ranked level with them
+    # the wide runs could be left running alone at the end of a batch
+    costs = {name: ra.run_cost(ra.run_config(name, 42)) for name in ra.VARIANTS}
+    assert costs["width_256"] > costs["lbfgs_200"] > costs["baseline"]
+    assert costs["lambda_delta_0.3_softplus_width_256"] > costs["lambda_delta_0.3_softplus"]
+
+
+def test_a_network_at_the_default_width_gets_no_width_cost():
+    # the threshold is TrainConfig's default, not a hardcoded 128
+    config = ra.run_config("baseline", 42)
+    assert ra.run_cost({**config, "width": TrainConfig().width}) == 0
+    assert ra.run_cost({**config, "width": TrainConfig().width + 1}) == 2
+
+
+def test_the_cost_terms_add_up():
+    # a wide run with the shape penalty pays both, so it starts before either alone
+    config = ra.run_config("shape_0.1", 42)
+    assert ra.run_cost({**config, "width": 256}) == 4
+
+
 def _finish(directory, config, evaluation=EVAL):
     directory.mkdir(parents=True)
     (directory / "metrics.json").write_text(json.dumps({"config": config, "evaluation": evaluation}))

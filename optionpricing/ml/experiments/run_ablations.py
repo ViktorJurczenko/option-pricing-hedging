@@ -52,12 +52,15 @@ VARIANTS = {
     "relu": {"activation": "relu"},
     "lbfgs_200": {"lbfgs_steps": 200},
     "shape_0.1": {"lambda_shape": 0.1},
+    "width_256": {"width": 256},
 }
 # name -> the one-change variants it joins: the winners on different metrics
 # (lambda_delta 0.3 on price, softplus on violations), to check that their
-# gains add up (docs/results/surrogate-training.md)
+# gains add up (docs/results/surrogate-training.md); and that pair at width
+# 256, to check whether a 4x larger network helps the chosen config
 COMBINED = {
     "lambda_delta_0.3_softplus": ("lambda_delta_0.3", "softplus_output"),
+    "lambda_delta_0.3_softplus_width_256": ("lambda_delta_0.3", "softplus_output", "width_256"),
 }
 VARIANTS |= {name: {k: v for part in parts for k, v in VARIANTS[part].items()} for name, parts in COMBINED.items()}
 # name -> (the variant whose config it trains, the directory next to
@@ -91,8 +94,21 @@ def run_config(variant: str, seed: int, epochs=None) -> dict:
 
 
 def run_cost(config: dict) -> int:
-    """Relative cost rank: the shape penalty triples a step, the L-BFGS finish adds a tail."""
-    return 2 * (config["lambda_shape"] > 0) + (config["lbfgs_steps"] > 0)
+    """
+    Relative cost rank, so the slowest runs start first and none is left
+    running alone at the end: the shape penalty triples a step, a network
+    wider than TrainConfig's default costs ~2.5x per step at width 256
+    (docs/results/surrogate-training.md, "Training cost by network width"),
+    and the L-BFGS finish adds a tail.
+
+    Args:
+        config: a run's TrainConfig fields, as `run_config` returns them.
+
+    Returns:
+        The rank, 0 for the default config; higher runs start first.
+    """
+    wider = config["width"] > TrainConfig().width
+    return 2 * (config["lambda_shape"] > 0) + 2 * wider + (config["lbfgs_steps"] > 0)
 
 
 def run_dir(out_dir, variant: str, seed: int) -> Path:
@@ -419,7 +435,10 @@ def make_parser() -> argparse.ArgumentParser:
         default=list(VARIANTS),
         nargs="+",
         choices=list(ALL_VARIANTS),
-        help="Default: every config variant. Dataset variants (T_from_0.25, exercised_0.25) run only when named.",
+        help=(
+            "Default: every config variant, including the slow width-256 ones (~60 min a run). "
+            "Dataset variants (T_from_0.25, exercised_0.25) run only when named."
+        ),
     )
     parser.add_argument("--seeds", default=list(SEEDS), nargs="+", type=int)
     parser.add_argument("--jobs", default=4, type=int, help="Runs at a time, one process each.")

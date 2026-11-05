@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Wider network and more seeds: code |
+| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Wider network and more seeds: runs |
 | [README reorganization](#readme-reorganization) | backlog | Move the legacy surrogate out of the README |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
@@ -29,8 +29,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 - [x] Combined variant, 3 seeds
 - [x] Dataset ablations: code
 - [x] Dataset ablations: runs
-- [ ] Wider network and more seeds: code
-  Add a one-change `width_256` variant (`{"width": 256}`) and the `COMBINED` entry `lambda_delta_0.3_softplus_width_256` (parts `lambda_delta_0.3`, `softplus_output`, `width_256`). Rank wider networks first in `run_cost`: add a term of 2 when the config's width is above `TrainConfig`'s default width (compared with the default, not a hardcoded 128), since a width-256 step costs ~2.5x a width-128 one, more than the L-BFGS finish (1) and close to the shape penalty (2); otherwise the width-256 runs tie with the width-128 ones at 0 and can end up alone at the end of a run. Tests in `tests/unit/test_run_ablations.py`: the combined variant changes exactly its three parts' settings (the existing parametrized test covers it once the entry exists), and the cost ranking puts the wider variant first.
+- [x] Wider network and more seeds: code
 - [ ] Wider network and more seeds: runs
   `python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus lambda_delta_0.3_softplus_width_256 --seeds 42 43 44 45 46` (full grid, default `--out_dir`: the three finished width-128 seeds are skipped). That is 2 new width-128 runs (~25 min each) and 5 width-256 runs (~60 min each: 31.4 ms per training step against 12.5 ms at width 128, `docs/results/surrogate-training.md`, "Training cost by network width", measured on one process, so 4 concurrent runs may shift the ratio), about 2-2.5 h at 4 runs at a time. Scored on the full grid only, as decided (no `T >= 0.25` grid); the results are the two rows of `artifacts/runs/ablations/summary.md`. Questions: does a 4x larger network (199k weights) lower the error, above all beyond 3 months (the full grid's `T >= 3 months` bucket, where the T-range ablation found the wide range costs accuracy) and on the seed-dependent worst point; and, with 5 seeds, how wide the chosen configuration's worst-point spread really is. Width 256 is adopted only if it beats width 128 by more than ~2 seed sd on the near-the-money error, the implied-vol error or the worst point, weighed against ~2.5x the training time and a slower batch price (the timing column). Caveat: 400 epochs were chosen at width 128; a wider network might want another length. Afterwards, the chosen configuration's README numbers (3 seeds today) are refreshed with its 5 seeds, whichever width wins.
 - [ ] Final model and write-up
