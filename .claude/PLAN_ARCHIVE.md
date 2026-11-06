@@ -11,6 +11,16 @@ Entry format:
 **Links:** commits `abc1234`..., BUGS entries, docs/results, README section.
 ```
 
+## README reorganization (2026-11-05 -> 2026-11-05, done)
+- README rewritten as an overview of the work done, for an academic, resume-facing audience: pitch, Highlights, Methods and references (8 papers), Project status, How it was built, Further reading.
+- Started before the final surrogate model by decision: the surrogate section is a flagged stub (`[!WARNING]` block, `TODO(final model)`), which **Final model and write-up** fills.
+- Hedging split into a stable part (env, action modes, baselines, protocol) and a dated results snapshot, since the agent will keep changing.
+- Detail moved out: the legacy surrogate to `docs/results/legacy-surrogate.md`, the full RL analysis to `docs/results/hedging-rl.md`, the surrogate candidate's results, choices table and T-range rationale to `docs/results/surrogate-training.md`, the reverted LSM fix to BUGS links.
+- Every numeric comparison labelled on both sides; the `price` table rerun, the rest marked with its date or "not re-verified".
+
+**Outcome:** README 685 -> ~400 lines, all relative links resolve; review-agent approved.
+**Links:** README, `docs/results/`; BUGS B-003, B-006, B-007, B-010.
+
 ## Project reorganisation (2026-10-28 -> 2026-10-29, done)
 - CLAUDE.md cut from 207 lines to a short agent guide; its module detail moved verbatim to `docs/architecture.md`, then rewritten for the new layout.
 - PLAN.md turned into a roadmap (status table, active, backlog with "done so far"), finished plans summarised here, measured tables moved to `docs/results/`; BUGS.md given IDs, an index and area sections.

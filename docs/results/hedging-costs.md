@@ -24,4 +24,4 @@ Protocol: 2000 episodes with seed 999, call and put. Metric: 95% CVaR of the ter
 - **Band-edge wins under proportional costs, rebalance-to-delta under fixed costs**, as expected, and the best band widens with cost (0.05-0.1).
 - **That width matters for the residual policy:** with `--residual_scale 0.1` it can only stay 0.1 from delta by saturating tanh, so cost regimes need a wider residual (0.2-0.3).
 
-The RL results under costs (`gap_fraction`, `band`) are in `.claude/BUGS.md`, "RL policy under trading costs keeps trading every day; a simple band beats it", and the README's "Hedging under trading costs".
+The RL results under costs (`gap_fraction`, `band`) are in `.claude/BUGS.md`, "RL policy under trading costs keeps trading every day; a simple band beats it", and `hedging-rl.md`, "Hedging under trading costs".

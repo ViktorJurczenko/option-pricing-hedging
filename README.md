@@ -1,30 +1,82 @@
 # Option Pricing & Hedging
 
-A from-scratch research project in Python/PyTorch that builds up option pricing
-and delta-hedging from first principles: closed-form and Monte-Carlo pricing
-for European options, tree- and simulation-based pricing for American options,
-a neural surrogate that approximates the American pricer at a fraction of the
-cost, and a reinforcement-learning agent that learns to delta-hedge an
-American option directly from simulated price paths.
+Pricing and hedging American options, built from first principles in
+Python and PyTorch. The project goes from closed-form Black-Scholes to
+binomial trees and Longstaff-Schwartz Monte-Carlo, then to a neural network
+that prices American puts in microseconds, and a reinforcement-learning agent
+that learns to hedge an American option under trading costs.
 
-Everything — GBM path simulation, Black-Scholes, Longstaff-Schwartz, the MLP,
-the SAC hedging agent — is implemented from scratch on top of NumPy/SciPy and
-PyTorch, rather than pulled from an existing quant or RL library.
+A personal research project, and my first in quantitative finance.
+
+Everything is implemented from scratch on top of NumPy/SciPy and PyTorch:
+GBM path simulation, the pricers, the MLP surrogate, the hedging environment
+and the Soft Actor-Critic agent. No quant or RL library is used. Each result
+below is produced by a command in this repository.
+
+## Highlights
+
+- **Four pricers that agree with each other.** European Monte-Carlo
+  matches Black-Scholes, and American Longstaff-Schwartz matches the
+  binomial tree within Monte-Carlo noise; integration tests check the
+  convergence. With a European control variate, Longstaff-Schwartz prices
+  the American call at exactly its Black-Scholes value.
+- **LSM Greeks repaired near expiry.** The textbook delta (the derivative of
+  the regression fit) left the valid range up to 91.6% of the time just
+  before maturity. A separate regression of pathwise deltas cut the
+  out-of-the-money delta error from 0.2-0.9 to under 0.02, and made hedging
+  at the LSM delta as good as hedging at the exact delta.
+- **An RL hedger that beats delta hedging on the American put**
+  (snapshot, 2026-10). The SAC agent's hedging error is 19-25% below daily
+  delta hedging on the put, and on par with it on the call. Under trading
+  costs, a learned no-trade band matches the best hand-tuned band within
+  seed noise or beats it, without any tuning.
+- **A neural pricer for American puts (in progress).** An MLP trained on
+  binomial-tree prices answers in microseconds per option in batches, with
+  sub-cent typical error. The final model is still being selected.
+- **Tested.** 870 tests (unit, integration, CLI smoke tests), plus a
+  mutation check on the surrogate's evaluation code.
+
+## Methods and references
+
+| Method | Used for | Reference |
+|---|---|---|
+| Black-Scholes formula | European prices and deltas, the surrogate's baseline | Black & Scholes (1973), *Journal of Political Economy* |
+| Binomial tree (CRR) | American prices, the hedging environment's put values | Cox, Ross & Rubinstein (1979), *Journal of Financial Economics* |
+| Binomial Black-Scholes with Richardson extrapolation (BBSR) | The surrogate's training labels | Broadie & Detemple (1996), *Review of Financial Studies* |
+| Least-squares Monte-Carlo (LSM) | American exercise decisions and Greeks along simulated paths | Longstaff & Schwartz (2001), *Review of Financial Studies* |
+| Pathwise derivative estimates | The LSM delta regression | Broadie & Glasserman (1996), *Management Science* |
+| Soft Actor-Critic (SAC) | The RL hedging agent | Haarnoja et al. (2018), *ICML* |
+| No-trade band hedging (after Whalley & Wilmott; band widths tuned empirically) | The hedging baseline under costs | Whalley & Wilmott (1997), *Mathematical Finance* |
+| Deep Hedging | Planned (see Project status) | Buehler et al. (2019), *Quantitative Finance* |
+
+## Project status
+
+| Area | Status |
+|---|---|
+| European and American pricers | Done |
+| LSM Greeks and exercise rule | Done |
+| MLP surrogate for American puts | ⚠️ **In progress:** built and trained; the final configuration is being chosen by seeded ablations |
+| RL hedging (SAC) | Working, under active development: the results below are a snapshot |
+| Deep Hedging, dividend-paying stocks, fast American-put benchmarks | Planned |
+
+The detailed plan is in the [roadmap](.claude/PLAN.md), finished
+workstreams in the [roadmap archive](.claude/PLAN_ARCHIVE.md). Every problem
+found along the way, with its root cause and fix, is in the
+[design decisions and bug log](.claude/BUGS.md).
 
 ## What's inside
 
 | Layer | What it does |
 |---|---|
 | **European pricing** | Closed-form Black-Scholes and Monte-Carlo simulation, cross-checked against each other. |
-| **American pricing** | Cox-Ross-Rubinstein binomial tree and Longstaff-Schwartz least-squares Monte-Carlo (LSM), with simple-polynomial or Laguerre-polynomial regression bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
-| **ML surrogate pricer** | A small smooth MLP trained on binomial-tree prices of American puts, pricing them (with delta and gamma) in ~5 µs each in batches, ~300x faster than the tree, to a fraction of a cent. Standalone — not currently wired into the hedging environment below, which prices and computes Greeks via `LongstaffSchwartz` directly. |
-| **RL delta-hedging** | A Soft Actor-Critic (SAC) agent trained in a custom Gym-style environment to hedge an American option's exposure over its (path-dependent) exercise horizon, under proportional and fixed trading costs, using `LongstaffSchwartz`'s delta/gamma as state features. It is compared against delta-hedge, no-trade-band and no-hedge baselines. |
+| **American pricing** | A Cox-Ross-Rubinstein binomial tree, a vectorized batch tree (CRR, BBS, BBSR), and Longstaff-Schwartz least-squares Monte-Carlo with simple or Laguerre polynomial bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
+| **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. Final configuration pending. Standalone: the hedging environment prices with `LongstaffSchwartz` directly. |
+| **RL hedging** | A Soft Actor-Critic agent trained in a custom Gym-style environment to hedge an American option until its exercise date, under proportional and fixed trading costs, compared against delta-hedge, no-trade-band and no-hedge baselines. Under active development. |
 
 ## Results
 
-Numbers below come from running the included commands with their default
-parameters (`S0=K=100`, `r=5%`, `T=1y`, `σ=20%`) on this machine; regenerate
-them yourself with the commands shown.
+Unless stated otherwise, numbers come from the commands shown with their
+default parameters (`S0 = K = 100`, `r = 5%`, `T = 1 year`, `σ = 20%`).
 
 ### Pricing models agree with each other
 
@@ -38,123 +90,105 @@ python main.py price --option_class both --option_type put   # put
 | Call | 10.30 | 10.45 | 10.45 | 10.28 |
 | Put  | 5.63  | 5.57  | 6.09  | 6.13  |
 
-European Monte-Carlo tracks Black-Scholes, and American Longstaff-Schwartz
-tracks the binomial tree, as expected (both are validated more rigorously as
-convergence tests in `tests/integration/test_pricing_convergence.py`). The put
-prices are higher for the American exercise style than the European style, as
-expected since early exercise has value for puts. An American call on a
-non-dividend stock is worth exactly its European price, which the tree
-reproduces.
+Rerun 2026-11-05. European Monte-Carlo tracks Black-Scholes, and American
+Longstaff-Schwartz tracks the binomial tree; the convergence is tested in
+`tests/integration/test_pricing_convergence.py`. The American put is worth
+more than the European put because early exercise has value. An American
+call on a non-dividend stock is worth exactly its European price, which the
+tree reproduces.
 
-`price` runs plain LSM, which is a Monte-Carlo estimate (about ±0.1 here).
-With the European option as a **control variate** (`LongstaffSchwartz(...,
+`price` runs plain LSM, a Monte-Carlo estimate (about ±0.1 here). With the
+European option as a **control variate** (`LongstaffSchwartz(...,
 sigma=..., control_variate=True)`), the LSM call prices at 10.4506, the
 Black-Scholes value. The regression then targets the cashflow minus the
-realized European payoff, which is exactly 0 on every path that isn't
-exercised early, so the regression noise that made plain LSM exercise
-calls early (19-35% of paths, where the right answer is 0%) disappears.
-`train-hedge`/`test-hedge` enable it for calls only: for puts the plain
-exercise rule was worth more out of sample (6.078 vs 6.009, true price
-6.084). See `.claude/BUGS.md`, "LSM early-exercises American calls".
+European payoff, which is exactly 0 on every path not exercised early, so
+the regression noise that made plain LSM exercise calls early disappears.
+`train-hedge` and `test-hedge` enable it for calls only: for puts the plain
+exercise rule was worth more out of sample (6.078 for the plain rule, 6.009
+with the control variate, true price 6.084). Details: [`.claude/BUGS.md`, "LSM early-exercises American calls
+and mis-estimates delta"](.claude/BUGS.md#b-006).
 
-Prices are for exactly `T=1`: the GBM simulator used to stop one step short
-of maturity (364 of 365 days), which every pricer built on it inherited.
-That was fixed, so the simulation now ends exactly at expiry.
+### LSM delta and gamma, accurate up to expiry
 
-### LSM delta/gamma accuracy near maturity
+**Longstaff-Schwartz, briefly.** Pricing an American option means deciding,
+at every date along a simulated path, whether exercising now beats holding
+on. That needs the value of holding on (the *continuation value*), which
+depends on the unsimulated future. LSM walks the paths backward from expiry
+and, at each date, regresses the discounted future cashflow on the current
+stock price across the in-the-money paths. The fit estimates the
+continuation value, and comparing it with the exercise payoff gives each
+path's exercise date.
 
-**Longstaff-Schwartz, briefly:** pricing an American option means knowing,
-at every point along a simulated path, whether exercising now beats holding
-on — which needs an estimate of what holding on is worth (the *continuation
-value*), not directly observable from a single path since it depends on the
-(unsimulated) future. LSM's answer: walk each simulated path backward from
-expiry, and at each timestep, regress the already-known future discounted
-payoff on the current stock price, across all in-the-money paths at that
-timestep, to fit an estimate of continuation value — then compare that
-estimate to the immediate exercise payoff to decide the optimal exercise
-point for each path. Delta and gamma originally came for free as the
-fitted function's analytic derivatives, without a separate
-finite-difference pass.
+**The problem.** The obvious Greeks are the derivatives of that fitted
+polynomial, and near maturity they are unreliable. A call's delta must lie
+in `[0, 1]`, but with the default degree-3 fit it fell outside that range up
+to 91.6% of the time at the last date before expiry, with values in the
+tens. The hedging environment feeds this delta to the policy, and the delta
+baseline trades on it directly.
 
-That last part turned out to be far less reliable near maturity than the
-price convergence above would suggest. A call's delta must be in `[0, 1]`;
-with the default degree-3 polynomial fit, delta landed outside that range
-**up to 91.6% of the time** at the very last timestep before expiry
-(depending on random seed), with values reaching into the tens — or, at a
-higher regression degree, the thousands. This matters in practice:
-`HedgingEnv` feeds this delta straight into the hedging policy's state, and
-`optionpricing/hedging/baselines.py`'s `delta_hedge` baseline trades on it
-directly and unclamped — a negative "delta" near expiry could execute as an
-actual short position, the wrong trade direction. Switching to the Laguerre
-basis changes nothing at the same degree (see "Which regression basis?"
-below).
+**Why.** As expiry approaches, the option value develops a sharp corner at
+`S = K`. A smooth global polynomial cannot bend that sharply, so it wiggles,
+and differentiating amplifies the wiggle. A higher degree makes it worse,
+not better.
 
-**Why:** a call's value-vs-price curve develops an increasingly sharp
-corner at `S = K` as maturity approaches, converging on the kinked expiry
-payoff. A single smooth global polynomial can't bend that sharply; it
-wiggles slightly to compromise instead, and differentiating a wiggly fit
-amplifies the wiggle into large Greek swings — worse at higher polynomial
-degree, not better (more degrees of freedom to oscillate), which rules out
-"just fit a higher-degree polynomial" as a fix.
+**The fix.** Delta gets its own regression. Each path's *pathwise delta*
+(the derivative of its discounted cashflow with respect to today's spot,
+`±S_exercise/S_t` discounted if it pays off) is regressed over all paths on
+the polynomial basis plus the European Black-Scholes delta, and gamma is the
+derivative of that fit. Against exact references (Black-Scholes for the
+call, a binomial tree for the put), on 4 seeds:
 
-**First fix, later reverted:** ridge regularization plus per-moneyness-bin
-regressions near maturity. It brought the "delta inside `[0, 1]`" rate up,
-but checking against the exact Black-Scholes delta showed that was the
-wrong yardstick. Inside each narrow bin the slope was unidentifiable and
-ridge shrank it to ~0, which is a valid-looking but wrong delta. The small
-bins also overfit each path's own future, triggering spurious early
-exercise (57% of American-call paths, where the correct answer is 0%).
-
-**Current fix:** delta gets its own regression instead of being the
-derivative of the continuation fit. Each path's *pathwise delta* (the
-derivative of its discounted cashflow with respect to today's spot,
-`±S_exercise/S_t` discounted, if it pays off) is regressed over all paths,
-in and out of the money, on the polynomial basis plus the European
-Black-Scholes delta. Gamma is the derivative of that fit. Against exact
-references (Black-Scholes for the call, a binomial tree for the put), on
-4 seeds:
-
-| Delta error (mean absolute) | Derivative of ITM value fit | Pathwise regression |
+| Delta error (mean absolute) | Derivative of the value fit | Pathwise regression |
 |---|---|---|
 | In the money | 0.03-0.18 | 0.001-0.035 |
 | Out of the money | 0.2-0.9 | 0.001-0.017 |
 | Largest \|delta\| | 13-48 | 1.8 |
 
-With the fixed delta, hedging at the LSM delta (`python main.py test-hedge
---policy delta`) is as good as hedging at the exact delta: P&L std 0.014 vs
-0.015 for the call and 0.012 vs 0.013 for the put (×K), down from 0.060 and
-0.044 with the old delta.
+With this delta, hedging at the LSM delta (`python main.py test-hedge
+--policy delta`) is as good as hedging at the exact delta (Black-Scholes for
+the call, the binomial tree for the put). P&L std (×K), not re-verified
+since 2026-09-30:
 
-Full incident writeup (symptom, root cause, ruled-out fixes) is in
-`.claude/BUGS.md`.
+| Delta hedge at | Call | Put |
+|---|---|---|
+| LSM delta, derivative of the value fit (before) | 0.060 | 0.044 |
+| LSM delta, pathwise regression (now) | **0.014** | **0.012** |
+| Exact delta | 0.015 | 0.013 |
 
-### Which regression basis?
+The full incident, including a regularized fix that was tried and reverted,
+is in [`.claude/BUGS.md`, "LSM delta/gamma estimates unreliable near
+maturity"](.claude/BUGS.md#b-003) and ["LSM early-exercises American calls
+and mis-estimates delta"](.claude/BUGS.md#b-006).
 
-`--reg_type laguerre` uses the plain (unweighted) Laguerre polynomials
-`L_0..L_d` of `S/K`. Each `L_k` is a degree-`k` polynomial, so they span
-exactly the same functions as `1, x, ..., x^d`, and an unregularized
-least-squares fit gives the same fitted values in either basis. On 10,000
-paths and 2 seeds, at degree 3, the two bases give identical prices,
-identical exercise times on every path and deltas equal up to 1e-9:
+**The regression basis does not matter at degree 3.** `--reg_type laguerre`
+uses the Laguerre polynomials `L_0..L_d` of `S/K`, which span the same
+functions as `1, x, ..., x^d`, so an unregularized least-squares fit gives
+the same values in either basis. On 10,000 paths and 2 seeds:
 
-| Degree | Put price, simple / Laguerre | Same exercise time | Max delta difference |
+| Degree | Put price, simple / Laguerre | Same exercise date | Max delta difference |
 |---|---|---|---|
 | 3 | 6.131 / 6.131, 6.068 / 6.068 | 100% | 1e-9 |
 | 6 | 6.147 / 6.150, 6.120 / 6.116 | 99.0-99.6% | 0.24-0.29 |
 | 10 | 6.180 / 6.169, 6.076 / 6.106 | 59-66% | 0.33-0.39 |
 
-At higher degrees they part ways only through floating-point conditioning
-(`x ≈ 1`, so high powers of `x` are nearly collinear), and neither is
-right: higher degrees are worse for both (see the Greeks section above).
-The basis is therefore a non-choice at the degree-3 default. `price`,
-`train-hedge`, `test-hedge` and the legacy LSM dataset generator all
-default to `simple`; switching any of them changes nothing.
+At higher degrees they differ only through floating-point conditioning, and
+higher degrees are worse for both. Every LSM consumer defaults to `simple`.
 
-### MLP surrogate: the tree-trained American put pricer
+### MLP surrogate: a neural pricer for American puts
+
+> [!WARNING]
+> **Work in progress: the final model is not chosen yet.** Seeded ablations
+> are still selecting the configuration (`.claude/PLAN.md`, "Surrogate
+> ablations and final model"). This section will get the final model's
+> results, the choices behind it and its known limitations once it is
+> trained. Until then, the candidates' measured results are in
+> [`docs/results/surrogate-training.md`](docs/results/surrogate-training.md).
+
+<!-- TODO(final model): results table, choices table, known limitations, timing. -->
 
 ```
 python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # 2^19 tree-priced puts
-python main.py train-ml --lambda_delta 0.3 --output softplus      # the chosen configuration, ~25 min
+python main.py train-ml                                          # the final configuration's flags: to come
 python main.py test-ml
 ```
 
@@ -171,194 +205,44 @@ extrapolated: they go to Black-Scholes far out of the money, to the payoff
 deep in it, or to the tree. A payoff floor keeps every price at or above
 `max(1 - m, 0)`.
 
-**The chosen configuration** is 4 hidden layers of 128 SiLU units with a
-softplus output (the premium is never negative), trained on the premium error
-plus 0.3 times the delta error, with Adam and a cosine decay over 400 epochs.
-Each choice was tested against its alternatives: the network and data
-choices over 3 seeds, the training length and the teacher tree in single
-studies (`docs/results/surrogate-training.md`):
+This surrogate replaced a first version trained on Longstaff-Schwartz
+prices, whose write-up is in
+[`docs/results/legacy-surrogate.md`](docs/results/legacy-surrogate.md).
 
-| Choice | Tested against | Evidence |
-|---|---|---|
-| Delta error in the loss, weight 0.3 | 0, 1, 3 | best price; without it, delta is ~7x worse |
-| Softplus output | linear | shape violations 0.73% -> 0.06% |
-| SiLU activations | ReLU | ReLU: ~25x the error, and its gamma is 0 almost everywhere (piecewise linear) |
-| No shape penalty, no L-BFGS finish | shape weight 0.1, 200 L-BFGS steps | worse or within noise, and slower |
-| 400 epochs | 200, 800 (one seed) | 800 lowers the delta error but raises the price error |
-| BBSR teacher tree, 1000 steps | CRR, BBS; 500 and 2000 steps | lowest mean price error; 2000 steps halve the maximum at 3.5x the cost |
-| Every exercised-today row kept | 1/4 of them, refilled with other puts | no gain, worst exercised error $0.030 -> $0.045 |
-| One model from 1 week to 5 years | `T` from 3 months only | simpler; see below |
+### RL hedging
 
-**Results.** Scored against an independent 4000-step BBSR tree on a factorial
-grid of 2342 puts (27 `z` x 6 `σ` x 8 maturities from 1 week to 5 years x
-`r` in {2%, 6%}, inside the moneyness cap). Mean ± standard deviation over
-seeds 42, 43 and 44, $ at K = 100; the implied-vol error is how far `σ` would
-have to move for the true price to reach the surrogate's:
+The hedger is short an American option and trades the stock to offset it.
+`HedgingEnv` simulates GBM paths and wraps a fitted `LongstaffSchwartz`
+model. The state is spot/strike, time, the LSM delta and gamma, and the
+current position, and each episode runs until the path's LSM exercise date.
+Trades pay a proportional cost (`--prop_tc`, a fraction of the traded
+value) and optionally a fixed cost per trade (`--fixed_tc`). A Soft
+Actor-Critic agent chooses the hedge in one of three action modes
+(`--action_mode`):
+- `residual` (default): a bounded correction to the LSM delta,
+  `clip(delta + 0.1·tanh(u))`, so an untrained policy starts at delta hedging;
+- `gap_fraction`: the fraction of the gap to delta closed each day;
+- `band`: a no-trade band whose half-width and rebalancing target the
+  policy chooses at every step.
 
-| Puts | Points | Mean error $ | Worst error $ | Implied-vol error (bp) | Delta error |
-|---|---|---|---|---|---|
-| `T` < 1 month | 494 | 0.00014 ± 0.00006 | 0.0012 ± 0.0006 | 0.48 ± 0.20 | 6.6e-5 |
-| `T` 1-3 months | 455 | 0.00022 ± 0.00004 | 0.0022 ± 0.0004 | 0.52 ± 0.04 | 5.2e-5 |
-| `T` >= 3 months | 690 | 0.00098 ± 0.00013 | 0.0209 ± 0.0051 | 0.69 ± 0.06 | 1.6e-4 |
-| exercised today | 703 | 0.00083 ± 0.00062 | 0.0297 ± 0.0280 | - | 1.2e-4 |
-| all | 2342 | 0.00061 ± 0.00016 | 0.0349 ± 0.0240 | 0.59 ± 0.04 | 1.1e-4 |
+It is measured against analytic baselines (`--policy`): `delta` (rebalance
+to the LSM delta daily), `delta_band` (a fixed no-trade band, rebalancing
+to delta or to the band's edge) and `no_hedge`.
 
-The first three rows are the puts not exercised today. By distance to the
-strike, those within one standard deviation (`|z| < 1`, 646 points) have a
-mean error of $0.00087 and 0.42 bp, those between 1 and 2 standard deviations
-$0.00044, and those beyond $0.00009. The grid's worst errors understate the
-true worst case, which lies at rates near zero, outside the grid (see Known
-limitations).
+**Protocol.** Each policy is evaluated on the same 2,000 simulated episodes
+(`--seed 999 --n_episodes 2000`; `test-hedge` reseeds before evaluating, so
+every policy sees identical paths). P&L is the hedge's cash flow minus the
+option payoff, ×K. It excludes the option premium, so its mean is not a
+measure of hedge quality. Std P&L is the hedging error, and 95% CVaR, the
+mean of the worst 5% of episodes, is the tail risk (higher is better). RL
+rows give the range over 4 training seeds.
 
-- **The typical error is a fraction of a cent**: $0.0006 on average, 0.6 bp
-  of implied volatility, far below a listed option's tick.
-- **Short maturities are the most accurate in dollars**: $0.00014 on average
-  under 1 month, $0.00022 at 1-3 months, against $0.00098 beyond 3 months.
-- **The worst point depends on the seed**: $0.062, $0.026 and $0.016 for
-  seeds 42, 43 and 44 (seed 42's is an exercised-today put). This is the
-  weak spot of the configuration.
-- **No-arbitrage shape**: on the puts not exercised today, the raw
-  network's price decreases and is convex in `m` and increases with `σ` at
-  every grid point, and increases with `T` at every point for seeds 42 and
-  43 and at all but 0.06% of them for seed 44 (counting violations above
-  1e-4 K).
-- **The payoff floor** answers about half of the exercised-today points
-  (52% ± 27%), where the true price is the payoff itself, and under 1% of
-  the others.
-- **Speed**: 4.5-6.7 µs per option when the grid is priced in one call,
-  against 1.6 ms for the 1000-step tree it learned from (~300x), both timed
-  by `test-ml` (the tree on 256 grid puts; an earlier timing study on random
-  puts measured 2.71 ms). One option
-  per call takes ~1 ms (the autograd passes for delta and gamma dominate),
-  barely faster than the tree, so the gain needs batches.
+> **Results snapshot.** Measured 2026-09-30 to 2026-10-01, not re-verified.
+> The agent is under active development, so these numbers will change. The
+> full analysis is in [`docs/results/hedging-rl.md`](docs/results/hedging-rl.md).
 
-**Why one model from 1 week to 5 years: simplicity.** A dataset ablation
-trained the same configuration on puts with `T` >= 3 months only (also 2^19
-rows) and scored both models on a `T` >= 3-month grid. The narrower model is
-more accurate there: $0.0008 against $0.0012 near the money, a worst point
-of $0.013 against $0.035, 0.50 against 0.64 bp, and its worst point varies
-much less across the 3 seeds ($0.011-0.015 against $0.016-0.062). Covering
-short maturities therefore costs the longer ones some accuracy, though part
-of the gap may come from the narrow model's ~1.9x more rows per unit of
-log `T` in that range. We keep the single model anyway. A model from 3 months
-would send every shorter put to the tree, at milliseconds instead of
-microseconds, or need a second network with its own training, checkpoint and
-routing rule. One network over the whole range is simpler to train, ship and
-use, and it stays accurate at short maturities, its most accurate region in
-dollars (table above). The accepted cost: beyond 3 months, the error is
-1.3-2.7x what a dedicated model reaches (1.3x on average over that grid,
-1.5x near the money, 2.7x on the worst point).
-
-**Known limitations.**
-- **Rates near zero.** On the test split (105k held-out tree prices), puts
-  with `r` < 0.2% (2.5% of them) carry the largest errors: $0.0015-0.0020 on
-  average and up to $0.11, with 3-5% above $0.01, against at most $0.044 for
-  `r` >= 0.5%. The worst ones are long-dated puts deep in the money, at low
-  to moderate volatility. The grid's rates (2% and 6%) never reach that edge
-  of the domain. Not planned: rates are not expected back near zero soon,
-  so this edge is accepted as a known limitation.
-- **Not re-verified.** The numbers come from the seeded ablation runs of this
-  configuration (`artifacts/runs/ablations/lambda_delta_0.3_softplus/`,
-  measured 2026-10-31; the rate breakdown 2026-11-01). The final checkpoint,
-  `artifacts/checkpoints/put_surrogate.pth`, is still to be trained, and
-  `train-ml`'s defaults are still a delta weight of 1 and a linear output,
-  hence the two flags in the command above.
-
-### Legacy MLP surrogate vs. Longstaff-Schwartz
-
-This section is about the *legacy* surrogate, `LegacyMLP`, trained on
-Longstaff-Schwartz labels. It is kept as a library in `optionpricing/ml/surrogate/legacy/`
-and no CLI command runs it any more: the tree-trained surrogate above
-replaced it. The legacy pipeline is still runnable:
-
-```
-python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset   # the LSM training set (~40 min at defaults)
-python -c "from optionpricing.ml.surrogate.legacy.lsm_training import train_legacy_mlp; train_legacy_mlp('artifacts/data/american_option_dataset.npz')"
-```
-
-The benchmark below was produced by the old `test-ml`, using the helpers
-now in `optionpricing/ml/surrogate/legacy/lsm_evaluation.py`.
-
-An earlier version of this surrogate had a real ~9.5% average error on ITM
-puts. Chasing that down changed several things about how the dataset is built
-and how the model's target is defined — worth explaining since none of it is
-obvious from reading `optionpricing/ml/surrogate/legacy/lsm_model.py` alone:
-
-**1. Training data now covers moneyness continuously.** `optionpricing/ml/surrogate/legacy/generate_lsm_dataset.py`
-used to sample moneyness (`S0/K`) from 5 discrete buckets (`{0.5, 0.7, 1.0, 1.2,
-1.5}` ± a little noise), leaving large *untrained* gaps between them (e.g.
-nothing at all between 0.75 and 0.95). The old evaluation benchmark happened to
-probe exactly one of those gaps, so a chunk of the "ITM error" was really the
-model extrapolating into territory it had never seen. `gen_rdm_params` now
-samples moneyness log-uniformly and continuously over `(0.4, 1.6)` instead.
-
-**2. The label is a *smoothly* decomposed residual, not raw price.** The MLP
-predicts `(price - smooth_intrinsic_value) / K` rather than `price / K`
-directly (see `optionpricing/ml/surrogate/legacy/lsm_model.py::smooth_intrinsic_value`). The
-naive version of this idea — subtracting the *exact* intrinsic value
-`max(K-S, 0)` — helps in general (it shrinks the target's dynamic range: deep
-ITM prices can be many times larger than deep OTM ones), but that exact
-formula has a hard kink at `S == K`, while the option's actual *price* before
-expiry has no such kink there (only the expiry *payoff* does). Subtracting a
-kinked function from a smooth one reintroduces the kink into the residual —
-which showed up empirically as the model's error spiking specifically at the
-money once the coverage gap above was fixed. Using a smooth (softplus-based)
-approximation of intrinsic value instead removes that artifact while keeping
-the dynamic-range benefit. `beta_frac=0.06` (the width of the smoothed corner,
-as a fraction of `K`) was picked by sweeping several values against a fixed
-LSM benchmark — see the function's docstring for the sweep.
-
-**3. More paths per label (`--path_per_sim`, 5,000 → 10,000)** reduces
-label noise. The LSM "teacher" was briefly switched to the Laguerre basis
-and back to the simple one (`--reg_type`, default `simple`); at degree 3
-the two produce the same labels (see "Which regression basis?" above), so
-neither switch had an effect.
-
-Net effect, benchmarked live against a fresh LSM run (put) across a grid of
-`(S0, K, σ, r, T)`, with a fixed seed and 20,000 paths per benchmark point:
-
-| | ITM (S < K) | ATM | OTM (S > K) |
-|---|---|---|---|
-| Before (hard-kink target, bucketed data) | 9.5% | ~3% | ~1.2% |
-| After (smooth target, continuous data) | 0.78% | 3.29% | 6.07% ($0.31 avg abs) |
-| **Now** (same model, benchmark on the fixed horizon) | **0.57%** | **3.82%** | **6.32%** ($0.34 avg abs) |
-
-**The dataset predates the horizon fix.** The MLP was trained on labels
-from the old simulator, which priced each option one time step short of
-its maturity (see the pricing section above). The labels are biased low by
-up to 0.0012·K (-3.4% ATM, more in relative terms deep OTM, shrinking with
-`T`), while the benchmark LSM now runs on the full horizon. The "Now" row
-is this checkpoint measured against the corrected benchmark, so part of
-its ATM/OTM error is that label bias. The dataset was never regenerated:
-the tree-trained surrogate replaced this pipeline first
-(`.claude/PLAN_ARCHIVE.md`, "ML surrogate: simple basis, calls and puts,
-regenerated LSM dataset"). The moneyness breakdown below was measured
-against the old benchmark.
-
-ITM improved by an order of magnitude (mostly from fixing the data gap), ATM
-stayed about the same, and OTM got a bit worse — genuinely worse, not just a
-percentage-of-a-small-number artifact. (An earlier version of this section
-claimed OTM put prices are small to begin with, so the $0.31 miss was mostly
-harmless; that's wrong here, because this benchmark sweeps moneyness together
-with σ and T rather than independently, so by the time moneyness reaches 1.5
-both σ and T are also at their highest swept values — enough for a "deep OTM"
-put to still be worth $3-8, not a few cents.) Breaking the OTM bucket down by
-moneyness shows a U-shape with two distinct, explainable causes rather than
-one uniform problem: error is worst (6-14%) for moneyness 1.05-1.20, just past
-the money, inside the same `±3×beta_frac ≈ ±0.18` window that the ATM
-smoothing correction (above) deliberately widens to fix the ATM spike — a
-known, accepted cost of that fix. It's worst again (7-10%) for moneyness
-1.40-1.50, close to the edge of the trained `moneyness_range=(0.4, 1.6)`,
-which is a milder version of the same coverage-thinning issue fixed for ITM.
-In between (moneyness 1.25-1.38, comfortably clear of both effects) the
-surrogate is accurate to <2%, confirming the surrogate itself isn't
-struggling with "OTM" as a concept — it's these two specific, bounded effects
-stacking at the edges of the bucket. On the held-out split: MSE 0.000017, MAE
-0.0028, R² 0.992 (in `(price - smooth_intrinsic)/K` units now, not raw
-`price/K`, so not directly comparable to older numbers from before this
-change).
-
-### RL hedging policy vs. analytic baselines
+**At a 0.1% proportional cost** (`train-hedge` defaults, 1,000 episodes per
+training run):
 
 ```
 python main.py test-hedge --policy rl
@@ -366,147 +250,52 @@ python main.py test-hedge --policy delta
 python main.py test-hedge --policy no_hedge
 ```
 
-Each policy's deterministic action, evaluated over the same 2,000 simulated
-hedging episodes (`--seed 999 --n_episodes 2000`) with a 0.1% proportional
-transaction cost. `test-hedge` reseeds `np.random` from `--seed` right
-before evaluation (`scripts/test_hedge.py`), so every policy sees identical
-simulated paths — otherwise differences below could just be path-sampling
-noise rather than a real difference between policies. RL rows give the
-range over four policies trained with the `train-hedge` defaults (seeds
-42/1/2/3, 1,000 episodes each). All figures are ×K:
-
 | Policy | Put: Std P&L | Put: 95% CVaR | Call: Std P&L | Call: 95% CVaR |
 |---|---|---|---|---|
-| **RL (default)** | **0.0089-0.0096** | **-0.100 to -0.103** | 0.0142-0.0149 | -0.112 to -0.113 |
-| Delta-hedge (LSM delta) | 0.0119 | -0.110 | **0.0142** | **-0.112** |
+| **RL (residual)** | **0.0089-0.0096** | **-0.100 to -0.103** | 0.0142-0.0149 | -0.112 to -0.113 |
+| Delta hedge (LSM delta) | 0.0119 | -0.110 | **0.0142** | **-0.112** |
 | No hedge | 0.0725 | -0.186 | 0.154 | -0.571 |
 
-Mean P&L is about -0.08 for every hedged policy (it excludes the option
-premium, so it isn't a hedge-quality metric). P&L is the hedge's cash flow
-minus the option payoff at exercise, scaled by the strike; std P&L is the
-hedging error, and 95% CVaR (the mean of the worst 5% of episodes) is the
-tail risk a hedger actually cares about minimizing.
+- **On the American put, RL beats delta hedging** on every seed: 19-25%
+  lower hedging error and a better tail. It even beats hedging at the exact
+  tree delta (std 0.012-0.013). A hypothesis, not verified: episodes end at
+  LSM's slightly suboptimal exercise date, which a learned hedge can adapt
+  to and a model delta cannot.
+- **On the call, RL matches delta hedging**: training never improved on the
+  untrained policy, which already hedges at delta.
 
-- **On the American put, the RL policy beats delta hedging** on every seed:
-  20-25% lower hedging error and a better tail. It even beats hedging with
-  the exact binomial-tree delta (std 0.012-0.013).
-- **On the call, it matches delta hedging.** Here training never improved
-  on the untrained policy, which already hedges at delta.
-
-Two design choices got it there:
-- **Residual action:** the policy learns a bounded correction to the LSM
-  delta, `clip(delta + 0.1·tanh(u))`, rather than the whole hedge ratio.
-  An untrained policy therefore starts at the delta hedge.
-- **Validation checkpointing:** the checkpoint is the policy with the lowest
-  P&L std on 1,000 held-out paths, with the untrained policy as a candidate.
-  Selecting on the recent training reward instead mostly measured which
-  paths were drawn. It left the policies behind delta (call std 0.017-0.026,
-  put 0.013-0.020), and a plain non-residual policy did worse still (call
-  0.029-0.036).
-
-A likely reason the put policy can beat even the exact delta: episodes end
-at the *LSM's* exercise time, so the liability being hedged is the put
-under LSM's slightly suboptimal exercise rule, which a learned hedge can
-adapt to and a model delta cannot. This is a hypothesis, not yet verified.
-Full numbers are in `.claude/BUGS.md`, "RL hedging policy trails the LSM
-delta hedge". With higher trading costs, where daily delta hedging
-overtrades, the picture changes: see the next section.
-
-### Hedging under trading costs
-
-```
-python main.py train-hedge --prop_tc 0.01 --action_mode gap_fraction --val_metric cvar
-python main.py test-hedge  --prop_tc 0.01 --policy rl
-python main.py test-hedge  --prop_tc 0.01 --policy delta_band --band 0.1 --band_target edge
-```
-
-With a 0.1% cost, daily delta hedging is already close to optimal. With
-larger costs, rebalancing to delta every day spends most of the P&L on
-small trades (the baselines over a grid of proportional and fixed costs are
-in `docs/results/hedging-costs.md`). The classical fix is a **no-trade
-band** (`--policy delta_band`): hold the position until it drifts more
-than `b` from delta,
-then rebalance to delta (best under fixed costs) or only back to the
-band's edge (best under proportional costs). Under costs the band, not
-daily delta, is the bar for RL. The comparison is on CVaR rather than std,
-because std ignores how much a policy spends on trading.
-
-At a 1% proportional cost (95% CVaR ×K, same 2,000 test episodes; RL rows
-give the range over 4 training seeds):
-
-| Policy | Call | Put |
-|---|---|---|
-| Daily delta | -0.198 | -0.208 |
-| RL, residual action (`--residual_scale 0.25`) | -0.173 to -0.186 | -0.140 to -0.153 |
-| RL, gap-fraction action (`--action_mode gap_fraction`) | -0.142 to -0.147 | -0.135 to -0.144 |
-| **Band 0.1, rebalance to edge** | **-0.136** | **-0.130** |
-
-- **RL clearly beats daily delta**, and the `gap_fraction` action helped
-  most. There the policy chooses what fraction of the gap to delta to close
-  each day, so holding still is easy to represent. With the residual
-  action, holding means tracking a moving target exactly, and every miss is
-  a paid trade.
-- **RL still trails the hand-tuned band** by 0.006-0.009, even with 3,000
-  training episodes. It learned to close part of the gap every day (a
-  smoothed delta hedge) rather than the band's "sit still, then act", and
-  it trades about twice as much.
-- **Giving the policy the band's form closes that gap** (next paragraph),
-  with the same SAC objective. So the action parametrization was the
-  limit, not the objective mismatch suspected at first (SAC trains on a
-  per-step mean-variance reward but is judged on terminal CVaR). Details
-  are in `.claude/BUGS.md`, "RL policy under trading costs keeps trading
-  every day".
-
-**Learned no-trade band** (`--action_mode band`). The policy outputs a 2-D
-action: a band half-width `b` up to `--band_max` (default 0.2), and how far
-into the band to rebalance once outside it, from the band's edge to delta.
-Inside the band it holds its position exactly, so holds pay neither cost. A
-constant action is the fixed band above, so RL starts from the baseline's
-form and can learn a band that varies with time to expiry, moneyness and
-gamma:
+**Under higher trading costs**, daily delta hedging overtrades. The
+classical answer is a no-trade band, so the fixed band, not daily delta, is
+the bar for RL. Policies are compared on CVaR, because std ignores what a
+policy spends on trading:
 
 ```
 python main.py train-hedge --prop_tc 0.01 --fixed_tc 0.05 --action_mode band --val_metric cvar
 python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.05 --policy rl
+python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.05 --policy delta_band --band 0.175 --band_target delta
 ```
 
-Same protocol (95% CVaR ×K, 2,000 test episodes, 4 training seeds of 1,000
-episodes), at a 1% proportional cost alone and with a $0.05 fixed cost per
-trade on top:
-
-| Policy | 1%: Call | 1%: Put | 1% + $0.05: Call | 1% + $0.05: Put |
+| 95% CVaR (×K) | 1%: Call | 1%: Put | 1% + $0.05: Call | 1% + $0.05: Put |
 |---|---|---|---|---|
 | Daily delta | -0.198 | -0.208 | -0.380 | -0.390 |
 | RL, gap-fraction action | -0.143 to -0.147 | -0.135 to -0.144 | -0.324 to -0.329 | -0.325 to -0.332 |
-| Best fixed band | -0.136 (0.1, edge) | -0.130 (0.1, edge) | -0.148 (0.175, delta) | -0.146 (0.175, delta) |
+| Best fixed band (width, target) | -0.136 (0.1, edge) | -0.130 (0.1, edge) | -0.148 (0.175, delta) | -0.146 (0.175, delta) |
 | **RL, learned band** | **-0.136 to -0.137** | **-0.123 to -0.128** | **-0.145 to -0.147** | **-0.132 to -0.138** |
 
-- **The learned band closes the gap to the hand-tuned band** in every
-  cell: it matches it for calls at 1% and beats it elsewhere, by up to
-  0.014 (puts with a fixed cost), on every seed. No band width or target
-  had to be tuned for it.
-- **A fixed cost breaks the gap-fraction action.** It can only hold still
-  in the limit, so its "holds" are tiny trades that each pay the fixed
-  cost; it ends up barely better than daily delta. The band action holds
-  exactly and is unaffected.
-
-### Test suite
-
-```
-python -m pytest tests/
-```
-
-828 tests pass (2026-10-29, `pytest --collect-only -q`): 731 unit tests
-(closed-form formulas, basis-function analytic derivatives checked against
-finite differences, the batch tree against hand-worked trees, the surrogate's
-dataset, model, pricer, training loop and evaluation, hedging environment
-reward arithmetic, the policy's action modes, the baselines, the SAC
-training loop, the Claude Code hooks' decisions) in ~30 s, and 97
-integration tests (Monte-Carlo/LSM convergence to their closed-form/tree
-counterparts, CLI argument wiring,
-seeded policy comparisons, the ablation runner, plus CLI smoke tests for
-every subcommand) in ~2.5 min. `python -m tests.mutation.tree_evaluation_mutants`
-checks that the surrogate evaluation's tests catch 14 plausible bugs.
+- **The learned band matches the best hand-tuned band within seed noise,
+  or beats it.** For calls at 1% it is level (-0.136 to -0.137 for the
+  learned band, -0.136 for the fixed band); in the other three cells it is
+  better on every seed, by up to 0.014 (puts with a fixed cost). No band
+  width or target was tuned by hand.
+- **The action parametrization was the limit, not the objective.** With the
+  gap-fraction action, the agent learned a smoothed delta hedge that trades
+  every day. Under a fixed cost each of those small trades pays the full
+  fee, which leaves it barely better than daily delta. Giving the policy the
+  band's form, with the same SAC objective, closed the gap. Details:
+  [`.claude/BUGS.md`, "RL policy under trading costs keeps trading every
+  day; a simple band beats it"](.claude/BUGS.md#b-010). The fixed-band
+  baselines over a grid of costs are in
+  [`docs/results/hedging-costs.md`](docs/results/hedging-costs.md).
 
 ## Setup
 
@@ -515,16 +304,14 @@ pip install -r requirements.txt
 pip install -e .        # optional: makes `optionpricing` importable from anywhere
 ```
 
-Pinned versions match the environment this was developed against (Python
-3.13, PyTorch 2.11 CPU build). No GPU is required — training loops check
-`torch.cuda.is_available()` and fall back to CPU automatically. Generated
-datasets, checkpoints, logs and experiment runs are written under
+Pinned versions match the development environment (Python 3.13, PyTorch
+2.11 CPU build). No GPU is needed: training falls back to CPU when CUDA is
+unavailable. Generated datasets, checkpoints, logs and experiment runs go to
 `artifacts/` (gitignored).
 
 ## Usage
 
-Everything runs through `main.py` from the project root (imports are absolute,
-e.g. `from optionpricing.core.gbm import GBM`):
+Everything runs through `main.py` from the project root:
 
 ```
 python main.py --help                  # list all commands
@@ -533,67 +320,40 @@ python main.py <command> --help        # list a command's flags
 
 | Command | Purpose |
 |---|---|
-| `price` | Compare pricing models (`--option_class {EU,US,both}`, `--option_type {call,put}`, plus strike/vol/rate/maturity/sampling flags). |
-| `train-ml` | Train the tree-trained put surrogate (`PutSurrogate`) on `artifacts/data/tree_put_dataset.npz`, one flag per training setting (architecture, split, schedule, loss weights, L-BFGS finish), saved to `artifacts/checkpoints/put_surrogate.pth`, where `test-ml` reads it. |
-| `test-ml` | Evaluate the tree-trained put surrogate (`PutSurrogate`): test-split errors, plus a factorial grid against an independent finer binomial tree (per-bucket $, relative, implied-vol, delta/gamma errors, no-arbitrage violation rates, theta check, routing, timing). |
+| `price` | Compare pricing models (`--option_class {EU,US,both}`, `--option_type {call,put}`, plus strike, volatility, rate, maturity and sampling flags). |
+| `train-ml` | Train the put surrogate (`PutSurrogate`) on `artifacts/data/tree_put_dataset.npz`, saved to `artifacts/checkpoints/put_surrogate.pth`. |
+| `test-ml` | Evaluate the put surrogate: test-split errors, and a factorial grid against an independent finer binomial tree (price, implied-vol, delta and gamma errors, no-arbitrage violations, timing). |
 | `train-hedge` | Train the SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
 | `test-hedge` | Evaluate a policy (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
 
-The MLP surrogate's dataset has its own entry point. Run it as a module,
-since its absolute imports need the project root on `sys.path`. The full
-surrogate pipeline is:
+The surrogate's dataset has its own entry point, run as a module. It is
+seeded and resumable after an interruption:
 
 ```
 python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # artifacts/data/tree_put_dataset.npz
-python main.py train-ml                      # artifacts/checkpoints/put_surrogate.pth
-python main.py test-ml
 ```
 
-```
-python -m optionpricing.ml.surrogate.tree.generate_tree_dataset [--n_rows N] [--chunk_size N] [--nb_steps N] \
-    [--method crr|bbs|bbsr] [--nb_jobs N] [--seed N] [--T_min T] [--exercised_keep F] [--output_dir artifacts/data]
-```
-
-Each row is an American put labelled by a vectorized binomial tree.
-Parameters come from a scrambled Sobol sequence (`--n_rows` and
-`--chunk_size` must be powers of 2). Moneyness is sampled through
-`z = ln(m)/(σ√T)`, so every maturity and volatility gets the same coverage
-around the strike. It writes raw columns (parameters, American and European
-prices, delta, gamma, an `exercised` flag) and its settings to
-`artifacts/data/tree_put_dataset.npz`. Two flags make the datasets of the
-dataset ablations, each still `--n_rows` rows: `--T_min` starts the
-maturities later (e.g. 0.25 years instead of 1 week), and `--exercised_keep`
-keeps only that share of the rows exercised today, refilling with
-continuation rows from a pool twice as large. `train-ml` and `test-ml` must be given the same
-`--split_ratio`/`--seed` (the defaults match), or `test-ml`'s test split
-overlaps the rows trained on.
-
-The run is resumable and reproducible: the parameters are seeded (`--seed`,
-default 42), and each finished chunk of `--chunk_size` rows is saved to
-`artifacts/data/tree_chunks/`. After a Ctrl-C or a kill, re-run the same command and it
-continues where it stopped, losing at most one chunk. A resume with different
-settings is refused.
-
-The legacy LSM surrogate's dataset (see "MLP surrogate vs. Longstaff-Schwartz"
-above) is generated the same way, chunks in `artifacts/data/chunks/`:
-
-```
-python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset [--path_per_sim N] [--nb_param_comb N] [--samples_per_param N] \
-    [--nb_jobs N] [--sampling N] [--option_type call|put|both] [--reg_type simple|laguerre] [--max_degree N] \
-    [--output_dir artifacts/data] [--seed N] [--chunk_size N]
-```
-
-It parallelizes LSM pricing across randomly sampled `(S0, K, σ, r, T)`
-combinations to build `artifacts/data/american_option_dataset.npz` and the
-feature-normalization stats in `artifacts/data/features_norm.npz`.
+Every flag of every command, and of the dataset generators, is in
+[`docs/architecture.md`, "Command reference"](docs/architecture.md#command-reference).
 
 ## Testing
 
 ```
-python -m pytest tests/                 # everything
-python -m pytest tests/unit             # fast, no training/simulation-heavy work
-python -m pytest tests/integration      # convergence checks + CLI smoke tests; slower
+python -m pytest tests/unit                        # fast (~30 s)
+python -m pytest tests/integration                 # convergence checks and CLI smoke tests (~2.5 min)
+python -m pytest tests/                            # everything
+python -m tests.mutation.tree_evaluation_mutants   # the evaluation's tests must catch 14 planted bugs
 ```
+
+870 tests (2026-11-05, `pytest --collect-only -q`). The 771 unit tests
+cover the closed-form formulas, basis-function derivatives against finite
+differences, the batch tree against hand-worked trees, the surrogate's
+dataset, model, pricer, training and evaluation, the hedging environment's
+reward arithmetic, the policy's action modes, the baselines, the SAC
+training loop and the repository's hooks. The 99 integration tests cover
+Monte-Carlo and LSM convergence to their closed-form and tree counterparts,
+seeded policy comparisons, the ablation runner, and a CLI smoke test for
+every command.
 
 ## Architecture
 
@@ -613,72 +373,34 @@ docs/                   architecture.md (module reference), results/
 artifacts/              generated datasets, checkpoints, logs, runs (gitignored)
 ```
 
-Pricers are grouped by option class, everything that is learned lives in
-`optionpricing/ml/`, and the hedging problem the learners are trained in lives in
+Pricers are grouped by option class, everything learned lives in
+`optionpricing/ml/`, and the hedging problem the learners train in lives in
 `optionpricing/hedging/`. Dependencies point one way: `core` <- `pricing` <-
-`hedging` <- `ml`.
+`hedging` <- `ml`. Every module's API and invariants are in
+[`docs/architecture.md`](docs/architecture.md).
 
-- **`optionpricing/core/`** — the foundation every pricer depends on: `gbm.py` (GBM path
-  simulator) and `base.py` (the `OptionPricing` ABC).
-- **`optionpricing/pricing/european/`** — `BlackScholes` (closed form) and `MonteCarlo`
-  (path-average payoff).
-- **`optionpricing/pricing/american/`** — `BinomialTree` (CRR tree with backward
-  induction), `LongstaffSchwartz` (LSM with simple/Laguerre polynomial
-  regression bases, an optional European control variate, and delta/gamma
-  from a regression of pathwise deltas — see Results above) and
-  `basis_functions.py` (the regression bases, unit-tested independently).
-- **`optionpricing/ml/`** — everything that is learned:
-  - `surrogate/`: the MLP surrogate pricer for American puts.
-    - `tree/`: the binomial-tree-trained surrogate that `train-ml`/`test-ml`
-      run.
-      - `generate_tree_dataset.py`: the tree-labelled dataset.
-      - `tree_dataset.py`: `TreePutDataset`, with the features and targets
-        built at load time and a seeded, disjoint train/test split.
-      - `tree_model.py`: `MLP`, a configurable smooth (SiLU) net that
-        predicts the early-exercise premium over Black-Scholes.
-      - `tree_pricer.py`: `PutSurrogate`. Prices are Black-Scholes plus the
-        net's premium, and delta and gamma come by autograd. Queries outside
-        the training domain are routed to Black-Scholes, `1 - m` or the
-        tree. It is saved and loaded as one checkpoint.
-      - `tree_training.py`: the training loop behind `train-ml`. Premium +
-        delta loss, optional no-arbitrage shape penalties, cosine-decayed
-        Adam, early stopping and an optional L-BFGS finish.
-      - `tree_evaluation.py`: the evaluation behind `test-ml`.
-    - `chunks.py`: the resumable-generation helpers both generators share.
-    - `legacy/`: the LSM-trained pipeline, a library no command uses (see
-      Results above). `lsm_model.py` holds `LegacyMLP` (5 inputs → 1 output,
-      `(price - smooth_intrinsic_value) / K`). It also has `lsm_dataset.py`,
-      `lsm_training.py`, `lsm_evaluation.py` and `generate_lsm_dataset.py`.
-  - `rl/`: the SAC hedging agent. `policy.py` (the Gaussian actor; its
-    tanh-squashed output becomes a hedge in one of three action modes: a
-    correction to the LSM delta (`residual`, the default), the fraction of
-    the gap to delta closed each step (`gap_fraction`), or a 2-D no-trade
-    band (`band`)), `critic.py` (twin Q-networks), `replay_buffer.py`, and
-    `sac.py` (the training loop: target networks, warmup, learned entropy
-    coefficient, mean-variance reward shaping, checkpointing on held-out
-    validation paths).
-- **`optionpricing/hedging/`** — the hedging problem, independent of any learner:
-  - `env.py`: `HedgingEnv`, wraps a fitted `LongstaffSchwartz` instance.
-    State = spot/strike, time, delta, gamma, position; episodes run to each
-    path's exercise time under LSM's exercise rule. Proportional and fixed
-    trading costs; a `terminal` reward (hedge P&L minus the payoff) or an
-    `accounting` one (minus the option's value change every step, used for
-    training); a batched `rollout_pnl` for fast validation.
-  - `option_value.py`: the option values the accounting reward needs
-    (Black-Scholes for calls, a binomial tree for puts).
-  - `baselines.py`: delta hedge, no-trade band and no-hedge policies.
-  - `evaluation.py`: `evaluate()` (mean, std, VaR and CVaR of the P&L of
-    any policy) and `cvar()`.
-- **`scripts/`** — one module per CLI subcommand, wired into `main.py`'s
-  `argparse` subparsers.
-- **`optionpricing/ml/experiments/`** — `run_ablations.py`, the seeded
-  surrogate ablations (`python -m optionpricing.ml.experiments.run_ablations`,
-  outputs in `artifacts/runs/ablations/`): config variants, and dataset
-  variants that train the chosen config on another dataset.
-- **`artifacts/`** — generated outputs only (gitignored): datasets in
-  `artifacts/data/`, model weights in `artifacts/checkpoints/`, plus
-  `artifacts/logs/` and `artifacts/runs/`.
+## How it was built
 
-`docs/architecture.md` is the full module reference: every module's API and
-invariants (like "call `predict_payoff()` before `calculate_option_price()`"),
-the command reference with every flag, the test layout, and design notes.
+This project is also where I learned agentic development. The code was
+written with Claude Code (Anthropic's coding agent), inside a workflow set
+up for it: a roadmap entry before each piece of work, a bug log with root
+causes, repository hooks that format and lint every edit, run its unit
+tests and gate every commit, and a checklist-driven review of each change
+by a second agent before it is committed (all in `.claude/`). Almost every
+line was reviewed and questioned by me. I use Claude to implement, to
+understand what I am doing and why it works, and to judge how good the
+result is.
+
+## Further reading
+
+- [`docs/architecture.md`](docs/architecture.md): the module reference, every
+  command's flags, the test layout and design notes.
+- [`docs/results/`](docs/results/): measured results in full, on
+  [surrogate training and ablations](docs/results/surrogate-training.md),
+  [RL hedging](docs/results/hedging-rl.md),
+  [hedging baselines under costs](docs/results/hedging-costs.md) and
+  [the legacy LSM-trained surrogate](docs/results/legacy-surrogate.md).
+- [Design decisions and bug log](.claude/BUGS.md): every problem found, with
+  its symptom, root cause and fix.
+- [Roadmap](.claude/PLAN.md) and [roadmap archive](.claude/PLAN_ARCHIVE.md):
+  what is being worked on, what comes next, and what is done.

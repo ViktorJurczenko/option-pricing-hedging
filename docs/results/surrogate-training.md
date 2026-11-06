@@ -57,7 +57,7 @@ Protocol: 2^19 rows, seed 42, grid against BBSR-4000, $ at K = 100. The validati
 | 800 | 0.0019 | 0.0017 | 0.0015 | 2.35e-5 | 3.86e-4 |
 
 - **800 epochs priced worse** (early-stopped at 665, best 645, ~33 min): it halved the combined loss, but past 400 the delta error kept falling (-28%) while the premium error rose (+38%), and the sum picks the checkpoint.
-- 800 also had fewer violations (0.06% > 1e-4 vs 0.61%) and more payoff floors (490 grid points vs 179).
+- 800 also had fewer violations (0.06% > 1e-4 at 800 epochs, 0.61% at 400) and more payoff floors (490 grid points at 800, 179 at 400).
 - Single seed each. The seeded ablations below give the seed-to-seed spread.
 
 ## Seeded ablations: lambda_delta 0.3 + softplus has the best mean error, a seed-dependent worst point
@@ -119,9 +119,97 @@ On the full grid, against the `lambda_delta_0.3_softplus` row above, `artifacts/
 | all (28%) | 0.0009 ± 0.0001 | 0.0006 ± 0.0002 | 0.0349 ± 0.0240 | 0.0297 ± 0.0280 | 0.59 ± 0.04 | 1.56e-4 ± 1.5e-5 | 0.02 ± 0.04 |
 | 1/4 kept (8.9%) | 0.0010 ± 0.0002 | 0.0008 ± 0.0001 | 0.0445 ± 0.0079 | 0.0445 ± 0.0079 | 0.65 ± 0.04 | 1.43e-4 ± 1.1e-5 | 0.06 ± 0.06 |
 
-- **Covering short maturities costs the longer ones accuracy.** On `T >= 0.25`, the narrow model's near-the-money error is lower on every seed (per seed 0.00071-0.00085 against 0.00100-0.00135, no overlap; likewise 1 <= \|z\| < 2), and its worst point stays at 0.0105-0.0148 where the wide model's is 0.0163-0.0620. Part of the gain may come from its higher row density there, though the learning curve above found the row count barely matters at equal steps.
-- **The range stays 1 week - 5 years**, for simplicity: a `T >= 0.25` model would route every shorter put to the tree or need a second network, and the wide model is most accurate at short maturities (README, "MLP surrogate").
-- **Thinning the exercised rows does not help.** The continuation error does not fall (near the money 0.00075-0.00113 per seed against 0.00076-0.00092), and the worst point, in the exercised rows on every seed, rises to 0.038-0.053. The thinned runs stopped early at ~338 of 400 epochs (best epochs 309-319) as their validation loss stopped improving, so they took fewer steps than the reference. Every exercised row stays.
+- **Covering short maturities costs the longer ones accuracy.** On `T >= 0.25`, the narrow model's near-the-money error is lower on every seed (per seed 0.00071-0.00085 for the `T >= 0.25` model, 0.00100-0.00135 for the wide one, no overlap; likewise 1 <= \|z\| < 2), and its worst point stays at 0.0105-0.0148 where the wide model's is 0.0163-0.0620. Part of the gain may come from its higher row density there, though the learning curve above found the row count barely matters at equal steps.
+- **The range stays 1 week - 5 years**, for simplicity: a `T >= 0.25` model would route every shorter put to the tree or need a second network, and the wide model is most accurate in dollars at short maturities: on the full grid (puts not exercised today, 3 seeds, `artifacts/runs/ablations/summary.md`), a mean error of $0.00014 ± 0.00006 under 1 month and $0.00022 ± 0.00004 at 1-3 months, against $0.00098 ± 0.00013 beyond 3 months.
+- **Thinning the exercised rows does not help.** The continuation error does not fall (near the money, per seed, 0.00075-0.00113 thinned and 0.00076-0.00092 with every exercised row), and the worst point, in the exercised rows on every seed, rises to 0.038-0.053. The thinned runs stopped early at ~338 of 400 epochs (best epochs 309-319) as their validation loss stopped improving, so they took fewer steps than the reference. Every exercised row stays.
+
+## The candidate on the full grid: `lambda_delta_0.3_softplus`
+
+```
+python main.py train-ml --lambda_delta 0.3 --output softplus   # ~25 min
+python main.py test-ml
+```
+
+The configuration chosen so far, before the width ablation (`.claude/PLAN.md`, "Surrogate ablations and final model"). From the seeded ablation runs (`artifacts/runs/ablations/lambda_delta_0.3_softplus/`, measured 2026-10-31), formerly the README's results; the final model's numbers replace them in the README once it is trained.
+
+**The chosen configuration** is 4 hidden layers of 128 SiLU units with a
+softplus output (the premium is never negative), trained on the premium error
+plus 0.3 times the delta error, with Adam and a cosine decay over 400 epochs.
+Each choice was tested against its alternatives: the network and data
+choices over 3 seeds, the training length and the teacher tree in single
+studies (the sections above):
+
+| Choice | Tested against | Evidence |
+|---|---|---|
+| Delta error in the loss, weight 0.3 | 0, 1, 3 | best price; without it, delta is ~7x worse |
+| Softplus output | linear | shape violations 0.73% -> 0.06% |
+| SiLU activations | ReLU | ReLU: ~25x the error, and its gamma is 0 almost everywhere (piecewise linear) |
+| No shape penalty, no L-BFGS finish | shape weight 0.1, 200 L-BFGS steps | worse or within noise, and slower |
+| 400 epochs | 200, 800 (one seed) | 800 lowers the delta error but raises the price error |
+| BBSR teacher tree, 1000 steps | CRR, BBS; 500 and 2000 steps | lowest mean price error; 2000 steps halve the maximum at 3.5x the cost |
+| Every exercised-today row kept | 1/4 of them, refilled with other puts | no gain, worst exercised error $0.030 -> $0.045 |
+| One model from 1 week to 5 years | `T` from 3 months only | simpler; see "Why one model from 1 week to 5 years" below |
+
+Scored against an independent 4000-step BBSR tree on a factorial
+grid of 2342 puts (27 `z` x 6 `σ` x 8 maturities from 1 week to 5 years x
+`r` in {2%, 6%}, inside the moneyness cap). Mean ± standard deviation over
+seeds 42, 43 and 44, $ at K = 100; the implied-vol error is how far `σ` would
+have to move for the true price to reach the surrogate's:
+
+| Puts | Points | Mean error $ | Worst error $ | Implied-vol error (bp) | Delta error |
+|---|---|---|---|---|---|
+| `T` < 1 month | 494 | 0.00014 ± 0.00006 | 0.0012 ± 0.0006 | 0.48 ± 0.20 | 6.6e-5 |
+| `T` 1-3 months | 455 | 0.00022 ± 0.00004 | 0.0022 ± 0.0004 | 0.52 ± 0.04 | 5.2e-5 |
+| `T` >= 3 months | 690 | 0.00098 ± 0.00013 | 0.0209 ± 0.0051 | 0.69 ± 0.06 | 1.6e-4 |
+| exercised today | 703 | 0.00083 ± 0.00062 | 0.0297 ± 0.0280 | - | 1.2e-4 |
+| all | 2342 | 0.00061 ± 0.00016 | 0.0349 ± 0.0240 | 0.59 ± 0.04 | 1.1e-4 |
+
+The first three rows are the puts not exercised today. By distance to the
+strike, those within one standard deviation (`|z| < 1`, 646 points) have a
+mean error of $0.00087 and 0.42 bp, those between 1 and 2 standard deviations
+$0.00044, and those beyond $0.00009. The grid's worst errors understate the
+true worst case, which lies at rates near zero, outside the grid (see "The chosen model near zero rates" below).
+
+- **The typical error is a fraction of a cent**: $0.0006 on average, 0.6 bp
+  of implied volatility, far below a listed option's tick.
+- **Short maturities are the most accurate in dollars**: $0.00014 on average
+  under 1 month, $0.00022 at 1-3 months, against $0.00098 beyond 3 months.
+- **The worst point depends on the seed**: $0.062, $0.026 and $0.016 for
+  seeds 42, 43 and 44 (seed 42's is an exercised-today put). This is the
+  weak spot of the configuration.
+- **No-arbitrage shape**: on the puts not exercised today, the raw
+  network's price decreases and is convex in `m` and increases with `σ` at
+  every grid point, and increases with `T` at every point for seeds 42 and
+  43 and at all but 0.06% of them for seed 44 (counting violations above
+  1e-4 K).
+- **The payoff floor** answers about half of the exercised-today points
+  (52% ± 27%), where the true price is the payoff itself, and under 1% of
+  the others.
+- **Speed**: 4.5-6.7 µs per option when the grid is priced in one call,
+  against 1.6 ms for the 1000-step tree it learned from (~300x), both timed
+  by `test-ml` (the tree on 256 grid puts; an earlier timing study on random
+  puts measured 2.71 ms). One option
+  per call takes ~1 ms (the autograd passes for delta and gamma dominate),
+  barely faster than the tree, so the gain needs batches.
+
+**Why one model from 1 week to 5 years: simplicity.** A dataset ablation
+trained the same configuration on puts with `T` >= 3 months only (also 2^19
+rows) and scored both models on a `T` >= 3-month grid ("Dataset ablations"
+above). The narrower model is more accurate there: near the money $0.0008
+for the narrow model and $0.0012 for the wide one, a worst point of $0.013
+and $0.035, 0.50 and 0.64 bp, and its worst point varies much less across
+the 3 seeds ($0.011-0.015 for the narrow model, $0.016-0.062 for the wide
+one). Covering short maturities therefore costs the longer ones some
+accuracy, though part of the gap may come from the narrow model's ~1.9x
+more rows per unit of log `T` in that range. The single model is kept
+anyway. A model from 3 months would send every shorter put to the tree, at
+milliseconds instead of microseconds, or need a second network with its own
+training, checkpoint and routing rule. One network over the whole range is
+simpler to train, ship and use, and it stays accurate at short maturities,
+its most accurate region in dollars (table above). The accepted cost: beyond
+3 months, the wide model's error is 1.3-2.7x what a dedicated model reaches
+(1.3x on average over that grid, 1.5x near the money, 2.7x on the worst
+point).
 
 ## The chosen model near zero rates
 
@@ -135,7 +223,7 @@ Protocol: each of the 3 `lambda_delta_0.3_softplus` checkpoints priced its own t
 | 0.02-0.08 | ~78700 | 0.0004-0.0006 | 0.038-0.044 | 0.12-0.16% |
 
 - **The largest errors sit at the domain's low rate edge**, on long-dated (`T` 1.6-5 years) puts deep in the money (`m` 0.42-0.76), at `sigma` 0.06-0.22: all 12 worst test rows of seed 43 have `r` < 0.0005. The grid's rates (0.02 and 0.06) never reach this edge, so its maxima understate the worst case.
-- Not investigated, and not planned: rates are not expected back near zero soon, so this edge is accepted as a known limitation (README). The cause (the net at the domain edge, the raw `r` feature, the labels near `r = 0`) is unknown.
+- Not investigated, and not planned: rates are not expected back near zero soon, so this edge is accepted as a known limitation. The cause (the net at the domain edge, the raw `r` feature, the labels near `r = 0`) is unknown.
 
 ## Training cost by network width
 

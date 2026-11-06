@@ -12,7 +12,6 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 | Workstream | Status | Next step |
 |---|---|---|
 | [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Wider network and more seeds: runs |
-| [README reorganization](#readme-reorganization) | backlog | Move the legacy surrogate out of the README |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
@@ -31,25 +30,11 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 - [x] Dataset ablations: runs
 - [x] Wider network and more seeds: code
 - [ ] Wider network and more seeds: runs
-  `python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus lambda_delta_0.3_softplus_width_256 --seeds 42 43 44 45 46` (full grid, default `--out_dir`: the three finished width-128 seeds are skipped). That is 2 new width-128 runs (~25 min each) and 5 width-256 runs (~60 min each: 31.4 ms per training step against 12.5 ms at width 128, `docs/results/surrogate-training.md`, "Training cost by network width", measured on one process, so 4 concurrent runs may shift the ratio), about 2-2.5 h at 4 runs at a time. Scored on the full grid only, as decided (no `T >= 0.25` grid); the results are the two rows of `artifacts/runs/ablations/summary.md`. Questions: does a 4x larger network (199k weights) lower the error, above all beyond 3 months (the full grid's `T >= 3 months` bucket, where the T-range ablation found the wide range costs accuracy) and on the seed-dependent worst point; and, with 5 seeds, how wide the chosen configuration's worst-point spread really is. Width 256 is adopted only if it beats width 128 by more than ~2 seed sd on the near-the-money error, the implied-vol error or the worst point, weighed against ~2.5x the training time and a slower batch price (the timing column). Caveat: 400 epochs were chosen at width 128; a wider network might want another length. Afterwards, the chosen configuration's README numbers (3 seeds today) are refreshed with its 5 seeds, whichever width wins.
+  `python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus lambda_delta_0.3_softplus_width_256 --seeds 42 43 44 45 46` (full grid, default `--out_dir`: the three finished width-128 seeds are skipped). That is 2 new width-128 runs (~25 min each) and 5 width-256 runs (~60 min each: 31.4 ms per training step against 12.5 ms at width 128, `docs/results/surrogate-training.md`, "Training cost by network width", measured on one process, so 4 concurrent runs may shift the ratio), about 2-2.5 h at 4 runs at a time. Scored on the full grid only, as decided (no `T >= 0.25` grid); the results are the two rows of `artifacts/runs/ablations/summary.md`. Questions: does a 4x larger network (199k weights) lower the error, above all beyond 3 months (the full grid's `T >= 3 months` bucket, where the T-range ablation found the wide range costs accuracy) and on the seed-dependent worst point; and, with 5 seeds, how wide the chosen configuration's worst-point spread really is. Width 256 is adopted only if it beats width 128 by more than ~2 seed sd on the near-the-money error, the implied-vol error or the worst point, weighed against ~2.5x the training time and a slower batch price (the timing column). Caveat: 400 epochs were chosen at width 128; a wider network might want another length. Afterwards, the chosen configuration's numbers (`docs/results/surrogate-training.md`, "The candidate on the full grid", 3 seeds today) are refreshed with its 5 seeds, whichever width wins.
 - [ ] Final model and write-up
-  The configuration is chosen (`lambda_delta_0.3_softplus`, every exercised row, `T` from 1 week to 5 years; width 128 unless the width ablation says otherwise) and its results are in the README. Make it `TrainConfig`'s default, train it (3 seeds, keep the median) as `artifacts/checkpoints/put_surrogate.pth`, check that `test-ml` reproduces the README numbers, and update REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
+  The configuration is chosen (`lambda_delta_0.3_softplus`, every exercised row, `T` from 1 week to 5 years; width 128 unless the width ablation says otherwise) and its results so far are in `docs/results/surrogate-training.md`, "The candidate on the full grid". Make it `TrainConfig`'s default, train it (3 seeds, keep the median) as `artifacts/checkpoints/put_surrogate.pth`, fill the README's flagged surrogate stub (results, choices, known limitations, timing; then remove the warning and the `TODO(final model)` comment, and the "in progress" in Highlights, What's inside and Project status), check that `test-ml` reproduces those numbers, and update REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md`, write the findings, update chapter 10's final-model paragraph).
 
 ## Backlog
-
-### README reorganization
-
-**Goal:** make the README a document about the project as it is now: what it does, how to use it, the current models' results and the choices behind them. The history (the legacy LSM-trained surrogate, reverted fixes, superseded numbers) moves to `docs/results/` and `.claude/BUGS.md`, where the README links to it. Done after the final model, so the surrogate section is rewritten once.
-
-**Done so far:** nothing. The tree surrogate's results and choices are in the README ("MLP surrogate"); the legacy surrogate's section ("Legacy MLP surrogate vs. Longstaff-Schwartz") still follows it.
-
-**Next:**
-- [ ] Move the legacy surrogate out of the README
-  Its section, as it is, into `docs/results/legacy-surrogate.md` (with its commands and its "not re-verified" status); the README keeps a one-line pointer.
-- [ ] Trim every README section to the current state
-  Keep each section's current result and the choice it supports; move incident histories (e.g. "First fix, later reverted" in the LSM Greeks section) to their `.claude/BUGS.md` entries or `docs/results/`, linking to them. Check each remaining number against its command, and mark the ones not rerun "not re-verified".
-- [ ] Update the links
-  `docs/architecture.md`, the results docs and `CLAUDE.md` pointers to moved sections.
 
 ### Deep Hedging
 
