@@ -32,6 +32,7 @@ Open and deferred issues first, then newest first.
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
 | [B-002](#b-002) | Price-vs-Binomial-Tree drift comparisons are noisy across seeds | Pricing | deferred | 2026-09-29 |
+| [B-036](#b-036) | Width-256 softplus surrogate stopped learning in its first epoch | Surrogate | fixed | 2026-11-06 |
 | [B-035](#b-035) | A rerun of some variants dropped the others from summary.md | Tooling and tests | fixed | 2026-10-29 |
 | [B-034](#b-034) | Formatting the code broke two mutants' source patterns | Tooling and tests | fixed | 2026-10-29 |
 | [B-033](#b-033) | Smoke tests looked for checkpoints outside artifacts/ after the package move | Tooling and tests | fixed | 2026-10-28 |
@@ -443,6 +444,83 @@ Binomial Tree reference computed independently, before treating any future
 LSM price-accuracy claim as precise to better than ~1-2%.
 
 ## Surrogate
+
+<a id="b-036"></a>
+
+### B-036 Width-256 softplus surrogate stopped learning in its first epoch
+
+Status: fixed · Found: 2026-11-06 · Files: `optionpricing/ml/surrogate/tree/tree_training.py`
+
+**Symptom:** in the width ablation
+(`python -m optionpricing.ml.experiments.run_ablations --variants
+lambda_delta_0.3_softplus lambda_delta_0.3_softplus_width_256 --seeds
+42 43 44 45 46`), all 5 width-256 seeds froze in epoch 1. Their
+validation loss was 1.45-1.54 after epoch 1 and moved by at most 8.7e-3
+over the remaining epochs until early stopping at epoch 338 (best epoch
+11-19). The width-128 runs of the same config fell from 0.10-0.20 to
+4.7e-6-9.2e-6. On the grid, the width-256 nets had 0.3452 $ MAE near the
+money, against 0.0009 at width 128, 81 bp IV error against 0.60, and
+the same numbers on every seed (sd ~0). Their exercised rows showed 0
+error only because the payoff floor answered them.
+
+**Root cause:** the softplus output starts far above its target and
+overshoots into its flat region. At initialization the output before
+the softplus is ~0, so the net predicts softplus(0) = ln 2 ≈ 0.69 per
+unit of strike, while the mean training premium is 0.0116 (seed 42's
+split). The scaled loss therefore starts at ~515, against ~3.6 for the
+linear output. Adam pushes every output down at once, and the large
+early gradients build momentum that carries the outputs past the
+target into the region where the softplus slope vanishes. Nothing then
+brings them back. The trained width-256 seed-42 net's output before
+the softplus ranges over [-48.4, -8.1] (median -15.9) on 20000
+standard-normal inputs, where the softplus slope is ~1e-7. The
+width-128 net's ranges over [-35.5, +7.7] (median -6.8).
+
+Measured by replaying the first 2 epochs step by step (an ad hoc
+script in `artifacts/runs/b036_diag/`, seeds 42 and 43, the
+`lambda_delta_0.3_softplus` settings, 2 torch threads), with the
+largest output before the softplus on 4096 held-out rows:
+
+| config | step the largest output falls below -5 | largest at step 640 | loss at step 640 |
+|---|---|---|---|
+| width 128, lr 1e-3 (as trained) | below −5 from step ~48 to ~100 / ~140, then recovers | −1.2 / −1.0 | 7.3e-2 / 9.6e-2 |
+| width 256, lr 1e-3 (as trained) | 17 / 17, never recovers | −12.2 / −12.7 | 1.75 / 1.92 |
+| width 256, linear output | not reached | +0.3 / +0.3 | 1.4e-2 / 2.6e-2 |
+| width 256, lr 3e-4 | not reached | −1.2 / −1.0 | 0.11 / 0.15 |
+| width 256, lr warm-up over epoch 1 | not reached | −1.2 / −1.0 | 6.5e-2 / 0.11 |
+| width 128, output bias at inverse-softplus(mean premium) | not reached | −1.2 / −1.1 | 6.9e-3 / 9.1e-3 |
+| width 256, output bias at inverse-softplus(mean premium) | not reached | −1.2 / −1.0 | 2.6e-3 / 4.9e-3 |
+
+(seed 42 / seed 43). Width 256 passes −3 in ~12 steps
+instead of ~25 at width 128, because more weights move together under
+the same lr. Width 128 at lr 1e-3 nearly dies too, recovering only
+after ~100-130 steps below −5. Starting the output bias at
+log(expm1(0.0116)) = −4.45 makes the initial loss ~1.3 and removes the
+overshoot at both widths. After 2 epochs its loss is ~10x lower than
+the width-128 run as trained.
+
+**Impact:** the width-256 rows of `artifacts/runs/ablations/summary.md`
+measure a failed optimization, not network capacity. The question
+"does a wider net help" is unanswered. The width-128 softplus runs
+(`softplus_output`, `lambda_delta_0.3_softplus`, the dataset variants)
+trained correctly but lost their first ~150-180 steps to the near-collapse.
+
+**Fix:** `initial_model` in `tree_training.py`, which `train_surrogate`
+now starts from, sets the softplus output layer's bias term to
+log(expm1(mean premium of the trained rows)), so the untrained net
+predicts the mean premium and the initial premium term is ~1. The
+linear output keeps PyTorch's initialization, so its recorded runs
+still reproduce. The derivation, why the bias term rather than a lower
+lr or a warm-up, and the measurements: `docs/results/surrogate-training.md`,
+"Output initialization: start at the mean premium". The width-256
+ablation and the 5 width-128 seeds are rerun with the fix in a new
+`--out_dir` (`.claude/PLAN.md`).
+
+**Regression test:** `test_softplus_output_starts_at_the_mean_premium`
+and `test_training_starts_the_softplus_output_at_the_trained_rows_mean_premium`
+in `tests/unit/test_tree_training.py`, which fail without the bias
+term (the premium term is then ~500, and the trained bias term is
+PyTorch's random one).
 
 <a id="b-031"></a>
 

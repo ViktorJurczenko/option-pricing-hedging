@@ -344,6 +344,54 @@ def evaluate_labeled(model: MLP, rows, scales: LossScales, lambda_delta: float) 
     }
 
 
+def initial_model(config: TrainConfig, premium: torch.Tensor) -> MLP:
+    """
+    The MLP a run starts from: config's architecture with weights drawn
+    from `config.seed`, and, for the softplus output, the output layer's
+    bias term set to log(expm1(mean premium)).
+
+    At initialization the output layer's weights are small, so the net's
+    value before the softplus is close to the bias term for every input
+    and the net predicts nearly one constant, softplus(bias). The constant
+    with the lowest premium MSE is the mean premium, at which the premium
+    term of the loss (MSE / variance) is ~1. PyTorch's default bias (~0)
+    predicts softplus(0) = ln 2 = 0.69 per unit of strike against a mean of
+    ~0.012, a premium term of ~500 whose overshoot could kill the softplus
+    (.claude/BUGS.md, "Width-256 softplus surrogate stopped learning in its
+    first epoch"; docs/results/surrogate-training.md, "Output
+    initialization: start at the mean premium"). The linear output already
+    starts at ~1 (its constant ~0 is within half a standard deviation of
+    the mean) and keeps PyTorch's default bias.
+
+    Args:
+        config: the run's settings (depth, width, activation, output, seed).
+        premium: the trained rows' premium targets, per unit of strike.
+
+    Returns:
+        The initialized MLP, on the CPU.
+
+    Raises:
+        ValueError: for the softplus output if `premium` is empty or its
+            mean is not positive (no bias term gives softplus(bias) <= 0).
+    """
+    torch.manual_seed(config.seed)  # the weights' initialization
+    model = MLP(
+        n_inputs=len(FEATURES),
+        depth=config.depth,
+        width=config.width,
+        activation=config.activation,
+        output=config.output,
+    )
+    if config.output == "softplus":
+        mean = float(premium.mean()) if len(premium) else math.nan
+        if not mean > 0:
+            raise ValueError(f"the softplus output needs a positive mean premium to start from, got {mean}")
+        output_layer = model.net[-2]  # the last Linear, before the Softplus
+        with torch.no_grad():
+            output_layer.bias.fill_(math.log(math.expm1(mean)))
+    return model
+
+
 def train_surrogate(
     dataset_path: str | os.PathLike,
     config: TrainConfig = TrainConfig(),  # noqa: B008 (frozen dataclass, immutable)
@@ -357,10 +405,12 @@ def train_surrogate(
 
     The training split (TreePutDataset, `config.split_ratio`, `config.seed`)
     is split again, seeded, into rows trained on and `valid_ratio` held-out
-    rows; the test split is never read. Each Adam step: a batch of labeled
-    rows (labeled_loss) plus, if lambda_shape > 0, `shape_points` fresh
-    random points (shape_penalty); the learning rate follows a cosine from
-    lr to lr_min over all steps of `epochs` epochs. After each epoch the
+    rows; the test split is never read. The net starts from initial_model
+    (for the softplus output, its bias term set at the mean premium of the
+    trained rows). Each Adam step: a batch of labeled rows (labeled_loss)
+    plus, if lambda_shape > 0, `shape_points` fresh random points
+    (shape_penalty); the learning rate follows a cosine from lr to lr_min
+    over all steps of `epochs` epochs. After each epoch the
     labeled loss on the validation rows decides the checkpoint (best so
     far, saved to `checkpoint_path` if given) and early stopping. An
     optional full-batch L-BFGS finish starts from the best weights and is
@@ -400,14 +450,8 @@ def train_surrogate(
     # Fit on the labels: the targets' variances (trained rows only), which normalize each loss term
     scales = LossScales.fit(train[2], train[3])
 
-    torch.manual_seed(config.seed)  # the weights' initialization
-    model = MLP(
-        n_inputs=len(FEATURES),
-        depth=config.depth,
-        width=config.width,
-        activation=config.activation,
-        output=config.output,
-    ).to(device)
+    # seeded weights; the softplus output's bias term starts at the mean premium
+    model = initial_model(config, train[2].cpu()).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     # cosine from lr to lr_min over every step of the run, stepped per batch so the decay is smooth
     steps_per_epoch = math.ceil(n_train / config.batch_size)

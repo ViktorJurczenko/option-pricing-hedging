@@ -1,6 +1,6 @@
 # Tree surrogate: teacher, training-length and ablation results
 
-Measured results behind the tree MLP surrogate's defaults (`binomial_put_batch`'s `method="bbsr"`, `nb_steps=1000`; `TrainConfig.epochs = 400`). Moved from `.claude/PLAN.md`, where they were recorded as the work went. **Not re-verified** since they were measured (2026-10-22 to 2026-11-01); rerun before quoting them as current.
+Measured results behind the tree MLP surrogate's defaults (`binomial_put_batch`'s `method="bbsr"`, `nb_steps=1000`; `TrainConfig.epochs = 400`). Moved from `.claude/PLAN.md`, where they were recorded as the work went. **Not re-verified** since they were measured (2026-10-22 to 2026-11-06); rerun before quoting them as current.
 
 ## Choice of teacher: BBSR at N = 1000
 
@@ -235,3 +235,80 @@ Protocol: one training step (premium + 0.3 x delta loss, `labeled_loss`, then an
 | depth 4, width 256 | 199425 | 31.4 | ~60 min |
 | depth 4, width 512 | 792065 | 113.5 | ~3.5-4 h |
 | depth 6, width 128 | 83585 | 18.7 | ~37 min |
+
+## Output initialization: start at the mean premium
+
+For the softplus output, `initial_model` in `optionpricing/ml/surrogate/tree/tree_training.py` sets the **bias term of the output layer** (the last `nn.Linear`, just before the `nn.Softplus`) to `log(expm1(ȳ))`, where `ȳ` is the mean premium of the trained rows. Every other weight and bias term keeps PyTorch's random initialization, and the linear output keeps PyTorch's initialization entirely. This section explains where that value comes from and why only the softplus output needs it. The failure it fixes is `.claude/BUGS.md`, "Width-256 softplus surrogate stopped learning in its first epoch".
+
+**1. What "the network at initialization" means.** Before training, PyTorch fills each `nn.Linear` layer with random numbers: the weights and the bias terms are drawn uniformly from `±1/√fan_in`, where `fan_in` is the layer's number of inputs. For the output layer `fan_in` is the width, so the range is `±0.088` at width 128 and `±0.0625` at width 256. These initial parameters define a function `f₀(x)`, as any weights do. The initial loss is the loss of `f₀` on the training rows, before the first Adam step. It does not involve a first data point.
+
+**2. At initialization the network is nearly a constant.** The output layer computes
+
+```
+f₀(x) = softplus( w·h(x) + b )        softplus output
+f₀(x) =           w·h(x) + b          linear output
+```
+
+where `h(x)` holds the last hidden layer's activations, `w` the output layer's weights and `b` its bias term. With small random `w`, the part `w·h(x)` that depends on the input varies little from row to row. On 16384 training rows (seeds 0-9, widths 128 and 256), the standard deviation of `f₀(x)` across rows is at most 0.0066 per unit of strike, against 0.029 for the premiums. So `f₀` is close to one constant `c`, the mean of `f₀(x)` over the rows.
+
+**3. What a constant prediction costs.** The premium term of the loss is the premium MSE divided by `var(y)`, the variance of the trained rows' premiums `y` (`LossScales`). For a constant prediction `c`, the MSE splits exactly into the variance of the labels plus the squared offset of `c` from their mean:
+
+```
+mean_i (c − y_i)²  =  var(y) + (c − ȳ)²
+premium term       =  1 + (c − ȳ)² / var(y)
+```
+
+This is smallest at `c = ȳ`, where it equals 1. So among the functions the initial network can be (close to constants), the one at the mean premium has the lowest loss. That is also the value the loss scaling is built around: predicting the mean scores 1.
+
+**4. With the default bias term, the softplus output starts far from the mean.** The softplus net predicts `c ≈ softplus(b)`, between 0.65 and 0.72 per unit of strike for the random `b` here (softplus(0) = ln 2 = 0.693), against `ȳ = 0.0116`. Step 3 then gives a premium term of `1 + (0.69 − 0.0116)² / 0.0294² ≈ 530`, which is what is measured (table below). Adam pushes every output down at once, and the momentum built up by these large first gradients carries the outputs past the target, into the region where the softplus is flat: its slope, `sigmoid` of its input, is ~1e-7 at an input of −16. There the gradients vanish and the outputs never come back. At width 256, all 5 seeds of the width ablation froze in their first epoch; in a step-by-step replay (seeds 42 and 43, second table below) the outputs were in the flat region by step 17.
+
+**5. The bias term that starts it at the mean.** Solving `softplus(b) = ȳ`, with `softplus(b) = log(1 + e^b)`, gives
+
+```
+b = log(e^ȳ − 1) = log(expm1(ȳ))
+  = log(expm1(0.0116)) = −4.45        (seed 42's training rows)
+```
+
+implemented in `initial_model` as
+
+```python
+output_layer.bias.fill_(math.log(math.expm1(mean)))
+```
+
+with `mean` the mean premium of the trained rows. The initial premium term is then ~1 for any width, depth, activation and seed, because the argument of step 3 does not depend on them. The delta term does not change: a constant has zero slope, so the delta term at initialization comes from the hidden layers. `initial_model` raises `ValueError` if the mean premium is not positive, since no bias term gives `softplus(b) ≤ 0`.
+
+**Why the linear output keeps PyTorch's default.** Its constant is `c ≈ b`, the random bias term itself, between −0.09 and +0.06 here. That gives a premium term between ~1 and ~12, depending on the seed. A high start does not trap the linear output: it has no flat region, so its gradients do not vanish and the first steps bring the loss down. Keeping its initialization also keeps every recorded linear-output ablation run reproducible.
+
+**Why not a lower learning rate or a warm-up.** Both also avoid the collapse at width 256 (second table below). But they treat the symptom: the start stays ~500x too high and is corrected more slowly, and each adds a setting that may need tuning per width. The bias term removes the bad start itself and adds no setting. After 2 epochs its loss is ~10x lower than the default bias term's at width 128, and ~20-25x lower than the warm-up's at width 256.
+
+### Measured
+
+Initial loss terms. Protocol: the training split of `artifacts/data/tree_put_dataset.npz` (`split_ratio` 0.8, seed 42, 419430 rows); each term computed with `labeled_loss` on the first 16384 of those rows, scaled by the full training rows' `LossScales`; depth 4, SiLU, seeds 0-9; an ad hoc script, not in the repo, measured 2026-11-06. On every net the measured premium term is within 0.17 of the formula `1 + (c − ȳ)² / var(y)` of step 3, computed with that net's own `c`. The bias-term-at-the-mean rows read 0.97-0.98 rather than 1 because the variance of these 16384 rows around `ȳ` is 0.975 times the full training rows'.
+
+| output | width | output layer's bias term | `c`, per unit of strike | premium term, min / median / max | delta term |
+|---|---|---|---|---|---|
+| softplus | 128 | PyTorch default | 0.651 to 0.721 | 475 / 513 / 584 | 1.14-1.44 |
+| softplus | 128 | **`log(expm1(ȳ))`** | 0.0113 to 0.0120 | **0.97 / 0.97 / 0.98** | 1.20 |
+| softplus | 256 | PyTorch default | 0.661 to 0.722 | 490 / 523 / 585 | 1.17-1.31 |
+| softplus | 256 | **`log(expm1(ȳ))`** | 0.0114 to 0.0118 | **0.97 / 0.98 / 0.98** | 1.20 |
+| linear | 128 | PyTorch default (kept) | −0.087 to 0.054 | 0.94 / 4.14 / 12.16 | 1.15-1.93 |
+| linear | 256 | PyTorch default (kept) | −0.065 to 0.056 | 1.09 / 3.00 / 7.66 | 1.14-1.48 |
+
+The first 2 epochs of training. Protocol: the `lambda_delta_0.3_softplus` settings (`lambda_delta` 0.3, batch 1024, Adam, a constant learning rate of 1e-3 unless stated), 656 steps replayed one by one on the same training split, seeds 42 / 43, 2 torch threads; "largest output before the softplus" is over 4096 held-out rows; an ad hoc script, not in the repo, measured 2026-11-06.
+
+| config | outputs collapse into the flat region? | largest output before the softplus, step 640 | loss at step 640 |
+|---|---|---|---|
+| width 128, PyTorch default bias term | nearly: below −5 from step ~48 to ~100 / ~140, then recovers | −1.2 / −1.0 | 7.3e-2 / 9.6e-2 |
+| width 256, PyTorch default bias term | **yes, by step 17; never recovers** | −12.2 / −12.7 | 1.75 / 1.92 |
+| width 256, learning rate 3e-4 | no | −1.2 / −1.0 | 0.11 / 0.15 |
+| width 256, linear warm-up over epoch 1 | no | −1.2 / −1.0 | 6.5e-2 / 0.11 |
+| width 128, bias term at `log(expm1(ȳ))` | no | −1.2 / −1.1 | **6.9e-3 / 9.1e-3** |
+| width 256, bias term at `log(expm1(ȳ))` | no | −1.2 / −1.0 | **2.6e-3 / 4.9e-3** |
+
+**Consequence for the results above.** Every softplus-output run in this document (`softplus_output`, `lambda_delta_0.3_softplus` and the dataset variants) trained with the default bias term and recovered from a near-collapse. Their numbers are valid as measured but do not reproduce from the current code. The width-256 rows of `artifacts/runs/ablations/summary.md` are failed runs, not a measurement of what a wider network can do.
+
+**What is checked** (`tests/unit/test_tree_training.py`):
+- `test_softplus_output_starts_at_the_mean_premium`: the bias term equals `log(expm1(ȳ))` and the initial premium term is 1 ± 0.1, at widths 8 and 256, seeds 0 and 1;
+- `test_linear_output_keeps_pytorchs_default_initialization`: the linear net's parameters are exactly PyTorch's seeded ones;
+- `test_softplus_start_needs_a_positive_mean_premium`: zero, negative or no premiums raise `ValueError` for the softplus output, not for the linear one;
+- `test_training_starts_the_softplus_output_at_the_trained_rows_mean_premium`: `train_surrogate` starts from this bias term, computed on its trained rows.

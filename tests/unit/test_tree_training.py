@@ -14,6 +14,7 @@ from optionpricing.ml.surrogate.tree.tree_training import (
     ShapePoints,
     TrainConfig,
     evaluate_labeled,
+    initial_model,
     labeled_loss,
     premium_and_delta,
     shape_violations,
@@ -200,6 +201,67 @@ def test_shape_points_follow_the_domain_and_the_seed():
     np.testing.assert_allclose(
         a.bs_vega.numpy(), black_scholes_vega(a.m.numpy(), 1.0, a.T.numpy(), a.r.numpy(), a.sigma.numpy())
     )
+
+
+# --- initial_model ---
+
+
+@pytest.mark.parametrize("width", [8, 256])
+@pytest.mark.parametrize("seed", [0, 1])
+def test_softplus_output_starts_at_the_mean_premium(data, width, seed):
+    # B-036: PyTorch's default bias term made the softplus net start at ~0.69 per unit of
+    # strike against a mean premium of ~0.012 (premium term ~500); at width 256 the
+    # overshoot pushed every output into the softplus's flat region and training stopped
+    rows = (data.features, data.features_dm, data.premium, data.premium_dm)
+    scales = LossScales.fit(data.premium, data.premium_dm)
+    model = initial_model(TrainConfig(width=width, output="softplus", seed=seed), data.premium)
+    assert model.net[-2].bias.item() == pytest.approx(math.log(math.expm1(float(data.premium.mean()))))
+    _, premium_mse, _ = labeled_loss(model, rows, scales, lambda_delta=0.3)
+    # a constant prediction at the mean has MSE = var(premium), i.e. a premium term of 1;
+    # the small output weights add a varying part, 0.998-1.055 over widths 8-256 and seeds 0-2 here
+    assert float(premium_mse) / scales.premium == pytest.approx(1.0, abs=0.1)
+
+
+def test_default_bias_term_would_start_the_softplus_output_hundreds_of_times_too_high(data):
+    # the size of B-036's bad start, which the bias term removes: a constant prediction c
+    # has premium term 1 + (c - mean)^2 / var, and PyTorch's bias term gives c ~ softplus(0) = ln 2
+    rows = (data.features, data.features_dm, data.premium, data.premium_dm)
+    scales = LossScales.fit(data.premium, data.premium_dm)
+    torch.manual_seed(0)
+    default = MLP(width=256, output="softplus")
+    _, premium_mse, _ = labeled_loss(default, rows, scales, lambda_delta=0.3)
+    expected = 1 + (math.log(2) - float(data.premium.mean())) ** 2 / scales.premium
+    # the random bias term moves c within softplus(+-1/16) = 0.66-0.73, so the term within ~15% of ln 2's
+    assert float(premium_mse) / scales.premium == pytest.approx(expected, rel=0.15)
+    assert float(premium_mse) / scales.premium > 100
+
+
+def test_linear_output_keeps_pytorchs_default_initialization(data):
+    # the linear output never had the problem, and its recorded ablation runs must reproduce
+    config = TrainConfig(width=16, output="linear", seed=5)
+    torch.manual_seed(5)
+    default = MLP(depth=config.depth, width=16)
+    for x, y in zip(initial_model(config, data.premium).state_dict().values(), default.state_dict().values()):
+        assert torch.equal(x, y)
+
+
+@pytest.mark.parametrize("premium", [torch.zeros(10), torch.full((10,), -1e-6), torch.zeros(0)])
+def test_softplus_start_needs_a_positive_mean_premium(premium):
+    # no bias term gives softplus(bias) <= 0, so there is no mean to start at
+    with pytest.raises(ValueError, match="positive mean premium"):
+        initial_model(TrainConfig(width=8, output="softplus"), premium)
+    initial_model(TrainConfig(width=8, output="linear"), premium)  # the linear output needs no mean
+
+
+def test_training_starts_the_softplus_output_at_the_trained_rows_mean_premium(tree_file):
+    # a learning rate too small to move any weight leaves the starting bias term in place,
+    # so this checks that train_surrogate starts from initial_model on its trained rows
+    config = TrainConfig(**{**TINY, "output": "softplus", "epochs": 1, "lr": 1e-12, "lr_min": 1e-12})
+    model = train_surrogate(tree_file, config).surrogate.model
+    train, _ = _split(tree_file, config)
+    expected = math.log(math.expm1(float(train[2].mean())))
+    # float32 rounding of a value near -4.4 is ~5e-7; the few Adam steps move it by ~1e-12 each
+    assert model.net[-2].bias.item() == pytest.approx(expected, abs=1e-6)
 
 
 # --- train_surrogate ---
