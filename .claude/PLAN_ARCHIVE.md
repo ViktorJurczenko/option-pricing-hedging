@@ -11,6 +11,16 @@ Entry format:
 **Links:** commits `abc1234`..., BUGS entries, docs/results, README section.
 ```
 
+## Surrogate ablations and final model (2026-10-22 -> 2026-11-10, done)
+- Rebuilt the MLP surrogate on a binomial-tree teacher (BBSR, 1000 steps) with z-sampled Sobol data (2^19 rows), an early-exercise-premium target, a SiLU MLP with delta in the loss, `PutSurrogate`'s routing and payoff floor, and `test-ml`'s evaluation against an independent 4000-step tree; a learning curve set 400 epochs.
+- Seeded ablations (`run_ablations`): delta weight, output, activation, L-BFGS, shape penalty (3 seeds), their combination, the dataset (`T` range, exercised rows) and width 256 (5 seeds).
+- The softplus output's bias term now starts at the mean premium, after width 256 froze in its first epoch on every seed (BUGS, "Width-256 softplus surrogate stopped learning in its first epoch").
+- Chosen: `lambda_delta` 0.3, softplus output, width 128, every exercised row, `T` from 1 week to 5 years; made `TrainConfig`'s default, with the ablations' base pinned in `ABLATION_BASE` so stored runs stay valid.
+- Not retrained: the shipped `artifacts/checkpoints/put_surrogate.pth` is seed 43 of the width-128 runs of `artifacts/runs/ablations_b036/` (the median seed on implied-vol error); `test-ml --seed 43` reproduces its report except for the timing.
+
+**Outcome:** on 2342 grid puts against BBSR-4000, $0.00045 ± 0.00004 mean error and 0.44 ± 0.04 bp of implied vol over 5 seeds (shipped: $0.00042, 0.43 bp), 6-9 µs per option in batches, 360-510x faster than the teacher.
+**Links:** commits `fcc60f1`..`aeee6d5`, `645ed22`..this one; BUGS "Width-256 softplus surrogate stopped learning in its first epoch"; `docs/results/surrogate-training.md`; README "MLP surrogate".
+
 ## README reorganization (2026-11-05 -> 2026-11-05, done)
 - README rewritten as an overview of the work done, for an academic, resume-facing audience: pitch, Highlights, Methods and references (8 papers), Project status, How it was built, Further reading.
 - Started before the final surrogate model by decision: the surrogate section is a flagged stub (`[!WARNING]` block, `TODO(final model)`), which **Final model and write-up** fills.

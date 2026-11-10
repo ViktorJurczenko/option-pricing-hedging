@@ -11,27 +11,13 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Surrogate ablations and final model](#surrogate-ablations-and-final-model) | active | Final model and write-up |
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 
 ## Active
 
-### Surrogate ablations and final model
-
-**Goal:** choose the tree surrogate's final configuration from seeded evidence, then train and document it. The overhaul that built the surrogate is done (see **Done so far**); the defaults were picked from single-seed runs, so each one is now checked against the seed-to-seed spread.
-
-**Done so far:** the old LSM-trained surrogate had structural problems: call labels were exactly Black-Scholes (the net re-learnt a closed form), the fixed-width softplus target let the kink back for the ~33% of rows with `sigma*sqrt(T) < 0.12` (43% of labels negative), 1.9% of LSM put labels sat below the European price, and its ReLU net gave a staircase delta and no gamma. So the MLP surrogate was rebuilt on a binomial-tree teacher (BBSR, 1000 steps, chosen by a convergence study), with z-sampled Sobol data (2^19 rows), an early-exercise-premium target, a smooth SiLU MLP with delta in the loss, the `PutSurrogate` pricer with domain routing and a payoff floor, a training loop with cosine decay and late patience, a new `test-ml` evaluation (independent finer reference tree, buckets, implied-vol error, no-arbitrage violations), and the seeded ablation runner with a cached reference grid. A learning curve showed that training steps, not data, were the limit, which set 400 epochs. Numbers: `docs/results/surrogate-training.md`. Commits `fcc60f1`..`aeee6d5`.
-
-- [x] CLI-only ablations, 3 seeds each (42, 43, 44)
-- [x] Combined variant, 3 seeds
-- [x] Dataset ablations: code
-- [x] Dataset ablations: runs
-- [x] Wider network and more seeds: code
-- [x] Wider network and more seeds: runs, again with the output-bias fix
-- [ ] Final model and write-up
-  The configuration is chosen: `lambda_delta_0.3_softplus` at width 128 (width 256 was within 0.6 seed sd on every error, against the larger of the two sds, at ~2.6x the training time), every exercised row, `T` from 1 week to 5 years; results in `docs/results/surrogate-training.md`, "The candidate on the full grid" and "Width: 256 units do not beat 128". No retraining: the 5 width-128 runs in `artifacts/runs/ablations_b036/lambda_delta_0.3_softplus/` already are this configuration, trained by the same `train_surrogate` call as `train-ml`, so copy seed 43's `model.pth` to `artifacts/checkpoints/put_surrogate.pth` (chosen with the user: the median seed on implied-vol error, 0.43 bp). Make the configuration `TrainConfig`'s default (`lambda_delta` 0.3, softplus output) so `train-ml` reproduces it, check that `test-ml --seed 43` reproduces the run's `report.txt` (all but the timing lines: the runs were timed while other runs shared the CPU), fill the README's flagged surrogate stub (results as the 5-seed mean ± sd plus the shipped seed's own numbers, choices, known limitations, timing; then remove the warning and the `TODO(final model)` comment, and the "in progress" in Highlights, What's inside and Project status), and update REMINDER.md (fill chapter 11's table from `artifacts/runs/ablations/summary.md` and `artifacts/runs/ablations_b036/summary.md`, write the findings, update chapter 10's final-model paragraph).
+Nothing active: the next workstream comes from the backlog.
 
 ## Backlog
 

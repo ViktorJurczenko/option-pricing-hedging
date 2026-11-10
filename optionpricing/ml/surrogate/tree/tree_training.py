@@ -57,8 +57,11 @@ class TrainConfig:
         a first small run it tripled the price error, about equally in
         every region, for a small drop in violations, and made each step
         ~3x slower than with the delta loss alone (.claude/BUGS.md, "Shape
-        penalty's convexity term ~3000x too big"); the ablation on the full
-        dataset decides.
+        penalty's convexity term ~3000x too big"), and on the full dataset
+        (weight 0.1, 3 seeds) it was worse on price everywhere at ~2.6x the
+        training time (docs/results/surrogate-training.md, "Seeded
+        ablations"). The defaults are the configuration those ablations
+        chose.
     seed: seeds the split, the weights' initialization, the batch order and
         the shape points.
 
@@ -72,16 +75,22 @@ class TrainConfig:
     depth: int = 4
     width: int = 128
     activation: str = "silu"  # smooth, so the autograd delta and gamma are meaningful (ReLU's gamma is 0)
-    output: str = "linear"  # softplus can't fit the labels' slightly negative premiums (-2.7e-6)
+    # softplus: the premium is never negative, and the shape violations fall ~10x against a
+    # linear output (docs/results/surrogate-training.md, "Seeded ablations")
+    output: str = "softplus"
     split_ratio: float = 0.8  # the same 80/20 train/test split as every dataset class here
     valid_ratio: float = 0.2  # of the training split: ~84k validation rows at 2^19, plenty for a stable score
     batch_size: int = 1024  # the plan's 512-1024: low-noise gradients, few large ops (fast on CPU)
-    epochs: int = 400  # the cosine's length, ~20 min at 2^19 rows; 400 beat 200 and 800 on price (PLAN.md)
+    # the cosine's length, ~25-30 min at 2^19 rows; 400 beat 200 and 800 on price
+    # (docs/results/surrogate-training.md, "Training length")
+    epochs: int = 400
     lr: float = 1e-3  # Adam's standard start
     lr_min: float = 1e-5  # 100x smaller: steps fine enough to settle at the end (the plan's value)
     patience: int = 20  # counted in the low-rate tail only: the cosine ends a normal run
-    lbfgs_steps: int = 0  # off until the ablation shows the finish is worth its cost
-    lambda_delta: float = 1.0  # equal weight to the premium term (both normalized by their variance)
+    lbfgs_steps: int = 0  # off: 200 steps gained within ~1 seed sd for ~5 more min (Seeded ablations)
+    # both terms normalized by their variance; 0.3 priced best of 0, 0.3, 1 and 3 with no cost to
+    # delta (docs/results/surrogate-training.md, "Seeded ablations")
+    lambda_delta: float = 0.3
     lambda_shape: float = 0.0  # off: hurt every region on the first trial (see above)
     shape_points: int = 1024  # one batch's worth: as many unlabeled points as labeled ones per step
     seed: int = 42  # the repo's usual seed
@@ -321,7 +330,7 @@ def evaluate_labeled(model: MLP, rows, scales: LossScales, lambda_delta: float) 
         (premium MSE / its scale) and delta_term (lambda_delta * delta MSE /
         its scale), reported apart because one can improve while the other
         gets worse (an 800-epoch run lowered the loss by trading price for
-        delta accuracy, PLAN.md), and premium_rmse and delta_rmse (per unit
+        delta accuracy: docs/results/surrogate-training.md), and premium_rmse and delta_rmse (per unit
         of strike; delta_rmse is computed even when lambda_delta is 0, as a
         diagnostic).
     """

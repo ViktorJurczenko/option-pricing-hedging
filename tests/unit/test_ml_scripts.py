@@ -43,7 +43,7 @@ NON_DEFAULT_FLAGS = {
     "depth": "2",
     "width": "16",
     "activation": "tanh",
-    "output": "softplus",
+    "output": "linear",
     "split_ratio": "0.7",
     "valid_ratio": "0.25",
     "batch_size": "64",

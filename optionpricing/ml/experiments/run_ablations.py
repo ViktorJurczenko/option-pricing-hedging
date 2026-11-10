@@ -1,7 +1,8 @@
 """
-Step 10's seeded ablations (`.claude/PLAN.md`): each variant is the default
-TrainConfig with one change (or, in COMBINED, the union of two such
-variants' changes), trained once per seed on the tree dataset and
+The surrogate's seeded ablations (docs/results/surrogate-training.md): each
+variant is ABLATION_BASE, the TrainConfig they were measured against
+(lambda_delta 1, linear output), with one change (or, in COMBINED, the union
+of such variants' changes), trained once per seed on the tree dataset and
 scored like `test-ml` (test split and grid, at several violation
 tolerances). A dataset variant (DATASET_VARIANTS) trains another
 variant's config on its own dataset, to test the data's design. Run
@@ -41,8 +42,13 @@ from optionpricing.ml.surrogate.tree.generate_tree_dataset import COLUMNS, domai
 from optionpricing.ml.surrogate.tree.tree_training import TrainConfig
 from optionpricing.pricing.american.batch_binomial_tree import METHODS
 
-# name -> the TrainConfig fields it changes; the baseline changes none, so
-# every other row differs from it in exactly one setting (PLAN.md, step 10)
+# The configuration every variant changes: TrainConfig's defaults when the
+# ablations were run. TrainConfig now defaults to the chosen
+# lambda_delta_0.3_softplus; pinning the old base here keeps every variant,
+# and so every stored run's config, as it was measured.
+ABLATION_BASE = {"lambda_delta": 1.0, "output": "linear"}
+# name -> the fields it changes from ABLATION_BASE; the baseline changes none,
+# so every other row differs from it in exactly one setting
 VARIANTS = {
     "baseline": {},
     "lambda_delta_0": {"lambda_delta": 0.0},
@@ -66,7 +72,7 @@ VARIANTS |= {name: {k: v for part in parts for k, v in VARIANTS[part].items()} f
 # name -> (the variant whose config it trains, the directory next to
 # --dataset_path's that holds its tree_put_dataset.npz): the chosen config
 # on a dataset made another way, each 2^19 rows so only the data differs
-# (.claude/PLAN.md, dataset ablations). Generated with generate_tree_dataset's
+# (docs/results/surrogate-training.md, "Dataset ablations"). Generated with generate_tree_dataset's
 # --T_min 0.25 and --exercised_keep 0.25.
 DATASET_VARIANTS = {
     "T_from_0.25": ("lambda_delta_0.3_softplus", "T0.25"),
@@ -87,7 +93,7 @@ def run_config(variant: str, seed: int, epochs=None) -> dict:
     if variant not in ALL_VARIANTS:
         raise ValueError(f"unknown variant {variant!r}, expected one of {list(ALL_VARIANTS)}")
     base = DATASET_VARIANTS[variant][0] if variant in DATASET_VARIANTS else variant
-    overrides = {**VARIANTS[base], "seed": seed}
+    overrides = {**ABLATION_BASE, **VARIANTS[base], "seed": seed}
     if epochs is not None:
         overrides["epochs"] = epochs
     return asdict(TrainConfig(**overrides))  # validated here, before any run starts
@@ -422,7 +428,9 @@ def make_parser() -> argparse.ArgumentParser:
         REF_STEPS,
     )
 
-    parser = argparse.ArgumentParser(description="Seeded ablations of the tree surrogate (PLAN.md, step 10).")
+    parser = argparse.ArgumentParser(
+        description="Seeded ablations of the tree surrogate (docs/results/surrogate-training.md)."
+    )
     parser.add_argument("--dataset_path", default="artifacts/data/tree_put_dataset.npz", type=str)
     parser.add_argument(
         "--out_dir",

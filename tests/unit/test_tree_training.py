@@ -24,7 +24,13 @@ from optionpricing.pricing.european.black_scholes import black_scholes_dT, black
 from tests.helpers import write_tree_dataset
 
 # tiny net and run: these tests check the loop's mechanics, not accuracy
-TINY = dict(depth=1, width=8, batch_size=16, epochs=4, seed=0)
+# The loop's mechanics (checkpointing, schedule, stopping, L-BFGS) on a linear output: it
+# starts far from the labels (first validation loss 27-200 on seeds 0-2), so every run has
+# a large drop to measure. The default softplus output starts at the mean premium (first
+# loss 1.3-4.1), and at lr 1e-2 seed 0 rose back above its first epoch on this 128-row
+# dataset (docs/results/surrogate-training.md, "Output initialization"); it is checked
+# against its own start below.
+TINY = dict(depth=1, width=8, batch_size=16, epochs=4, seed=0, output="linear", lambda_delta=1.0)
 
 
 @pytest.fixture(scope="module")
@@ -73,9 +79,11 @@ def test_train_config_rejects_bad_settings(kwargs):
 
 def test_train_config_defaults_follow_the_plan():
     c = TrainConfig()
-    assert (c.depth, c.width, c.activation, c.output) == (4, 128, "silu", "linear")
+    # the configuration the ablations chose (docs/results/surrogate-training.md), so a plain
+    # train-ml run trains the shipped model's configuration
+    assert (c.depth, c.width, c.activation, c.output) == (4, 128, "silu", "softplus")
     assert (c.lr, c.lr_min, c.batch_size, c.epochs) == (1e-3, 1e-5, 1024, 400)
-    assert (c.lambda_delta, c.lambda_shape, c.lbfgs_steps) == (1.0, 0.0, 0)
+    assert (c.lambda_delta, c.lambda_shape, c.lbfgs_steps) == (0.3, 0.0, 0)
 
 
 # --- loss pieces ---
@@ -295,6 +303,22 @@ def test_training_is_reproducible_and_returns_the_best_validation_weights(tree_f
 def test_training_lowers_the_validation_loss(tree_file):
     res = train_surrogate(tree_file, TrainConfig(**{**TINY, "epochs": 30, "lr": 1e-2}))
     assert res.history[-1]["valid_loss"] < 0.5 * res.history[0]["valid_loss"]
+
+
+def test_the_default_softplus_output_trains_below_its_start(tree_file):
+    # the shipped configuration's output and delta weight, on the tiny net: it starts at the mean
+    # premium, so the drop is measured against that start, not against a far-off first epoch
+    config = TrainConfig(depth=1, width=8, batch_size=16, epochs=30, lr=1e-2, seed=0)
+    assert (config.output, config.lambda_delta) == ("softplus", 0.3)
+    res = train_surrogate(tree_file, config)
+    assert all(math.isfinite(h["valid_loss"]) for h in res.history)
+    train, valid = _split(tree_file, config)
+    scales = LossScales.fit(train[2], train[3])
+    start = evaluate_labeled(initial_model(config, train[2]), valid, scales, config.lambda_delta)["loss"]
+    best = evaluate_labeled(res.surrogate.model, valid, scales, config.lambda_delta)["loss"]
+    # seeds 0-5 measured 0.11-0.56 of the start (docs/results/surrogate-training.md, "Output
+    # initialization"); an untrained or unreturned best checkpoint stays at 1
+    assert best < 0.7 * start
 
 
 def test_learning_rate_follows_the_cosine_down_to_lr_min(tree_file):

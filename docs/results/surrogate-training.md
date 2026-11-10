@@ -1,6 +1,6 @@
 # Tree surrogate: teacher, training-length and ablation results
 
-Measured results behind the tree MLP surrogate's defaults (`binomial_put_batch`'s `method="bbsr"`, `nb_steps=1000`; `TrainConfig.epochs = 400`). Moved from `.claude/PLAN.md`, where they were recorded as the work went. **Not re-verified** since they were measured (2026-10-22 to 2026-11-10); rerun before quoting them as current.
+Measured results behind the tree MLP surrogate's defaults (`binomial_put_batch`'s `method="bbsr"`, `nb_steps=1000`; `TrainConfig`'s `epochs = 400`, `lambda_delta = 0.3`, `output = "softplus"`, `width = 128`). Moved from `.claude/PLAN.md`, where they were recorded as the work went. **Not re-verified** since they were measured (2026-10-22 to 2026-11-10); rerun before quoting them as current.
 
 ## Choice of teacher: BBSR at N = 1000
 
@@ -161,11 +161,11 @@ On the full grid, against the `lambda_delta_0.3_softplus` row above, `artifacts/
 ```
 python -m optionpricing.ml.experiments.run_ablations --variants lambda_delta_0.3_softplus lambda_delta_0.3_softplus_width_256 --seeds 42 43 44 45 46 --out_dir artifacts/runs/ablations_b036   # ~2.5 h, 4 runs at a time
 # one model on its own:
-python main.py train-ml --lambda_delta 0.3 --output softplus --seed 43   # ~25-30 min
+python main.py train-ml --seed 43   # the chosen configuration is TrainConfig's default, ~25-30 min
 python main.py test-ml --seed 43
 ```
 
-The chosen configuration, at width 128 (the width ablation, "Width: 256 units do not beat 128" below, kept it). From the 5 width-128 runs of the width ablation (`artifacts/runs/ablations_b036/lambda_delta_0.3_softplus/`, measured 2026-11-10), trained with the softplus output's bias term at the mean premium ("Output initialization" below); the final model's numbers replace them in the README once it is chosen.
+The chosen configuration, at width 128 (the width ablation, "Width: 256 units do not beat 128" below, kept it). From the 5 width-128 runs of the width ablation (`artifacts/runs/ablations_b036/lambda_delta_0.3_softplus/`, measured 2026-11-10), trained with the softplus output's bias term at the mean premium ("Output initialization" below). The shipped checkpoint, `artifacts/checkpoints/put_surrogate.pth`, is seed 43 of these runs (the median seed on implied-vol error), and `test-ml --seed 43` reproduces its `report.txt` except for the timing line; its own numbers are in the README.
 
 **The chosen configuration** is 4 hidden layers of 128 SiLU units with a
 softplus output (the premium is never negative), trained on the premium error
@@ -347,6 +347,8 @@ The first 2 epochs of training. Protocol: the `lambda_delta_0.3_softplus` settin
 | width 256, linear warm-up over epoch 1 | no | −1.2 / −1.0 | 6.5e-2 / 0.11 |
 | width 128, bias term at `log(expm1(ȳ))` | no | −1.2 / −1.1 | **6.9e-3 / 9.1e-3** |
 | width 256, bias term at `log(expm1(ȳ))` | no | −1.2 / −1.0 | **2.6e-3 / 4.9e-3** |
+
+**On the unit tests' 128-row dataset** (`tests/helpers.py`'s `write_tree_dataset`; depth 1, width 8, batch 16, 30 epochs; an ad hoc script, not in the repo, measured 2026-11-10). The first epoch's validation loss is 27-200 with the linear output (`lambda_delta` 1) and 1.3-4.1 with the softplus output (`lambda_delta` 0.3), seeds 0-2, so the softplus run has far less to lose: at lr 1e-2, seed 0 fell to 0.92 by epoch 11 and ended at 3.62, above its first epoch's 2.95. Measured against the untrained net instead (the start at the mean premium), the best checkpoint's validation loss is 0.11-0.56 of it at lr 1e-2 and 0.30-0.82 at lr 3e-3, seeds 0-5. So the training-loop tests in `tests/unit/test_tree_training.py` use the linear output, and `test_the_default_softplus_output_trains_below_its_start` checks the softplus default against its own start.
 
 **Consequence for the results above.** The softplus-output runs of the seeded and dataset ablations (`softplus_output`, `lambda_delta_0.3_softplus` in `artifacts/runs/ablations/` and the dataset variants) trained with the default bias term and recovered from a near-collapse. Their numbers are valid as measured but do not reproduce from the current code. The width-256 rows of `artifacts/runs/ablations/summary.md` are failed runs, not a measurement of what a wider network can do. "The candidate on the full grid" and the width ablation below use runs trained with the fix.
 

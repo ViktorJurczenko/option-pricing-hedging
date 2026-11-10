@@ -92,7 +92,8 @@ def domain_from(T_min: float | None = None, domain: dict = DOMAIN) -> dict:
     """
     A copy of `domain` whose T range starts at `T_min` (unchanged if None),
     for a dataset that leaves the short maturities out, e.g. the T-range
-    ablation's `T >= 0.25` dataset (`.claude/PLAN.md`).
+    ablation's `T >= 0.25` dataset (docs/results/surrogate-training.md,
+    "Dataset ablations").
 
     Raises:
         ValueError: if `T_min` is not inside the domain's T range. It only
@@ -113,7 +114,7 @@ def thin_exercised(exercised: np.ndarray, keep: float, n_rows: int) -> np.ndarra
     The indices of a dataset that keeps every continuation row and a share
     `keep` of the rows exercised today, then its first `n_rows`, all in the
     rows' (Sobol) order. Exercised rows are priced by the payoff floor
-    anyway, so the exercised-row ablation (`.claude/PLAN.md`) spends their
+    anyway, so the exercised-row ablation (docs/results/surrogate-training.md) spends their
     place on continuation rows: the pool is labelled with more rows than
     kept, so the thinned dataset has as many rows as the full one.
 
@@ -280,7 +281,7 @@ def main(argv=None):
     check_teacher(args.nb_steps, args.method, sampling_domain)
     # a thinned dataset needs more points labelled than kept; twice is enough
     # while under 2/3 of the rows are exercised at keep = 1/4 (28% in the
-    # default dataset, `.claude/PLAN.md`)
+    # default dataset, docs/results/surrogate-training.md, "Dataset ablations")
     pool_rows = args.n_rows if args.exercised_keep == 1 else 2 * args.n_rows
     start_time = time.time()
 

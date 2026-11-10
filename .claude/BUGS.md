@@ -504,6 +504,11 @@ measure a failed optimization, not network capacity. The question
 "does a wider net help" is unanswered. The width-128 softplus runs
 (`softplus_output`, `lambda_delta_0.3_softplus`, the dataset variants)
 trained correctly but lost their first ~150-180 steps to the near-collapse.
+Rerun with the fix (2026-11-10, seeds 42-46, `artifacts/runs/ablations_b036/`):
+width 256 trains normally and is within 0.6 of the larger seed sd of
+width 128 on every error, and the fix lowers width 128's implied-vol error
+from 0.60 ± 0.03 to 0.44 ± 0.04 bp (`docs/results/surrogate-training.md`,
+"Width: 256 units do not beat 128").
 
 **Fix:** `initial_model` in `tree_training.py`, which `train_surrogate`
 now starts from, sets the softplus output layer's bias term to

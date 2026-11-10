@@ -640,7 +640,7 @@ def evaluate_grid(
     loaded from / saved to `reference_cache` if given (grid_reference).
     `domain` is the surrogate's own by default; a narrower one scores
     models trained on different domains on the same points (the T-range
-    ablation, `.claude/PLAN.md`).
+    ablation, docs/results/surrogate-training.md).
 
     Returns:
         dict: n (points), by_z, by_T, by_r (bucket_metrics rows),

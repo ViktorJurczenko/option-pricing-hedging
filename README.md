@@ -30,10 +30,12 @@ below is produced by a command in this repository.
   delta hedging on the put, and on par with it on the call. Under trading
   costs, a learned no-trade band matches the best hand-tuned band within
   seed noise or beats it, without any tuning.
-- **A neural pricer for American puts (in progress).** An MLP trained on
-  binomial-tree prices answers in microseconds per option in batches, with
-  sub-cent typical error. The final model is still being selected.
-- **Tested.** 870 tests (unit, integration, CLI smoke tests), plus a
+- **A neural pricer for American puts.** An MLP trained on binomial-tree
+  prices gives price, delta and gamma in 6-9 µs per option in batches,
+  360-510x faster than the tree it learned from, with a mean error of
+  $0.0004 at K = 100 (0.43 bp of implied volatility) against an independent,
+  finer tree. Every design choice was picked by seeded ablations.
+- **Tested.** 883 tests (unit, integration, CLI smoke tests), plus a
   mutation check on the surrogate's evaluation code.
 
 ## Methods and references
@@ -55,7 +57,7 @@ below is produced by a command in this repository.
 |---|---|
 | European and American pricers | Done |
 | LSM Greeks and exercise rule | Done |
-| MLP surrogate for American puts | ⚠️ **In progress:** built and trained; the final configuration is being chosen by seeded ablations |
+| MLP surrogate for American puts | Done |
 | RL hedging (SAC) | Working, under active development: the results below are a snapshot |
 | Deep Hedging, dividend-paying stocks, fast American-put benchmarks | Planned |
 
@@ -70,7 +72,7 @@ found along the way, with its root cause and fix, is in the
 |---|---|
 | **European pricing** | Closed-form Black-Scholes and Monte-Carlo simulation, cross-checked against each other. |
 | **American pricing** | A Cox-Ross-Rubinstein binomial tree, a vectorized batch tree (CRR, BBS, BBSR), and Longstaff-Schwartz least-squares Monte-Carlo with simple or Laguerre polynomial bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
-| **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. Final configuration pending. Standalone: the hedging environment prices with `LongstaffSchwartz` directly. |
+| **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. Standalone: the hedging environment prices with `LongstaffSchwartz` directly. |
 | **RL hedging** | A Soft Actor-Critic agent trained in a custom Gym-style environment to hedge an American option until its exercise date, under proportional and fixed trading costs, compared against delta-hedge, no-trade-band and no-hedge baselines. Under active development. |
 
 ## Results
@@ -176,20 +178,39 @@ higher degrees are worse for both. Every LSM consumer defaults to `simple`.
 
 ### MLP surrogate: a neural pricer for American puts
 
-> [!WARNING]
-> **Work in progress: the final model is not chosen yet.** Seeded ablations
-> are still selecting the configuration (`.claude/PLAN.md`, "Surrogate
-> ablations and final model"). This section will get the final model's
-> results, the choices behind it and its known limitations once it is
-> trained. Until then, the candidates' measured results are in
-> [`docs/results/surrogate-training.md`](docs/results/surrogate-training.md).
+```
+python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # 2^19 tree-priced puts, ~15 min on 6 cores
+python main.py test-ml --seed 43                                  # score the shipped model; --seed: its training split
+python main.py train-ml --seed 43                                 # or retrain it (the defaults), ~25-30 min
+```
 
-<!-- TODO(final model): results table, choices table, known limitations, timing. -->
+The trained model is in the repository,
+`artifacts/checkpoints/put_surrogate.pth` (seed 43), and loads with
+`PutSurrogate.load`. Scoring it needs the dataset, since its test split is
+part of the evaluation. Retraining overwrites that file, and the result can
+differ slightly from the shipped model, since training is not bit-for-bit
+reproducible across machines and thread counts.
+
+Pricing with it, next to the tree it learned from (run from the project
+root):
+
+```python
+import numpy as np
+
+from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
+from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+
+surrogate = PutSurrogate.load("artifacts/checkpoints/put_surrogate.pth")
+m = np.array([0.9, 1.0, 1.1])  # S / K: in, at and out of the money
+res = surrogate.price(m, T=1.0, r=0.05, sigma=0.2)  # per unit of strike
+tree = binomial_put_batch(m, 1.0, 0.05, 0.2)  # the 1000-step BBSR tree it learned from
+print("surrogate price at K = 100:", np.round(100 * res.price, 4), "delta:", np.round(res.delta, 4))
+print("tree price at K = 100:     ", np.round(100 * tree.price, 4), "delta:", np.round(tree.delta, 4))
+```
 
 ```
-python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # 2^19 tree-priced puts
-python main.py train-ml                                          # the final configuration's flags: to come
-python main.py test-ml
+surrogate price at K = 100: [11.4919  6.0892  2.9856] delta: [-0.6832 -0.4111 -0.2235]
+tree price at K = 100:      [11.4928  6.0904  2.9865] delta: [-0.6833 -0.4111 -0.2236]
 ```
 
 **What it learns.** Per unit of strike, an American put's price depends on
@@ -205,6 +226,71 @@ extrapolated: they go to Black-Scholes far out of the money, to the payoff
 deep in it, or to the tree. A payoff floor keeps every price at or above
 `max(1 - m, 0)`.
 
+**The model.** 4 hidden layers of 128 SiLU units with a softplus output (the
+premium is never negative), trained on the premium error plus 0.3 times the
+delta error, with Adam and a cosine decay over 400 epochs. Every choice was
+tested against its alternatives by seeded ablations, scored by the 2 sd rule:
+a difference counts only if it exceeds about 2 seed standard deviations.
+
+| Choice | Tested against | Why it won |
+|---|---|---|
+| Delta error in the loss, weight 0.3 | 0, 1, 3 | best price; without the delta term, delta is ~7x worse |
+| Softplus output | linear | no-arbitrage violations 0.73% -> 0.06% of grid points |
+| SiLU activations | ReLU | ReLU: ~25x the error, and its gamma is 0 almost everywhere |
+| Width 128 | 256 | 256 within 0.6 seed sd on every error, at ~2.6x the training time |
+| No shape penalty, no L-BFGS finish | penalty weight 0.1, 200 L-BFGS steps | worse or within noise, and slower |
+| 400 epochs | 200, 800 | 800 lowers the delta error but raises the price error |
+| BBSR teacher, 1000 steps | CRR, BBS; 500 and 2000 steps | lowest mean price error; 2000 steps halve the worst error at 3.5x the cost |
+| One model from 1 week to 5 years | `T` from 3 months only | simpler to ship; the cost is 1.3-2.7x the error beyond 3 months |
+
+**Results.** Scored against an independent 4000-step BBSR tree (4x the
+teacher's steps, so not the labels the network learned) on a factorial grid
+of 2342 puts: 27 `z` x 6 `σ` x 8 maturities from 1 week to 5 years x `r` in
+{2%, 6%}. $ at K = 100. "5 seeds" is the configuration's mean ± standard
+deviation over seeds 42-46; "shipped" is the checkpoint, seed 43, the median
+seed on implied-vol error. The implied-vol error is how far `σ` would have to
+move for the true price to equal the surrogate's, in basis points (1 bp =
+0.0001 in `σ`): it puts errors on options of different prices on one scale.
+
+| Puts | Points | Mean error, 5 seeds | Mean error, shipped | Worst error, 5 seeds | Worst error, shipped | IV error (bp), 5 seeds | IV error (bp), shipped |
+|---|---|---|---|---|---|---|---|
+| near the money (`\|z\|` < 1) | 646 | 0.00079 ± 0.00003 | 0.00079 | 0.0166 ± 0.0034 | 0.0126 | 0.33 ± 0.01 | 0.35 |
+| `T` < 1 month | 494 | 0.00008 ± 0.00002 | 0.00009 | 0.0012 ± 0.0002 | 0.0011 | 0.28 ± 0.06 | 0.29 |
+| `T` 1-3 months | 455 | 0.00015 ± 0.00001 | 0.00017 | 0.0014 ± 0.0004 | 0.0014 | 0.31 ± 0.06 | 0.31 |
+| `T` >= 3 months | 690 | 0.00090 ± 0.00007 | 0.00087 | 0.0166 ± 0.0034 | 0.0126 | 0.61 ± 0.05 | 0.59 |
+| exercised today | 703 | 0.00045 ± 0.00007 | 0.00038 | 0.0114 ± 0.0032 | 0.0069 | - | - |
+| all | 2342 | 0.00045 ± 0.00004 | 0.00042 | 0.0166 ± 0.0034 | 0.0126 | 0.44 ± 0.04 | 0.43 |
+
+The `T` rows are the puts not exercised today. Measured 2026-11-10; the
+shipped model's numbers reproduce with `test-ml --seed 43`, and the per-seed
+runs are in
+[`docs/results/surrogate-training.md`](docs/results/surrogate-training.md).
+
+- **The typical error is a fraction of a cent**: $0.0004 on average, 0.43 bp
+  of implied volatility. A one-cent tick on a 1-year at-the-money put is
+  about 2.6 bp.
+- **Delta** is within 9.0e-5 of the reference tree's on average (shipped
+  model), 1.4e-4 near the money.
+- **No-arbitrage shape**: on the puts not exercised today, the network's
+  price falls and is convex in moneyness and rises with `σ` at every grid
+  point, and rises with `T` at all but 0.12% of them.
+- **Speed**: 6-9 µs per option when the grid is priced in one call, against
+  3.1-3.2 ms for the 1000-step tree it learned from: 360-510x faster.
+
+**Known limitations.**
+- **The worst errors sit near the money beyond 3 months**: $0.013-0.022 over
+  the 5 seeds, $0.0126 for the shipped model.
+- **Rates near zero** are its weakest region, outside the grid's rates: on the
+  test split, the largest errors (up to ~$0.10) were long-dated deep
+  in-the-money puts at `r` < 0.002. Measured on earlier checkpoints of the same
+  configuration, not re-measured on the shipped one.
+- **One option at a time is no faster than the tree** (2.1-2.3 ms: the
+  autograd passes for delta and gamma dominate), so the speed-up needs batches.
+- **Puts only**, on the domain above: anything outside it goes to the tree
+  or a closed form.
+
+The ablations, the per-seed results and the measures are written up in
+[`docs/results/surrogate-training.md`](docs/results/surrogate-training.md).
 This surrogate replaced a first version trained on Longstaff-Schwartz
 prices, whose write-up is in
 [`docs/results/legacy-surrogate.md`](docs/results/legacy-surrogate.md).
@@ -307,7 +393,8 @@ pip install -e .        # optional: makes `optionpricing` importable from anywhe
 Pinned versions match the development environment (Python 3.13, PyTorch
 2.11 CPU build). No GPU is needed: training falls back to CPU when CUDA is
 unavailable. Generated datasets, checkpoints, logs and experiment runs go to
-`artifacts/` (gitignored).
+`artifacts/`, which is gitignored except for the trained surrogate,
+`artifacts/checkpoints/put_surrogate.pth`.
 
 ## Usage
 
@@ -370,7 +457,7 @@ main.py                 the CLI entry point
 scripts/                one module per main.py command
 tests/                  unit/, integration/, mutation/
 docs/                   architecture.md (module reference), results/
-artifacts/              generated datasets, checkpoints, logs, runs (gitignored)
+artifacts/              generated datasets, checkpoints, logs, runs (gitignored, except the trained surrogate)
 ```
 
 Pricers are grouped by option class, everything learned lives in

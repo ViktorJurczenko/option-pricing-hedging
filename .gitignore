@@ -10,8 +10,12 @@ __pycache__/
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 
-# Generated outputs: datasets, checkpoints, logs, experiment runs
-artifacts/
+# Generated outputs: datasets, checkpoints, logs, experiment runs. Only the
+# trained surrogate (206 KB) is tracked, so the README's pricer works from a clone.
+artifacts/*
+!artifacts/checkpoints/
+artifacts/checkpoints/*
+!artifacts/checkpoints/put_surrogate.pth
 
 # Personal notes (REMINDER.md, course material), not shared
 notes/

@@ -3,7 +3,7 @@ The runner end to end (processes, training, scoring) is in tests/integration/tes
 
 import json
 import math
-from dataclasses import fields
+from dataclasses import asdict, fields
 from pathlib import Path
 
 import pytest
@@ -19,10 +19,24 @@ EVAL = {"ref_steps": 100, "ref_method": "bbsr", "n_z": 3, "n_sigma": 1, "n_T": 2
 def test_every_variant_differs_from_the_baseline_in_one_setting_only():
     # an ablation compares one change; two at once would confound them
     base = ra.run_config("baseline", 42)
-    assert base == {f.name: getattr(TrainConfig(seed=42), f.name) for f in fields(TrainConfig)}
+    assert base == {f.name: getattr(TrainConfig(seed=42, **ra.ABLATION_BASE), f.name) for f in fields(TrainConfig)}
     for name in ra.VARIANTS.keys() - ra.COMBINED.keys():
         diff = {k for k, v in ra.run_config(name, 42).items() if v != base[k]}
         assert len(diff) == (0 if name == "baseline" else 1), (name, diff)
+
+
+def test_the_baseline_stays_the_configuration_the_ablations_measured():
+    # TrainConfig's defaults moved to the chosen variant; had the baseline followed them,
+    # every stored run's config would differ and a rerun would refuse it (and "baseline"
+    # would silently mean another model)
+    base = ra.run_config("baseline", 42)
+    assert (base["lambda_delta"], base["output"]) == (1.0, "linear")
+    assert (base["lambda_delta"], base["output"]) != (TrainConfig().lambda_delta, TrainConfig().output)
+
+
+def test_the_chosen_variant_is_train_configs_default():
+    # a plain train-ml run then trains the shipped model's configuration
+    assert ra.run_config("lambda_delta_0.3_softplus", 42) == asdict(TrainConfig(seed=42))
 
 
 @pytest.mark.parametrize("name", list(ra.COMBINED))
