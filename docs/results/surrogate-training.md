@@ -81,7 +81,7 @@ Every model below is scored by `evaluate_grid` in `optionpricing/ml/surrogate/tr
 IV error = |surrogate price − reference price| / vega
 ```
 
-reported in basis points of volatility: 1 bp is 0.0001 in `σ`, for example 20.00% to 20.01%. In the code (`bucket_metrics`), with `vega` from two teacher-grade trees at `σ(1 ± 1%)` (`tree_vega`):
+reported in basis points of volatility: 1 bp is 0.0001 in `σ`, for example 20.00% to 20.01%. The error is that of one price at one grid point, not an average: each point's `|error| / vega` uses its own vega, and only then are they averaged over a bucket. In the code (`bucket_metrics`), with `vega` from two teacher-grade trees at `σ(1 ± 1%)` (`tree_vega`):
 
 ```python
 row.update(n_iv=int(sel.sum()), iv_mae=_mean(abs_err[sel] / vega[sel]))
@@ -89,7 +89,9 @@ row.update(n_iv=int(sel.sum()), iv_mae=_mean(abs_err[sel] / vega[sel]))
 
 It is computed only where vega is at least $0.01 per vol point (`MIN_IV_VEGA`), and never on exercised rows, whose price does not depend on `σ`. Why it is needed alongside the dollar error: the same dollar error is a different mistake on different options. For an at-the-money put with `σ` = 20% and `r` = 4% (Black-Scholes vega, close to the American put's there), a $0.0008 error is 0.21 bp at 1 year (vega $0.38 per vol point) but 1.45 bp at 1 week (vega $0.055 per vol point). For scale, a one-cent price tick on the 1-year put is 2.6 bp, so the chosen configuration's mean of 0.44 bp is about a sixth of a tick.
 
-**Mean ± sd over seeds, and the ~2 sd rule.** A run's result depends on its seed (initialization, batch order, data split). Each configuration is trained on several seeds, and a difference between two configurations is taken as real only when it is larger than about 2 seed standard deviations; smaller differences may be luck.
+**Why the mean absolute error, not the mean squared error.** Training minimizes a squared error, which suits an optimizer (smooth, with a gradient proportional to the error). The report uses the mean absolute error because it is in dollars and is the typical miss. The MSE is in dollars squared, and its square root (RMSE, always ≥ MAE) is pulled up by the few largest errors, which the worst-error column already reports on their own.
+
+**Mean ± sd over seeds, and the ~2 sd rule.** A run's result depends on its seed (initialization, batch order, data split). Each configuration is trained on several seeds, and a difference between two configurations is taken as real only when it is larger than about 2 seed standard deviations (sample sd, `n − 1`), using the larger of the two configurations' sds: a configuration whose results spread widely cannot be called better on the strength of its lucky seeds. Smaller differences may be luck.
 
 ## Seeded ablations: lambda_delta 0.3 + softplus has the best mean error, a seed-dependent worst point
 
@@ -177,7 +179,7 @@ studies (the sections above and below):
 | Delta error in the loss, weight 0.3 | 0, 1, 3 | best price; without it, delta is ~7x worse |
 | Softplus output | linear | shape violations 0.73% -> 0.06% |
 | SiLU activations | ReLU | ReLU: ~25x the error, and its gamma is 0 almost everywhere (piecewise linear) |
-| Width 128 | 256 (5 seeds) | 256 within ~1 seed sd on every error, at ~2.6x the training time and ~3x the batch price |
+| Width 128 | 256 (5 seeds) | 256 within 0.6 seed sd on every error (the larger of the two sds), at ~2.6x the training time and ~3x the batch price |
 | No shape penalty, no L-BFGS finish | shape weight 0.1, 200 L-BFGS steps | worse or within noise, and slower |
 | 400 epochs | 200, 800 (one seed) | 800 lowers the delta error but raises the price error |
 | BBSR teacher tree, 1000 steps | CRR, BBS; 500 and 2000 steps | lowest mean price error; 2000 steps halve the maximum at 3.5x the cost |
@@ -367,7 +369,7 @@ Protocol: `lambda_delta_0.3_softplus` at depth 4, width 128 (50561 weights) or 2
 | 128 | 0.0008 ± 0.0000 | 0.0004 ± 0.0000 | 0.0166 ± 0.0034 | 0.0114 ± 0.0032 | 0.44 ± 0.04 | 0.0009 ± 0.0001 | 0.61 ± 0.05 | 1.34e-4 ± 1.2e-5 | 0.07 ± 0.05 | 29 |
 | 256 | 0.0007 ± 0.0001 | 0.0005 ± 0.0001 | 0.0160 ± 0.0029 | 0.0130 ± 0.0038 | 0.43 ± 0.09 | 0.0008 ± 0.0002 | 0.57 ± 0.10 | 1.27e-4 ± 1.6e-5 | 0.06 ± 0.09 | 76 |
 
-- **Width 256 is within about one seed sd on every error.** The decision rule (adopt 256 only if it beats 128 by more than ~2 seed sd on the near-the-money error, the implied-vol error or the worst point) is not met. Width 256 against width 128: near the money $0.0007 (256) and $0.0008 (128), implied-vol error 0.43 bp (256) and 0.44 bp (128), worst point $0.0160 (256) and $0.0166 (128). Beyond 3 months, where the wider net was expected to help most: $0.0008 (256) and $0.0009 (128), 0.57 bp (256) and 0.61 bp (128), again within noise.
+- **Width 256 is within 0.6 seed sd on every error**, measured against the larger of the two configurations' sds. The decision rule (adopt 256 only if it beats 128 by more than ~2 seed sd on the near-the-money error, the implied-vol error or the worst point) is not met. Width 256 against width 128: near the money $0.0007 (256) and $0.0008 (128), implied-vol error 0.43 bp (256) and 0.44 bp (128), worst point $0.0160 (256) and $0.0166 (128). Beyond 3 months, where the wider net was expected to help most: $0.0008 (256) and $0.0009 (128), 0.57 bp (256) and 0.61 bp (128), again within noise. Near the money the gap ($0.00071 ± 0.00014 at width 256, $0.00079 ± 0.00003 at width 128) is 0.6 of width 256's sd but 2.4 of width 128's: it comes from width 256's seeds 42-44 only, and its seeds 45 and 46 give it back (per seed below). Measured against the larger sd, as the rule requires, it stays well under 2.
 - **Its spread across seeds is about twice as wide** (per seed below). Width 256's seeds 42-44 have the lowest near-the-money errors measured ($0.00058-0.00064, against $0.00074-0.00084 for every width-128 seed). Its seeds 45 and 46 stopped early on patience, at 354 and 366 of 400 epochs, and are no better than width 128 ($0.00080-0.00089 near the money, 0.42-0.57 bp). Early stopping hit only width 256: every width-128 run trained all 400 epochs.
 - **It costs ~2.6x the training time and ~3x the batch price**: 76 min per run at width 256 and 29 min at width 128; 22-27 µs per option at width 256 and 4.5-10.5 µs at width 128, in the runs' own timing (both under load).
 - **Width 128 stays.** 400 epochs were chosen at width 128, so a longer schedule could favour width 256; not tested.
@@ -394,6 +396,6 @@ Per seed, on the grid ($ at K = 100):
 | default bias term | 0.0009 ± 0.0001 | 0.0007 ± 0.0002 | 0.0285 ± 0.0193 | 0.0235 ± 0.0216 | 0.60 ± 0.03 | 0.01 ± 0.03 |
 | bias term at the mean premium | 0.0008 ± 0.0000 | 0.0004 ± 0.0000 | 0.0166 ± 0.0034 | 0.0114 ± 0.0032 | 0.44 ± 0.04 | 0.07 ± 0.05 |
 
-- The implied-vol error falls by ~4 seed sd (before the fix 0.60 bp, with it 0.44 bp) and the all-grid error from $0.0007 (before) to $0.0004 (with). The near-the-money error barely moves.
+- The implied-vol error falls by ~4 seed sd (the larger sd, 0.04 bp; before the fix 0.60 bp, with it 0.44 bp) and the all-grid error from $0.0007 (before) to $0.0004 (with). The near-the-money error barely moves.
 - The worst point falls on average and, above all, stops depending on the seed: before the fix seed 42's was an exercised-today put at $0.062; with it, every seed's worst point is a continuation put near the money beyond 3 months, $0.013-0.022.
-- Violations above 1e-4 rise slightly (before the fix 0.01%, with it 0.07%, all `increasing_in_T` on continuation points), within about one seed sd.
+- Violations above 1e-4 rise slightly (before the fix 0.01%, with it 0.07%, all `increasing_in_T` on continuation points), ~1.2 of the larger seed sd (0.05%).
