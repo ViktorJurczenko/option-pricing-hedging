@@ -17,7 +17,7 @@ below is produced by a command in this repository.
 
 - **Four pricers that agree with each other.** European Monte-Carlo
   matches Black-Scholes, and American Longstaff-Schwartz matches the
-  binomial tree within Monte-Carlo noise; integration tests check the
+  binomial tree within Monte-Carlo noise. Integration tests check the
   convergence. With a European control variate, Longstaff-Schwartz prices
   the American call at exactly its Black-Scholes value.
 - **LSM Greeks repaired near expiry.** The textbook delta (the derivative of
@@ -32,9 +32,9 @@ below is produced by a command in this repository.
   seed noise or beats it, without any tuning.
 - **A neural pricer for American puts.** An MLP trained on binomial-tree
   prices gives price, delta and gamma in 6-9 µs per option in batches,
-  360-510x faster than the tree it learned from, with a mean error of
-  $0.0004 at K = 100 (0.43 bp of implied volatility) against an independent,
-  finer tree. Every design choice was picked by seeded ablations.
+  360-510× faster than the tree it learned from. Its mean error is $0.0004
+  at K = 100 (0.43 bp of implied volatility) against an independent, finer
+  tree. Every design choice was picked by seeded ablations.
 - **Tested.** 883 tests (unit, integration, CLI smoke tests), plus a
   mutation check on the surrogate's evaluation code.
 
@@ -93,7 +93,7 @@ python main.py price --option_class both --option_type put   # put
 | Put  | 5.63  | 5.57  | 6.09  | 6.13  |
 
 Rerun 2026-11-05. European Monte-Carlo tracks Black-Scholes, and American
-Longstaff-Schwartz tracks the binomial tree; the convergence is tested in
+Longstaff-Schwartz tracks the binomial tree. The convergence is tested in
 `tests/integration/test_pricing_convergence.py`. The American put is worth
 more than the European put because early exercise has value. An American
 call on a non-dividend stock is worth exactly its European price, which the
@@ -180,7 +180,7 @@ higher degrees are worse for both. Every LSM consumer defaults to `simple`.
 
 ```
 python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # 2^19 tree-priced puts, ~15 min on 6 cores
-python main.py test-ml --seed 43                                  # score the shipped model; --seed: its training split
+python main.py test-ml --seed 43                                  # score the shipped model (--seed: its training split)
 python main.py train-ml --seed 43                                 # or retrain it (the defaults), ~25-30 min
 ```
 
@@ -234,62 +234,64 @@ a difference counts only if it exceeds about 2 seed standard deviations.
 
 | Choice | Tested against | Why it won |
 |---|---|---|
-| Delta error in the loss, weight 0.3 | 0, 1, 3 | best price; without the delta term, delta is ~7x worse |
-| Softplus output | linear | no-arbitrage violations 0.73% -> 0.06% of grid points |
-| SiLU activations | ReLU | ReLU: ~25x the error, and its gamma is 0 almost everywhere |
-| Width 128 | 256 | 256 within 0.6 seed sd on every error, at ~2.6x the training time |
+| Delta error in the loss, weight 0.3 | 0, 1, 3 | best price, and without the delta term delta is ~7× worse |
+| Softplus output | linear | no-arbitrage violations fall from 0.73% (linear) to 0.06% (softplus) of grid points |
+| SiLU activations | ReLU | ReLU has ~25× the error and no gamma |
+| Width 128 | 256 | 256 is within 0.6 seed sd on every error, at 2.6× the training time |
 | No shape penalty, no L-BFGS finish | penalty weight 0.1, 200 L-BFGS steps | worse or within noise, and slower |
 | 400 epochs | 200, 800 | 800 lowers the delta error but raises the price error |
-| BBSR teacher, 1000 steps | CRR, BBS; 500 and 2000 steps | lowest mean price error; 2000 steps halve the worst error at 3.5x the cost |
-| One model from 1 week to 5 years | `T` from 3 months only | simpler to ship; the cost is 1.3-2.7x the error beyond 3 months |
+| BBSR teacher, 1000 steps | CRR and BBS, 500 and 2000 steps | lowest mean price error, and 2000 steps halve the worst error at 3.5× the cost |
+| One model from 1 week to 5 years | `T` from 3 months only | simpler to ship, at 1.3-2.7× the error beyond 3 months (measured before the output-initialization fix) |
 
-**Results.** Scored against an independent 4000-step BBSR tree (4x the
-teacher's steps, so not the labels the network learned) on a factorial grid
-of 2342 puts: 27 `z` x 6 `σ` x 8 maturities from 1 week to 5 years x `r` in
-{2%, 6%}. $ at K = 100. "5 seeds" is the configuration's mean ± standard
-deviation over seeds 42-46; "shipped" is the checkpoint, seed 43, the median
-seed on implied-vol error. The implied-vol error is how far `σ` would have to
-move for the true price to equal the surrogate's, in basis points (1 bp =
-0.0001 in `σ`): it puts errors on options of different prices on one scale.
+**Results.** Each model is scored against an independent 4000-step BBSR
+tree. It has 4× the teacher's steps, so it is not the labels the network
+learned. The grid has 2342 puts: 27 values of `z` × 6 of `σ` × 8 maturities
+from 1 week to 5 years × `r` in {2%, 6%}. Price errors are in **10⁻⁴ $ at
+K = 100**, a hundredth of a cent, so 7.9 means $0.00079. "5 seeds" is the
+configuration's mean ± standard deviation over seeds 42-46. "Shipped" is the
+checkpoint, seed 43, the median seed on implied-vol error.
+
+The implied-vol error is how far `σ` would have to move for the true price
+to equal the surrogate's, in basis points (1 bp = 0.0001 in `σ`). It puts
+errors on options of very different prices on one scale.
 
 | Puts | Points | Mean error, 5 seeds | Mean error, shipped | Worst error, 5 seeds | Worst error, shipped | IV error (bp), 5 seeds | IV error (bp), shipped |
 |---|---|---|---|---|---|---|---|
-| near the money (`\|z\|` < 1) | 646 | 0.00079 ± 0.00003 | 0.00079 | 0.0166 ± 0.0034 | 0.0126 | 0.33 ± 0.01 | 0.35 |
-| `T` < 1 month | 494 | 0.00008 ± 0.00002 | 0.00009 | 0.0012 ± 0.0002 | 0.0011 | 0.28 ± 0.06 | 0.29 |
-| `T` 1-3 months | 455 | 0.00015 ± 0.00001 | 0.00017 | 0.0014 ± 0.0004 | 0.0014 | 0.31 ± 0.06 | 0.31 |
-| `T` >= 3 months | 690 | 0.00090 ± 0.00007 | 0.00087 | 0.0166 ± 0.0034 | 0.0126 | 0.61 ± 0.05 | 0.59 |
-| exercised today | 703 | 0.00045 ± 0.00007 | 0.00038 | 0.0114 ± 0.0032 | 0.0069 | - | - |
-| all | 2342 | 0.00045 ± 0.00004 | 0.00042 | 0.0166 ± 0.0034 | 0.0126 | 0.44 ± 0.04 | 0.43 |
+| near the money (`\|z\|` < 1) | 646 | 7.9 ± 0.3 | 7.9 | 166 ± 34 | 126 | 0.33 ± 0.01 | 0.35 |
+| `T` < 1 month | 494 | 0.8 ± 0.2 | 0.9 | 12 ± 2 | 11 | 0.28 ± 0.06 | 0.29 |
+| `T` 1-3 months | 455 | 1.5 ± 0.1 | 1.7 | 14 ± 4 | 14 | 0.31 ± 0.06 | 0.31 |
+| `T` ≥ 3 months | 690 | 9.0 ± 0.7 | 8.7 | 166 ± 34 | 126 | 0.61 ± 0.05 | 0.59 |
+| exercised today | 703 | 4.5 ± 0.7 | 3.8 | 114 ± 32 | 69 | - | - |
+| all | 2342 | 4.5 ± 0.4 | 4.2 | 166 ± 34 | 126 | 0.44 ± 0.04 | 0.43 |
 
-The `T` rows are the puts not exercised today. Measured 2026-11-10; the
-shipped model's numbers reproduce with `test-ml --seed 43`, and the per-seed
-runs are in
-[`docs/results/surrogate-training.md`](docs/results/surrogate-training.md).
+The maturity rows are the puts not exercised today. Measured 2026-11-10. The
+shipped model's numbers reproduce with `test-ml --seed 43`.
 
-- **The typical error is a fraction of a cent**: $0.0004 on average, 0.43 bp
-  of implied volatility. A one-cent tick on a 1-year at-the-money put is
-  about 2.6 bp.
-- **Delta** is within 9.0e-5 of the reference tree's on average (shipped
-  model), 1.4e-4 near the money.
-- **No-arbitrage shape**: on the puts not exercised today, the network's
-  price falls and is convex in moneyness and rises with `σ` at every grid
-  point, and rises with `T` at all but 0.12% of them.
-- **Speed**: 6-9 µs per option when the grid is priced in one call, against
-  3.1-3.2 ms for the 1000-step tree it learned from: 360-510x faster.
+- **The typical error is a fraction of a cent.** It is $0.0004 on average,
+  0.43 bp of implied volatility. For scale, a one-cent tick on a 1-year
+  at-the-money put is about 2.6 bp.
+- **Delta** is within 9.0e-5 of the reference tree's on average, and within
+  1.4e-4 near the money (shipped model).
+- **The price surface has the right shape.** On the puts not exercised
+  today, the price falls and is convex in moneyness and rises with `σ` at
+  every grid point. It rises with `T` at all but 0.12% of them.
+- **Speed.** Priced in one call, the grid takes 6-9 µs per option, against
+  3.1-3.2 ms for the 1000-step tree it learned from. That is 360-510× faster.
 
 **Known limitations.**
-- **The worst errors sit near the money beyond 3 months**: $0.013-0.022 over
-  the 5 seeds, $0.0126 for the shipped model.
-- **Rates near zero** are its weakest region, outside the grid's rates: on the
-  test split, the largest errors (up to ~$0.10) were long-dated deep
-  in-the-money puts at `r` < 0.002. Measured on earlier checkpoints of the same
-  configuration, not re-measured on the shipped one.
-- **One option at a time is no faster than the tree** (2.1-2.3 ms: the
-  autograd passes for delta and gamma dominate), so the speed-up needs batches.
-- **Puts only**, on the domain above: anything outside it goes to the tree
+- **The worst errors sit near the money beyond 3 months.** They are
+  $0.013-0.022 over the 5 seeds, and $0.0126 for the shipped model.
+- **Rates near zero are its weakest region**, below the grid's rates. On the
+  test split, the largest errors (up to about $0.10) were long-dated, deep
+  in-the-money puts at `r` below 0.2%. This was measured on earlier
+  checkpoints of the same configuration, not on the shipped one.
+- **One option at a time is no faster than the tree** (2.1-2.3 ms), because
+  the autograd passes for delta and gamma dominate. The speed-up needs
+  batches.
+- **Puts only**, on the domain above. Anything outside it goes to the tree
   or a closed form.
 
-The ablations, the per-seed results and the measures are written up in
+How each choice was tested, with the per-seed results, is in
 [`docs/results/surrogate-training.md`](docs/results/surrogate-training.md).
 This surrogate replaced a first version trained on Longstaff-Schwartz
 prices, whose write-up is in
@@ -306,8 +308,8 @@ value) and optionally a fixed cost per trade (`--fixed_tc`). A Soft
 Actor-Critic agent chooses the hedge in one of three action modes
 (`--action_mode`):
 - `residual` (default): a bounded correction to the LSM delta,
-  `clip(delta + 0.1·tanh(u))`, so an untrained policy starts at delta hedging;
-- `gap_fraction`: the fraction of the gap to delta closed each day;
+  `clip(delta + 0.1·tanh(u))`, so an untrained policy starts at delta hedging.
+- `gap_fraction`: the fraction of the gap to delta closed each day.
 - `band`: a no-trade band whose half-width and rebalancing target the
   policy chooses at every step.
 
@@ -316,8 +318,8 @@ to the LSM delta daily), `delta_band` (a fixed no-trade band, rebalancing
 to delta or to the band's edge) and `no_hedge`.
 
 **Protocol.** Each policy is evaluated on the same 2,000 simulated episodes
-(`--seed 999 --n_episodes 2000`; `test-hedge` reseeds before evaluating, so
-every policy sees identical paths). P&L is the hedge's cash flow minus the
+(`--seed 999 --n_episodes 2000`). `test-hedge` reseeds before evaluating, so
+every policy sees identical paths. P&L is the hedge's cash flow minus the
 option payoff, ×K. It excludes the option premium, so its mean is not a
 measure of hedge quality. Std P&L is the hedging error, and 95% CVaR, the
 mean of the worst 5% of episodes, is the tail risk (higher is better). RL
@@ -370,7 +372,7 @@ python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.05 --policy delta_band --
 
 - **The learned band matches the best hand-tuned band within seed noise,
   or beats it.** For calls at 1% it is level (-0.136 to -0.137 for the
-  learned band, -0.136 for the fixed band); in the other three cells it is
+  learned band, -0.136 for the fixed band). In the other three cells it is
   better on every seed, by up to 0.014 (puts with a fixed cost). No band
   width or target was tuned by hand.
 - **The action parametrization was the limit, not the objective.** With the
@@ -432,7 +434,7 @@ python -m pytest tests/                            # everything
 python -m tests.mutation.tree_evaluation_mutants   # the evaluation's tests must catch 14 planted bugs
 ```
 
-870 tests (2026-11-05, `pytest --collect-only -q`). The 771 unit tests
+883 tests (2026-11-10, `pytest --collect-only -q`). The 784 unit tests
 cover the closed-form formulas, basis-function derivatives against finite
 differences, the batch tree against hand-worked trees, the surrogate's
 dataset, model, pricer, training and evaluation, the hedging environment's
@@ -491,3 +493,7 @@ result is.
   its symptom, root cause and fix.
 - [Roadmap](.claude/PLAN.md) and [roadmap archive](.claude/PLAN_ARCHIVE.md):
   what is being worked on, what comes next, and what is done.
+
+## License
+
+Released under the [MIT License](LICENSE).
