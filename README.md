@@ -1,12 +1,13 @@
 # Option Pricing & Hedging
 
-Pricing and hedging American options, built from first principles in
-Python and PyTorch. The project goes from closed-form Black-Scholes to
-binomial trees and Longstaff-Schwartz Monte-Carlo, then to a neural network
-that prices American puts in microseconds, and a reinforcement-learning agent
-that learns to hedge an American option under trading costs.
+This project aims at pricing and hedging American options. It is built
+from first principles in Python and PyTorch. The project goes from
+closed-form Black-Scholes to binomial trees and Longstaff-Schwartz
+Monte-Carlo, then to a neural network that prices American puts in
+microseconds, and a reinforcement-learning agent that learns to hedge an
+American option under trading costs.
 
-A personal research project, and my first in quantitative finance.
+It is a personal research project, and my first in quantitative finance.
 
 Everything is implemented from scratch on top of NumPy/SciPy and PyTorch:
 GBM path simulation, the pricers, the MLP surrogate, the hedging environment
@@ -29,7 +30,8 @@ below is produced by a command in this repository.
   (snapshot, 2026-10). The SAC agent's hedging error is 19-25% below daily
   delta hedging on the put, and on par with it on the call. Under trading
   costs, a learned no-trade band matches the best hand-tuned band within
-  seed noise or beats it, without any tuning.
+  seed noise or beats it, without any tuning. RL hedging is still in
+  development.
 - **A neural pricer for American puts.** An MLP trained on binomial-tree
   prices gives price, delta and gamma in 6-9 µs per option in batches,
   360-510× faster than the tree it learned from. Its mean error is $0.0004
@@ -61,8 +63,8 @@ below is produced by a command in this repository.
 | RL hedging (SAC) | Working, under active development: the results below are a snapshot |
 | Deep Hedging, dividend-paying stocks, fast American-put benchmarks | Planned |
 
-The detailed plan is in the [roadmap](.claude/PLAN.md), finished
-workstreams in the [roadmap archive](.claude/PLAN_ARCHIVE.md). Every problem
+The detailed plan is in the [roadmap](.claude/PLAN.md) and the finished
+workstreams are in the [roadmap archive](.claude/PLAN_ARCHIVE.md). Every problem
 found along the way, with its root cause and fix, is in the
 [design decisions and bug log](.claude/BUGS.md).
 
@@ -72,7 +74,7 @@ found along the way, with its root cause and fix, is in the
 |---|---|
 | **European pricing** | Closed-form Black-Scholes and Monte-Carlo simulation, cross-checked against each other. |
 | **American pricing** | A Cox-Ross-Rubinstein binomial tree, a vectorized batch tree (CRR, BBS, BBSR), and Longstaff-Schwartz least-squares Monte-Carlo with simple or Laguerre polynomial bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
-| **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. Standalone: the hedging environment prices with `LongstaffSchwartz` directly. |
+| **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. Standalone: the hedging environment prices with `LongstaffSchwartz` for the moment. |
 | **RL hedging** | A Soft Actor-Critic agent trained in a custom Gym-style environment to hedge an American option until its exercise date, under proportional and fixed trading costs, compared against delta-hedge, no-trade-band and no-hedge baselines. Under active development. |
 
 ## Results
@@ -95,7 +97,8 @@ python main.py price --option_class both --option_type put   # put
 Rerun 2026-11-05. European Monte-Carlo tracks Black-Scholes, and American
 Longstaff-Schwartz tracks the binomial tree. The convergence is tested in
 `tests/integration/test_pricing_convergence.py`. The American put is worth
-more than the European put because early exercise has value. An American
+more than the European put because of the early-exercise premium, the
+value of the right to exercise before maturity. An American
 call on a non-dividend stock is worth exactly its European price, which the
 tree reproduces.
 
@@ -105,9 +108,10 @@ sigma=..., control_variate=True)`), the LSM call prices at 10.4506, the
 Black-Scholes value. The regression then targets the cashflow minus the
 European payoff, which is exactly 0 on every path not exercised early, so
 the regression noise that made plain LSM exercise calls early disappears.
-`train-hedge` and `test-hedge` enable it for calls only: for puts the plain
-exercise rule was worth more out of sample (6.078 for the plain rule, 6.009
-with the control variate, true price 6.084). Details: [`.claude/BUGS.md`, "LSM early-exercises American calls
+`train-hedge` and `test-hedge` enable it for calls only. For puts the plain
+exercise rule was worth more out of sample, that is when the rule is fitted
+on 10,000 paths and then applied to 100,000 fresh ones (6.078 for the plain
+rule, 6.009 with the control variate, true price 6.084). Details: [`.claude/BUGS.md`, "LSM early-exercises American calls
 and mis-estimates delta"](.claude/BUGS.md#b-006).
 
 ### LSM delta and gamma, accurate up to expiry
@@ -176,6 +180,12 @@ the same values in either basis. On 10,000 paths and 2 seeds:
 At higher degrees they differ only through floating-point conditioning, and
 higher degrees are worse for both. Every LSM consumer defaults to `simple`.
 
+The Laguerre basis is there because Longstaff and Schwartz use it in their
+original paper (2001). Their version weights each polynomial by `e^{-x/2}`,
+which changes the functions it spans, so this implementation may be a
+misreading of the paper. This is being looked into, see the
+[roadmap](.claude/PLAN.md#longstaff-schwartz).
+
 ### MLP surrogate: a neural pricer for American puts
 
 ```
@@ -191,8 +201,8 @@ part of the evaluation. Retraining overwrites that file, and the result can
 differ slightly from the shipped model, since training is not bit-for-bit
 reproducible across machines and thread counts.
 
-Pricing with it, next to the tree it learned from (run from the project
-root):
+Here is how to price with it next to the tree it learned from (run from the
+project root):
 
 ```python
 import numpy as np
@@ -216,7 +226,7 @@ tree price at K = 100:      [11.4928  6.0904  2.9865] delta: [-0.6833 -0.4111 -0
 **What it learns.** Per unit of strike, an American put's price depends on
 the moneyness `m = S/K`, the maturity `T`, the rate `r` and the volatility
 `σ`. The network learns only the early-exercise premium, the American price
-minus the European one, from 2^19 puts priced by a 1000-step BBSR binomial
+minus the European one. It draws its data from 2^19 puts priced by a 1000-step BBSR binomial
 tree. The price is Black-Scholes plus that premium, and delta and gamma come
 from automatic differentiation through the same sum. The training domain is
 `T` from 1 week to 5 years, `σ` 5-60% and `r` 0-8%. Moneyness is sampled
@@ -245,15 +255,15 @@ a difference counts only if it exceeds about 2 seed standard deviations.
 
 **Results.** Each model is scored against an independent 4000-step BBSR
 tree. It has 4× the teacher's steps, so it is not the labels the network
-learned. The grid has 2342 puts: 27 values of `z` × 6 of `σ` × 8 maturities
+learned. This "scoring" grid has 2342 puts: 27 values of `z` × 6 of `σ` × 8 maturities
 from 1 week to 5 years × `r` in {2%, 6%}. Price errors are in **10⁻⁴ $ at
 K = 100**, a hundredth of a cent, so 7.9 means $0.00079. "5 seeds" is the
 configuration's mean ± standard deviation over seeds 42-46. "Shipped" is the
 checkpoint, seed 43, the median seed on implied-vol error.
 
 The implied-vol error is how far `σ` would have to move for the true price
-to equal the surrogate's, in basis points (1 bp = 0.0001 in `σ`). It puts
-errors on options of very different prices on one scale.
+to equal the surrogate's, in basis points (1 bp = 0.0001 in `σ`). It enables me to put
+errors on options of very different prices on one scale to better compare them.
 
 | Puts | Points | Mean error, 5 seeds | Mean error, shipped | Worst error, 5 seeds | Worst error, shipped | IV error (bp), 5 seeds | IV error (bp), shipped |
 |---|---|---|---|---|---|---|---|
@@ -272,15 +282,26 @@ shipped model's numbers reproduce with `test-ml --seed 43`.
   at-the-money put is about 2.6 bp.
 - **Delta** is within 9.0e-5 of the reference tree's on average, and within
   1.4e-4 near the money (shipped model).
-- **The price surface has the right shape.** On the puts not exercised
-  today, the price falls and is convex in moneyness and rises with `σ` at
-  every grid point. It rises with `T` at all but 0.12% of them.
+- **The price surface has the right shape.** An American put's price
+  falls and is convex in moneyness, and it rises with `T` and with `σ`. On
+  the grid puts not exercised today, the shipped model breaks one of these
+  conditions at only 0.12% of the points, a reasonable rate for a fitted
+  network. The exercised puts are not representative here. Their price is
+  the payoff, so most conditions hold with equality, and any tiny wobble of
+  the network around them is flagged ([`.claude/BUGS.md`, "Shape-violation
+  rate inflated by exercised points"](.claude/BUGS.md#b-027)). `test-ml`
+  measures these rates. Training can also penalize the violations, but the
+  shipped model is trained without that penalty, which made prices worse in
+  the [ablations](docs/results/surrogate-training.md).
 - **Speed.** Priced in one call, the grid takes 6-9 µs per option, against
   3.1-3.2 ms for the 1000-step tree it learned from. That is 360-510× faster.
 
 **Known limitations.**
 - **The worst errors sit near the money beyond 3 months.** They are
-  $0.013-0.022 over the 5 seeds, and $0.0126 for the shipped model.
+  $0.013-0.022 over the 5 seeds, and $0.0126 for the shipped model. These
+  are the largest errors on the 2342 scoring puts, not a bound for the
+  model. A put off the grid can have a larger error, as the next point
+  shows.
 - **Rates near zero are its weakest region**, below the grid's rates. On the
   test split, the largest errors (up to about $0.10) were long-dated, deep
   in-the-money puts at `r` below 0.2%. This was measured on earlier
@@ -298,6 +319,9 @@ prices, whose write-up is in
 [`docs/results/legacy-surrogate.md`](docs/results/legacy-surrogate.md).
 
 ### RL hedging
+
+This part is still under active development. The design and the numbers
+below are a snapshot and will most likely change.
 
 The hedger is short an American option and trades the stock to offset it.
 `HedgingEnv` simulates GBM paths and wraps a fitted `LongstaffSchwartz`

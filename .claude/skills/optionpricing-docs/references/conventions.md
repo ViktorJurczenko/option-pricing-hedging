@@ -21,11 +21,11 @@ Sources:
 
 ## 1. Audience and voice
 
-- **Reader.** Write for someone strong in programming who is new to finance, the yardstick the author set: "a sentence is a defect if that reader cannot follow it with only what came before it" [C intro]. The README reader wants to run commands and see measured results [RD].
-- **Voice.** Write plain, declarative, present-tense sentences. Use "we" for the reader walking through a derivation ("We want its fair price today") [R §0], and the impersonal form elsewhere [RD].
-- **Why before how.** Each design choice states its reason in the same place [R, "Why these values", "Why `d = 1/u`"; RD "Why:"]. A bold lead-in followed by the explanation is the usual pattern: `**Why these values.** …`, `**Current fix:** …` [R §2; RD L92–108].
+- **Reader.** Write for someone strong in programming who is new to finance, the yardstick the author set: "a sentence is a defect if that reader cannot follow it with only what came before it" [C intro]. So a finance or statistics term is best given by its standard name rather than a paraphrase ("the early-exercise premium"), and defined at first use unless that reader can be expected to know it ("out of sample, that is when the rule is fitted on one set of paths and applied to fresh ones"). An object the text comes back to reads more easily with a label ("the scoring grid"). The README reader wants to run commands and see measured results [RD].
+- **Voice.** Prefer plain, declarative, present-tense sentences with a subject and a verb, the opening line included ("This project aims at pricing…" reads better than "Pricing and hedging…, built from…"). Fragments read as notes, which suits a table cell or a list item more than prose. A sentence is short because it says one thing, not because words were cut. Dropping a repeated verb ("the plan is in X, finished work in Y") leaves the reader to rebuild the sentence. A colon is the natural way to introduce a list or an explanation. Joining two separate ideas with a colon or a semicolon is better kept for the rare case where they really belong together, and two sentences usually read better. For person, "we" suits a derivation the reader walks through ("We want its fair price today") [R §0]. Elsewhere the impersonal form ("One can price with it…") or the author's "I" stating their own purpose both fit, whichever reads more naturally [RD].
+- **Why before how.** Each design choice states its reason in the same place [R, "Why these values", "Why `d = 1/u`"; RD "Why:"]. A bold lead-in followed by the explanation is the usual pattern: `**Why these values.** …`, `**Current fix:** …` [R §2; RD L92–108]. Metrics and components benefit from a reason too, such as what a metric is for ("to compare errors on options of very different prices") and why a component exists (the paper or the problem it comes from) [RD].
 - **Length is fine, density is not.** Put one new idea per paragraph [C 2.1]. A longer section that explains is better than a short one that skips steps [C 2.1].
-- **Honest limits.** Say what is a hypothesis and what is measured ("This is a hypothesis, not yet verified") [RD L293–296]. State known costs of a choice ("a known, accepted cost of that fix") [RD L236].
+- **Honest limits.** Say what is a hypothesis and what is measured ("This is a hypothesis, not yet verified") [RD L293–296]. State known costs of a choice ("a known, accepted cost of that fix") [RD L236]. Unfinished work is best flagged next to the claim it qualifies, since a reader of a highlight may never reach the status table. A section on work in progress can say so in its first lines, and a choice meant to change can say it is temporary ("for the moment") [RD].
 - **No filler.** Don't write "it is worth noting", "clearly" or "it follows that" in place of steps [C 2.3].
 
 ## 2. Structure of an explanation (theory notes, explanation sections)
@@ -72,7 +72,7 @@ Sources:
 - **Results go in tables** with units in the header or caption, and the best value in bold [RD]. Write ranges as `a-b` or `a to b`.
 - **Explain any metric a reader could misread**, for example "Mean P&L … isn't a hedge-quality metric" and "CVaR (mean of the worst 5%)" [RD L270–274].
 - **Pin the environment** in `requirements.txt` and state it in Setup (Python 3.13, PyTorch 2.11 CPU build) [RD].
-- **Say how a number was measured:** "(measured)", "on 4 seeds" or "against a 16,000-step reference" [R §11; RD].
+- **Say how a number was measured and on what data:** "(measured)", "on 4 seeds" or "against a 16,000-step reference" [R §11; RD]. An error or a rate describes the data it was measured on rather than the model as a whole, so "the largest error on the 2342 scoring puts" is more accurate than "the model's worst error". A derived share, such as a violation rate, is easier to trust when the text says what is checked and how a point is counted [RD].
 
 ## 6. Docstrings
 

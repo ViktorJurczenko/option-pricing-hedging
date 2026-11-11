@@ -14,6 +14,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 | [Deep Hedging](#deep-hedging) | backlog | Explain the theory to the user |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
+| [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
 
 ## Active
 
@@ -57,6 +58,16 @@ Nothing active: the next workstream comes from the backlog.
 - [ ] Explain the theory to the user before writing any code
   The early-exercise boundary and the integral equation it satisfies, the quadratic approximation behind Barone-Adesi-Whaley and Ju-Zhong, and the fixed-point scheme of Andersen-Lake-Offengeim.
 - [ ] Decide with the user which method to implement and how to compare it
+
+### Longstaff-Schwartz
+
+**Goal:** keep the LSM pricer faithful to Longstaff and Schwartz (2001) and collect its open questions in one place, so each one is checked against the paper before the pricer changes. The first one is the Laguerre basis. The paper weights each polynomial by `e^{-x/2}`, while `laguerre_poly_gen` does not, so the code's basis spans the same functions as `simple` (README, "The regression basis does not matter at degree 3").
+
+**Done so far:** the pricer, its pathwise-delta Greeks and the European control variate for calls are built and tested (archived; BUGS, "LSM delta/gamma estimates unreliable near maturity" and "LSM early-exercises American calls and mis-estimates delta").
+
+**Next:**
+- [ ] Check the Laguerre basis against the paper
+  Reread the paper and decide with the user whether the weight belongs in the code. If it does, compare the weighted basis with `simple` on price against the tree, exercise agreement and delta.
 
 ### Dividend-paying stocks
 

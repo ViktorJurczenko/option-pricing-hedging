@@ -60,9 +60,9 @@ There is no CHANGELOG. Git history plus PLAN.md and BUGS.md serve that purpose. 
 - [ ] **Identifiers checked.** `scripts/check_doc_claims.py` reports nothing missing.
 - [ ] **Examples run as a reader would run them**, from the project root (or with `PYTHONPATH=.`). Their output is pasted from the actual run, and any runtime is measured, not guessed.
 - [ ] **Commands run.** Each example command works from the project root. Commands that are too expensive to run are labelled with their cost, and their results are marked "not re-verified" unless rerun.
-- [ ] **Numbers sourced.** Each number gives its settings (seed, paths, episodes, grid) and the command that produces it.
+- [ ] **Numbers sourced.** Each number gives its settings (seed, paths, episodes, grid), the data it was measured on and the command that produces it.
 - [ ] **Math defined.** Every symbol is defined at first use and matches `notation.md`. Each formula is followed by the code line that implements it. Units ("per unit of strike", "×K", "$ at K = 100") are stated.
 - [ ] **Consistent.** Terminology and symbols agree with README.md and REMINDER.md. Nothing contradicts another doc. If another doc is wrong, report it; don't silently diverge.
-- [ ] **Current state only.** No "step N", "as built", commit-dated headers, "previously we thought", or "not yet trained" in explanation or reference docs.
+- [ ] **Current state only.** No "step N", "as built", commit-dated headers or "previously we thought" in explanation or reference docs. Status such as "still in development" appears only next to work that really is unfinished (see `references/anti-patterns.md`, "A status that went stale").
 - [ ] **No concept used before it is taught.** In explanation docs, each idea is introduced before the first passage that relies on it.
 - [ ] **Open questions listed.** Anything unclear was reported to the user, not guessed.
