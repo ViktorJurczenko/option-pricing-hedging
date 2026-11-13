@@ -53,18 +53,38 @@ def test_post_edit_only_takes_python_files_inside_the_project(tmp_path):
 
 
 def test_post_edit_finds_the_unit_test_named_after_the_module():
-    assert post_edit.matching_test(Path("optionpricing", "core", "gbm.py")) == Path("tests", "unit", "test_gbm.py")
+    assert post_edit.matching_tests(Path("optionpricing", "core", "gbm.py")) == [Path("tests", "unit", "test_gbm.py")]
+
+
+def test_post_edit_finds_a_legacy_modules_test_in_a_unit_subfolder():
+    # the legacy hedging tests moved to tests/unit/hedging_legacy/; a lookup
+    # in tests/unit/ alone stopped running them after an edit
+    edited = Path("optionpricing", "ml", "hedging", "legacy", "critic.py")
+    assert post_edit.matching_tests(edited) == [Path("tests", "unit", "hedging_legacy", "test_critic.py")]
+
+
+def test_post_edit_runs_every_test_file_sharing_the_modules_name(tmp_path):
+    # a legacy module and a current one with the same name: both files run, sorted
+    for folder in ("tests/unit", "tests/unit/hedging_legacy"):
+        (tmp_path / folder).mkdir(parents=True, exist_ok=True)
+        (tmp_path / folder / "test_baselines.py").write_text("")
+    (tmp_path / "tests" / "unit" / "test_other.py").write_text("")
+    found = post_edit.matching_tests(Path("optionpricing", "hedging", "baselines.py"), root=tmp_path)
+    assert found == [
+        Path("tests", "unit", "hedging_legacy", "test_baselines.py"),
+        Path("tests", "unit", "test_baselines.py"),
+    ]
 
 
 def test_post_edit_runs_an_edited_unit_test_file_itself():
-    edited = Path("tests", "unit", "test_hooks.py")
-    assert post_edit.matching_test(edited) == edited
+    edited = Path("tests", "unit", "hedging_legacy", "test_critic.py")
+    assert post_edit.matching_tests(edited) == [edited]
 
 
 def test_post_edit_finds_no_test_for_a_module_without_one():
     # main.py has no tests/unit/test_main.py; an integration test is not run either
-    assert post_edit.matching_test(Path("main.py")) is None
-    assert post_edit.matching_test(Path("tests", "integration", "test_cli_smoke.py")) is None
+    assert post_edit.matching_tests(Path("main.py")) == []
+    assert post_edit.matching_tests(Path("tests", "integration", "test_cli_smoke.py")) == []
 
 
 def test_post_edit_does_nothing_for_a_non_python_file(monkeypatch):
