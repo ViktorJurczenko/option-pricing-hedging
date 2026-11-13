@@ -1,6 +1,6 @@
 # RL hedging: results and analysis
 
-The full results of the SAC hedging agent against the analytic baselines, with the reasoning behind its action modes and checkpointing. The README keeps a summary. Measured 2026-09-30 to 2026-10-01 (commits `c4c34a6`..`be73d51`), **not re-verified** since. The hedging agent is under active development (`.claude/PLAN.md`, "Deep Hedging"), so these numbers are a snapshot.
+The full results of the SAC hedging agent against the analytic baselines, with the reasoning behind its action modes and checkpointing. The README keeps a summary. Measured 2026-09-30 to 2026-10-01 (commits `c4c34a6`..`be73d51`), **not re-verified** since. These numbers are distorted by two accounting bugs in the environment. Each hedge earns one step late (`.claude/BUGS.md`, "HedgingEnv applies each hedge one step late"), and the P&L has no cash account ("Hedging P&L has no cash account, so the delta baseline hedges the wrong liability"). Most of RL's edge over delta on puts is likely the carry the second bug creates. The hedger is being rebuilt (`.claude/PLAN.md`, "Hedging rebuild"), and these results will be replaced.
 
 ## RL hedging policy vs. analytic baselines
 

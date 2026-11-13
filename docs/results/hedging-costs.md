@@ -1,6 +1,6 @@
 # Analytic hedging baselines under trading costs
 
-Where daily delta hedging overtrades, and what a no-trade band buys. Moved from `.claude/PLAN.md` ("Hedge under trading costs"). Measured 2026-10-01, **not re-verified** since.
+Where daily delta hedging overtrades, and what a no-trade band buys. Moved from `.claude/PLAN.md` ("Hedge under trading costs"). Measured 2026-10-01, **not re-verified** since. Every number here is distorted by the environment's two accounting bugs, a hedge that earns one step late and a P&L without a cash account (`.claude/BUGS.md`, B-037 and B-038). They will be re-measured by the hedging rebuild (`.claude/PLAN.md`, "Hedging rebuild").
 
 ```
 python main.py test-hedge --option_type {call,put} --seed 999 --n_episodes 2000 \
