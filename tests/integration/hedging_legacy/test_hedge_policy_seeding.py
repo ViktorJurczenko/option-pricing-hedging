@@ -1,7 +1,8 @@
 """
-Tests for scripts/test_hedge.py::run() exercised in-process (real GBM
+Tests for scripts/test_hedge_legacy.py::run() exercised in-process (real GBM
 simulation + LongstaffSchwartz fit + HedgingEnv wiring, all real; only
-optionpricing.hedging.evaluation.evaluate is stubbed out so the test stays fast).
+optionpricing.hedging.legacy.evaluation.evaluate is stubbed out so the test
+stays fast).
 
 tests/integration/test_cli_smoke.py covers the CLI (subprocess) surface for
 this same script; this file targets an invariant that can't be observed from
@@ -12,9 +13,9 @@ import numpy as np
 import pytest
 import torch
 
-import scripts.test_hedge as test_hedge_script
-from optionpricing.hedging.baselines import delta_hedge, no_hedge
-from optionpricing.ml.rl.policy import RLPolicy
+import scripts.test_hedge_legacy as test_hedge_script
+from optionpricing.hedging.legacy.baselines import delta_hedge, no_hedge
+from optionpricing.ml.hedging.legacy.policy import RLPolicy
 from tests.helpers import make_parser, parse_script_args
 
 
@@ -24,11 +25,12 @@ def _make_args(policy, seed, **overrides):
 
 def test_same_seed_gives_identical_random_state_entering_evaluate_across_policies(monkeypatch):
     """Regression test for the `np.random.seed(args.seed)` call added right
-    before `evaluate(...)` in scripts/test_hedge.py::run(). Its whole purpose
-    is that --policy delta and --policy no_hedge (which HedgingEnv.reset()
-    samples paths for via the *global* np.random, not a seeded local
-    generator) must see the identical draw sequence when --seed matches, so
-    that comparing policies isn't just comparing path-sampling noise.
+    before `evaluate(...)` in scripts/test_hedge_legacy.py::run(). Its whole
+    purpose is that --policy delta and --policy no_hedge (which
+    HedgingEnv.reset() samples paths for via the *global* np.random, not a
+    seeded local generator) must see the identical draw sequence when --seed
+    matches, so that comparing policies isn't just comparing path-sampling
+    noise.
 
     This stubs out evaluate() itself (so the test doesn't need to actually
     run any episodes) and instead captures np.random.get_state() at the
@@ -78,8 +80,8 @@ def test_different_seeds_give_different_random_state_entering_evaluate(monkeypat
 
 def test_action_fn_matches_requested_policy(monkeypatch):
     """Confirms --policy delta/no_hedge wire up to the actual baseline
-    functions from optionpricing.hedging.baselines, not e.g. both pointing at the
-    same one by accident."""
+    functions from optionpricing.hedging.legacy.baselines, not e.g. both
+    pointing at the same one by accident."""
     seen = {}
 
     def fake_evaluate(action_fn, env, n_episodes=1000):
@@ -96,13 +98,14 @@ def test_action_fn_matches_requested_policy(monkeypatch):
 
 
 def test_action_fn_for_rl_policy_applies_tanh_squashing_to_mean(monkeypatch, tmp_path):
-    """Regression test for scripts/test_hedge.py's --policy rl action_fn.
+    """Regression test for scripts/test_hedge_legacy.py's --policy rl action_fn.
 
     It used to be `policy_model(state).mean.item()` -- the raw, unbounded
     distribution mean, safe only because HedgingEnv.step() clips it -- which
-    silently disagreed with how optionpricing.ml.rl.sac.train()/_squash derive
-    the deterministic action (tanh-squashed mean). It must now match: the
-    action_fn built for --policy rl is `torch.tanh(policy_model(state).mean)`.
+    silently disagreed with how
+    optionpricing.ml.hedging.legacy.sac.train()/_squash derive the
+    deterministic action (tanh-squashed mean). It must now match: the action_fn
+    built for --policy rl is `torch.tanh(policy_model(state).mean)`.
     """
     # Force the raw (pre-squash) mean far outside [-1, 1] for any input state,
     # by zeroing every weight/bias and then setting only layer3's mean output
@@ -147,7 +150,8 @@ def test_action_fn_for_rl_policy_applies_tanh_squashing_to_mean(monkeypatch, tmp
 
 @pytest.mark.parametrize("option_type,expected", [("call", True), ("put", False)])
 def test_run_enables_lsm_control_variate_only_for_calls(monkeypatch, option_type, expected):
-    # Same policy as train-hedge: the control variate helps calls, not puts.
+    # Same policy as train-hedge-legacy: the control variate helps calls, not
+    # puts.
     seen = {}
     real_lsm = test_hedge_script.LongstaffSchwartz
 
@@ -240,8 +244,8 @@ def test_delta_band_policy_builds_delta_band_from_band_flags(monkeypatch, band_t
 
 
 def test_rl_policy_loads_band_checkpoint_in_band_mode(monkeypatch, tmp_path):
-    """test-hedge must size the network from the checkpoint (a band policy has
-    a 2-D action) and restore band mode from it."""
+    """test-hedge-legacy must size the network from the checkpoint (a band
+    policy has a 2-D action) and restore band mode from it."""
     policy = RLPolicy(5, 2, action_mode="band", band_max=0.2)
     with torch.no_grad():
         policy.layer3.weight.zero_()
@@ -269,7 +273,7 @@ def test_rl_policy_loads_band_checkpoint_in_band_mode(monkeypatch, tmp_path):
 
 def test_rl_policy_loads_legacy_1d_checkpoint_without_band_max(monkeypatch, tmp_path):
     """A checkpoint saved before band mode existed has no band_max buffer:
-    test-hedge must still size it as 1-D and load it in its own mode."""
+    test-hedge-legacy must still size it as 1-D and load it in its own mode."""
     policy = RLPolicy(5, 1, action_mode="gap_fraction")
     with torch.no_grad():
         policy.layer3.weight.zero_()

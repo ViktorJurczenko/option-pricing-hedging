@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Move the SAC stack to legacy |
+| [Hedging rebuild](#hedging-rebuild) | active | Exercise boundary from the tree |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -30,7 +30,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The dataset stores only what does not depend on training choices: paths, contracts, premiums, surrogate delta and gamma, the boundary and `τ`, and the metadata that produced them. Rebalancing frequency, costs (with `κ`), settlement, risk measure and network settings are chosen at train or test time. So one dataset serves many experiments, and a policy can be tested at other costs than it was trained on.
 
-**Layout.** The non-ML parts go in `optionpricing/hedging/` (`risk.py`, `costs.py`, `settlement.py`, `pnl.py`, `baselines.py`, `simulator.py`, `exercise.py`). The network pipeline goes in `optionpricing/ml/hedging/` (`generate_hedge_dataset.py`, `hedge_dataset.py`, `hedge_model.py`, `hedge_training.py`, `hedge_evaluation.py`). SAC and `HedgingEnv` move to `legacy/` packages, as the LSM-trained surrogate did. `train-hedge` and `test-hedge` become the Deep Hedging commands. The old ones stay as `train-hedge-legacy` and `test-hedge-legacy`. The choices and their reasons are recorded in `docs/results/hedging-training.md`.
+**Layout.** The non-ML parts go in `optionpricing/hedging/` (`risk.py`, `costs.py`, `settlement.py`, `pnl.py`, `baselines.py`, `simulator.py`, `exercise.py`). The network pipeline goes in `optionpricing/ml/hedging/` (`generate_hedge_dataset.py`, `hedge_dataset.py`, `hedge_model.py`, `hedge_training.py`, `hedge_evaluation.py`). SAC and `HedgingEnv` live in `optionpricing/hedging/legacy/` and `optionpricing/ml/hedging/legacy/`, as the LSM-trained surrogate did, and run as `train-hedge-legacy` and `test-hedge-legacy`. `train-hedge` and `test-hedge` will be the Deep Hedging commands. The choices and their reasons are recorded in `docs/results/hedging-training.md`.
 
 **Decided defaults.**
 - **Contracts.** `T` from 3 months to 1 year, `σ` from 15% to 30%, `r` from 2% to 6%, `S_0/K` from 0.9 to 1.1. A narrow family first, widened once training works. The ranges are dataset parameters, so widening means generating a new dataset.
@@ -44,8 +44,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 **Next:**
 - [x] Explain the theory to the user before writing any code
 - [x] Decide the design with the user
-- [ ] Move the SAC stack to legacy
-  `env.py`, `evaluation.py`, `baselines.py` and `option_value.py` go to `optionpricing/hedging/legacy/`, and `optionpricing/ml/rl/` goes to `optionpricing/ml/hedging/legacy/`, with their tests. The CLI commands become `train-hedge-legacy` and `test-hedge-legacy` and must reproduce the current results unchanged. Done first, so the new modules get the plain names.
+- [x] Move the SAC stack to legacy
 - [ ] Exercise boundary from the tree
   A new induction function replaces `_induct` in `batch_binomial_tree.py`. It does the same backward induction and also records, at every level, the highest node where exercising beats holding. That node is interpolated with the first continuation node, to smooth out the node spacing (about 0.6% of `K` at 1000 steps, `T = 1`). A public function returns the boundary `S*/K` over time per contract, and the dataset generation uses it. `binomial_put_batch` keeps its outputs bit for bit (regression test). Under `bbsr` the boundary comes from the finer tree, since Richardson extrapolation applies to prices, not to a location. Tests: against the boundary found by bisection on price = payoff (S* from 81.11 at 1 year to 94.52 at 1 week for the default contract), rising toward `K` as maturity nears, and absent for a European put.
 - [ ] Risk measures

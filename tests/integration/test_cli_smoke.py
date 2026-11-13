@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import torch
 
-from optionpricing.ml.rl.policy import checkpoint_action_dim
+from optionpricing.ml.hedging.legacy.policy import checkpoint_action_dim
 from tests.helpers import ROOT, run_cli
 
 
@@ -24,7 +24,8 @@ def _price(stdout, label):
 
 
 def _metrics(stdout):
-    """(mean, std, var95, cvar95) parsed from the P&L report test-hedge prints."""
+    """(mean, std, var95, cvar95) parsed from the P&L report test-hedge-legacy
+    prints."""
     values = []
     for label in (r"Mean P&L:", r"Std  P&L \(error\):", r"VaR  95%:", r"CVaR 95%:"):
         match = re.search(rf"{label}\s+(-?\d+\.\d+)", stdout)
@@ -101,7 +102,7 @@ def test_train_hedge_command_writes_a_loadable_checkpoint():
     checkpoint.unlink(missing_ok=True)
     try:
         result = run_cli(
-            "train-hedge",
+            "train-hedge-legacy",
             "--n_episodes",
             "2",
             "--nb_predictions",
@@ -123,12 +124,13 @@ def test_train_hedge_command_writes_a_loadable_checkpoint():
 
 
 def test_train_and_test_hedge_band_action_mode_round_trip():
-    # A band policy has a 2-D action: train-hedge must build matching critics,
-    # and test-hedge must size the network from the checkpoint to load it.
+    # A band policy has a 2-D action: train-hedge-legacy must build matching
+    # critics, and test-hedge-legacy must size the network from the checkpoint
+    # to load it.
     checkpoint = ROOT / "artifacts" / "checkpoints" / "_smoke_test_policy_band.pth"
     try:
         result = run_cli(
-            "train-hedge",
+            "train-hedge-legacy",
             "--n_episodes",
             "2",
             "--nb_predictions",
@@ -155,7 +157,7 @@ def test_train_and_test_hedge_band_action_mode_round_trip():
         assert checkpoint_action_dim(torch.load(checkpoint, map_location="cpu")) == 2
 
         result = run_cli(
-            "test-hedge",
+            "test-hedge-legacy",
             "--n_episodes",
             "5",
             "--nb_predictions",
@@ -177,7 +179,7 @@ def test_train_and_test_hedge_band_action_mode_round_trip():
 def test_test_hedge_baseline_policy_reports_sane_pnl_without_checkpoint(policy):
     # Baselines need no trained checkpoint, unlike the rl default.
     result = run_cli(
-        "test-hedge",
+        "test-hedge-legacy",
         "--policy",
         policy,
         "--n_episodes",
@@ -193,7 +195,7 @@ def test_test_hedge_baseline_policy_reports_sane_pnl_without_checkpoint(policy):
 
 def test_test_hedge_invalid_policy_choice_is_rejected():
     result = run_cli(
-        "test-hedge",
+        "test-hedge-legacy",
         "--policy",
         "bogus",
         "--n_episodes",

@@ -20,7 +20,7 @@ Use this to get one specific result, for example "Train and evaluate the tree su
    python main.py <cmd> <flags>
    ```
 
-**Keep these consistent:** <flags that must match across steps, e.g. `--split_ratio`/`--seed` between `train-ml` and `test-ml`; `--prop_tc`/`--fixed_tc` between `train-hedge` and `test-hedge`>.
+**Keep these consistent:** <flags that must match across steps, e.g. `--split_ratio`/`--seed` between `train-ml` and `test-ml`; `--prop_tc`/`--fixed_tc` between `train-hedge-legacy` and `test-hedge-legacy`>.
 
 **If it fails:** <the most likely error and its cause, e.g. running a generator by script path instead of `python -m`>.
 ```

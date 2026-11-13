@@ -1,5 +1,6 @@
-"""optionpricing.ml.rl.sac.train(): the training loop wiring, its argument
-checks, the entropy coefficient, action squashing and each action mode."""
+"""optionpricing.ml.hedging.legacy.sac.train(): the training loop wiring, its
+argument checks, the entropy coefficient, action squashing and each action
+mode."""
 
 import math
 
@@ -8,12 +9,19 @@ import pytest
 import torch
 import tqdm as tqdm_pkg
 
-import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.critic import Critic
-from optionpricing.ml.rl.policy import RLPolicy
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.sac import _squash, train
-from tests.unit.hedge_fakes import ActionSpyBuffer, BanditEnv, FakeEnv, PositionEnv, make_nets, train_bandit
+import optionpricing.ml.hedging.legacy.sac as hedge_module
+from optionpricing.ml.hedging.legacy.critic import Critic
+from optionpricing.ml.hedging.legacy.policy import RLPolicy
+from optionpricing.ml.hedging.legacy.replay_buffer import ReplayBuffer
+from optionpricing.ml.hedging.legacy.sac import _squash, train
+from tests.unit.hedging_legacy.hedge_fakes import (
+    ActionSpyBuffer,
+    BanditEnv,
+    FakeEnv,
+    PositionEnv,
+    make_nets,
+    train_bandit,
+)
 
 
 class CountingReplayBuffer(ReplayBuffer):

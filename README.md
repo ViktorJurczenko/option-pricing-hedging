@@ -109,7 +109,7 @@ sigma=..., control_variate=True)`), the LSM call prices at 10.4506, the
 Black-Scholes value. The regression then targets the cashflow minus the
 European payoff, which is exactly 0 on every path not exercised early, so
 the regression noise that made plain LSM exercise calls early disappears.
-`train-hedge` and `test-hedge` enable it for calls only. For puts the plain
+`train-hedge-legacy` and `test-hedge-legacy` enable it for calls only. For puts the plain
 exercise rule was worth more out of sample, that is when the rule is fitted
 on 10,000 paths and then applied to 100,000 fresh ones (6.078 for the plain
 rule, 6.009 with the control variate, true price 6.084). Details: [`.claude/BUGS.md`, "LSM early-exercises American calls
@@ -151,7 +151,7 @@ call, a binomial tree for the put), on 4 seeds:
 | Out of the money | 0.2-0.9 | 0.001-0.017 |
 | Largest \|delta\| | 13-48 | 1.8 |
 
-With this delta, hedging at the LSM delta (`python main.py test-hedge
+With this delta, hedging at the LSM delta (`python main.py test-hedge-legacy
 --policy delta`) is as good as hedging at the exact delta (Black-Scholes for
 the call, the binomial tree for the put). P&L std (×K), not re-verified
 since 2026-09-30:
@@ -343,7 +343,7 @@ to the LSM delta daily), `delta_band` (a fixed no-trade band, rebalancing
 to delta or to the band's edge) and `no_hedge`.
 
 **Protocol.** Each policy is evaluated on the same 2,000 simulated episodes
-(`--seed 999 --n_episodes 2000`). `test-hedge` reseeds before evaluating, so
+(`--seed 999 --n_episodes 2000`). `test-hedge-legacy` reseeds before evaluating, so
 every policy sees identical paths. P&L is the hedge's cash flow minus the
 option payoff, ×K. It excludes the option premium, so its mean is not a
 measure of hedge quality. Std P&L is the hedging error, and 95% CVaR, the
@@ -360,13 +360,13 @@ rows give the range over 4 training seeds.
 > these numbers will be replaced. The full analysis is in
 > [`docs/results/hedging-rl.md`](docs/results/hedging-rl.md).
 
-**At a 0.1% proportional cost** (`train-hedge` defaults, 1,000 episodes per
+**At a 0.1% proportional cost** (`train-hedge-legacy` defaults, 1,000 episodes per
 training run):
 
 ```
-python main.py test-hedge --policy rl
-python main.py test-hedge --policy delta
-python main.py test-hedge --policy no_hedge
+python main.py test-hedge-legacy --policy rl
+python main.py test-hedge-legacy --policy delta
+python main.py test-hedge-legacy --policy no_hedge
 ```
 
 | Policy | Put: Std P&L | Put: 95% CVaR | Call: Std P&L | Call: 95% CVaR |
@@ -389,9 +389,9 @@ the bar for RL. Policies are compared on CVaR, because std ignores what a
 policy spends on trading:
 
 ```
-python main.py train-hedge --prop_tc 0.01 --fixed_tc 0.05 --action_mode band --val_metric cvar
-python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.05 --policy rl
-python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.05 --policy delta_band --band 0.175 --band_target delta
+python main.py train-hedge-legacy --prop_tc 0.01 --fixed_tc 0.05 --action_mode band --val_metric cvar
+python main.py test-hedge-legacy  --prop_tc 0.01 --fixed_tc 0.05 --policy rl
+python main.py test-hedge-legacy  --prop_tc 0.01 --fixed_tc 0.05 --policy delta_band --band 0.175 --band_target delta
 ```
 
 | 95% CVaR (×K) | 1%: Call | 1%: Put | 1% + $0.05: Call | 1% + $0.05: Put |
@@ -443,8 +443,8 @@ python main.py <command> --help        # list a command's flags
 | `price` | Compare pricing models (`--option_class {EU,US,both}`, `--option_type {call,put}`, plus strike, volatility, rate, maturity and sampling flags). |
 | `train-ml` | Train the put surrogate (`PutSurrogate`) on `artifacts/data/tree_put_dataset.npz`, saved to `artifacts/checkpoints/put_surrogate.pth`. |
 | `test-ml` | Evaluate the put surrogate: test-split errors, and a factorial grid against an independent finer binomial tree (price, implied-vol, delta and gamma errors, no-arbitrage violations, timing). |
-| `train-hedge` | Train the SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
-| `test-hedge` | Evaluate a policy (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
+| `train-hedge-legacy` | Train the legacy SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
+| `test-hedge-legacy` | Evaluate the legacy SAC policy or a baseline (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
 
 The surrogate's dataset has its own entry point, run as a module. It is
 seeded and resumable after an interruption:
@@ -482,9 +482,9 @@ optionpricing/          the library, one importable package
   core/                 GBM simulator, pricer base class, generic metrics
   pricing/european/     Black-Scholes, Monte-Carlo
   pricing/american/     binomial trees, Longstaff-Schwartz, basis functions
-  hedging/              hedging env, option values, baselines, P&L evaluation
+  hedging/legacy/       SAC's hedging env, option values, baselines, P&L evaluation
   ml/surrogate/         MLP surrogate pricer (tree/, legacy/)
-  ml/rl/                SAC hedging agent
+  ml/hedging/legacy/    SAC hedging agent
   ml/experiments/       research drivers (ablation runner)
 main.py                 the CLI entry point
 scripts/                one module per main.py command
@@ -495,7 +495,8 @@ artifacts/              generated datasets, checkpoints, logs, runs (gitignored,
 
 Pricers are grouped by option class, everything learned lives in
 `optionpricing/ml/`, and the hedging problem the learners train in lives in
-`optionpricing/hedging/`. Dependencies point one way: `core` <- `pricing` <-
+`optionpricing/hedging/`. The SAC agent and its environment are in `legacy/`
+subpackages, while the hedger is rebuilt as Deep Hedging. Dependencies point one way: `core` <- `pricing` <-
 `hedging` <- `ml`. Every module's API and invariants are in
 [`docs/architecture.md`](docs/architecture.md).
 

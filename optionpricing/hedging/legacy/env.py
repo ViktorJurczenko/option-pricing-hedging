@@ -22,7 +22,8 @@ class HedgingEnv:
         reward_mode:
             "terminal" (default): per-step reward is hedge P&L minus costs, and
                 the option payoff is subtracted on the exercise step only. The
-                episode sum is the hedger's total P&L (what test-hedge reports).
+                episode sum is the hedger's total P&L (what test-hedge-legacy
+                reports).
             "accounting": each step additionally subtracts the change in the
                 option's value, -(V_{t+1} - V_t), with V replaced by the payoff
                 on the exercise step. Each step's reward is then the local
@@ -31,7 +32,8 @@ class HedgingEnv:
                 of a penalty on holding any position. The episode sum telescopes
                 to the terminal-mode sum plus the constant V_0/K.
         value_fn: value_fn(t, S) -> option value at simulation row t for spots S
-            (see optionpricing/hedging/option_value.py). Required for "accounting".
+            (see optionpricing/hedging/legacy/option_value.py). Required for
+            "accounting".
         """
         if reward_mode not in ["terminal", "accounting"]:
             raise ValueError("reward_mode must be 'terminal' or 'accounting'")

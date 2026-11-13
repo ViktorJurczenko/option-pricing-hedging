@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 import torch
 
-import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.sac import train
-from tests.unit.hedge_fakes import make_nets
+import optionpricing.ml.hedging.legacy.sac as hedge_module
+from optionpricing.ml.hedging.legacy.replay_buffer import ReplayBuffer
+from optionpricing.ml.hedging.legacy.sac import train
+from tests.unit.hedging_legacy.hedge_fakes import make_nets
 
 # --- SAC update math: Bellman target, done mask, Polyak averaging -------------
 
@@ -50,7 +50,7 @@ def _single_update_train(monkeypatch, tmp_path, tau, gamma=0.9, alpha=0.3, log_p
         "_squash",
         lambda dist: (torch.tanh(dist.mean), torch.full(dist.mean.shape[:-1] + (1,), log_pi_value)),
     )
-    monkeypatch.setattr("optionpricing.ml.rl.replay_buffer.random.sample", lambda pop, k: list(pop)[:k])
+    monkeypatch.setattr("optionpricing.ml.hedging.legacy.replay_buffer.random.sample", lambda pop, k: list(pop)[:k])
     captured_targets = []
     real_mse = hedge_module.F.mse_loss
     monkeypatch.setattr(

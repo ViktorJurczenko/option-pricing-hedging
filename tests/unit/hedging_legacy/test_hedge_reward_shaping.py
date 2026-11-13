@@ -4,10 +4,10 @@ buffer, while episode bookkeeping stays on the raw reward."""
 import pytest
 import tqdm as tqdm_pkg
 
-import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.sac import train
-from tests.unit.hedge_fakes import FakeEnv, make_nets
+import optionpricing.ml.hedging.legacy.sac as hedge_module
+from optionpricing.ml.hedging.legacy.replay_buffer import ReplayBuffer
+from optionpricing.ml.hedging.legacy.sac import train
+from tests.unit.hedging_legacy.hedge_fakes import FakeEnv, make_nets
 
 
 class SpyReplayBuffer(ReplayBuffer):
@@ -55,7 +55,7 @@ def test_train_pushes_risk_shaped_reward_to_replay_buffer(tmp_path):
 def test_train_episode_reward_bookkeeping_stays_on_raw_reward(monkeypatch, tmp_path):
     """Regression guard: episode_reward (what feeds the trailing-50-episode
     mean and the checkpoint-save criterion) must track the RAW env reward
-    even when risk_lambda != 0, so it stays comparable to test-hedge's
+    even when risk_lambda != 0, so it stays comparable to test-hedge-legacy's
     reported P&L, which never applies the risk penalty. This is easy to get
     backwards (e.g. accidentally accumulating shaped_reward instead).
 

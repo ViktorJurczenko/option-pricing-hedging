@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optionpricing.hedging.env import HedgingEnv
+from optionpricing.hedging.legacy.env import HedgingEnv
 from tests.helpers import make_fake_lsm, two_path_call_lsm
 
 

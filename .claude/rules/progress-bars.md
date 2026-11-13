@@ -2,7 +2,7 @@
 paths:
   - "optionpricing/ml/**"
   - "scripts/train_*.py"
-  - "optionpricing/hedging/evaluation.py"
+  - "optionpricing/hedging/legacy/evaluation.py"
 ---
 
 # Progress bars for long-running work

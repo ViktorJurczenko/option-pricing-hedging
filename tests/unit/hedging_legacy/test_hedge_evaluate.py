@@ -1,11 +1,11 @@
-"""optionpricing.hedging.evaluation.evaluate() and cvar()."""
+"""optionpricing.hedging.legacy.evaluation.evaluate() and cvar()."""
 
 import numpy as np
 import pytest
 
-from optionpricing.hedging.baselines import delta_hedge, no_hedge
-from optionpricing.hedging.env import HedgingEnv
-from optionpricing.hedging.evaluation import cvar, evaluate
+from optionpricing.hedging.legacy.baselines import delta_hedge, no_hedge
+from optionpricing.hedging.legacy.env import HedgingEnv
+from optionpricing.hedging.legacy.evaluation import cvar, evaluate
 from tests.helpers import two_path_call_lsm
 
 

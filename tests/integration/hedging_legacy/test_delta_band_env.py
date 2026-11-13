@@ -10,10 +10,10 @@ import pytest
 import torch
 
 from optionpricing.core.gbm import GBM
-from optionpricing.hedging.baselines import delta_band
-from optionpricing.hedging.env import HedgingEnv
-from optionpricing.ml.rl.policy import RLPolicy
-from optionpricing.ml.rl.sac import deterministic_hedge
+from optionpricing.hedging.legacy.baselines import delta_band
+from optionpricing.hedging.legacy.env import HedgingEnv
+from optionpricing.ml.hedging.legacy.policy import RLPolicy
+from optionpricing.ml.hedging.legacy.sac import deterministic_hedge
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
 
 FIXED_COST = 0.5
@@ -94,8 +94,8 @@ def test_constant_band_policy_pnl_equals_delta_band_baseline(lsm, target, target
 
 
 def test_constant_band_policy_trades_and_costs_match_baseline_step_by_step(lsm):
-    """The step()-based path test-hedge's evaluate() uses: same steps held
-    and traded, and same costs, as the baseline."""
+    """The step()-based path test-hedge-legacy's evaluate() uses: same steps
+    held and traded, and same costs, as the baseline."""
     policy, b = _constant_band_policy(0.0, 20.0)
     env = HedgingEnv(lsm, prop_tc=0.0, fixed_tc=FIXED_COST)
     learned = _implied_costs(env, lambda s: deterministic_hedge(policy, s).item(), n_paths=20)

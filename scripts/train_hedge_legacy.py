@@ -2,12 +2,12 @@ import argparse
 import math
 
 from optionpricing.core.gbm import GBM
-from optionpricing.hedging.env import HedgingEnv
-from optionpricing.hedging.option_value import make_option_value_fn
-from optionpricing.ml.rl.critic import Critic
-from optionpricing.ml.rl.policy import RLPolicy
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.sac import train
+from optionpricing.hedging.legacy.env import HedgingEnv
+from optionpricing.hedging.legacy.option_value import make_option_value_fn
+from optionpricing.ml.hedging.legacy.critic import Critic
+from optionpricing.ml.hedging.legacy.policy import RLPolicy
+from optionpricing.ml.hedging.legacy.replay_buffer import ReplayBuffer
+from optionpricing.ml.hedging.legacy.sac import train
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
 
 
@@ -125,7 +125,7 @@ def add_arguments(parser):
         "--residual_scale",
         default=0.1,
         type=float,
-        help="The policy learns a correction to the LSM delta: hedge = clip(delta + residual_scale * tanh(output), -1, 1). Saved in the checkpoint, so test-hedge picks it up. 0 makes the policy output the hedge ratio directly.",
+        help="The policy learns a correction to the LSM delta: hedge = clip(delta + residual_scale * tanh(output), -1, 1). Saved in the checkpoint, so test-hedge-legacy picks it up. 0 makes the policy output the hedge ratio directly.",
     )
     parser.add_argument(
         "--action_mode",
@@ -163,7 +163,7 @@ def add_arguments(parser):
         "--val_seed",
         default=None,
         type=int,
-        help="Seed of the validation paths. Defaults to --seed + 1000; keep it away from the seed you evaluate on with test-hedge.",
+        help="Seed of the validation paths. Defaults to --seed + 1000; keep it away from the seed you evaluate on with test-hedge-legacy.",
     )
     parser.add_argument(
         "--checkpoint_path",
@@ -206,7 +206,7 @@ def run(args):
     if args.val_paths > 0:
         val_seed = args.seed + 1000 if args.val_seed is None else args.val_seed
         _, val_lsm = _simulate_and_fit_lsm(args, val_seed)
-        # Terminal mode: the validation metric is then test-hedge's P&L.
+        # Terminal mode: the validation metric is then test-hedge-legacy's P&L.
         val_env = HedgingEnv(val_lsm, prop_tc=args.prop_tc, fixed_tc=args.fixed_tc)
         if args.val_paths > val_env.n_paths:
             print(

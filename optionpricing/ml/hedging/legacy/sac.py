@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from optionpricing.hedging.evaluation import cvar
+from optionpricing.hedging.legacy.evaluation import cvar
 
 
 def _squash(dist: torch.distributions.Distribution, eps: float = 1e-6) -> tuple[torch.Tensor, torch.Tensor]:
@@ -35,8 +35,8 @@ def deterministic_hedge(policy, states: np.ndarray) -> np.ndarray:
     """The policy's deterministic hedge ratio(s) for state(s) of shape (5,) or
     (n, 5): tanh-squashed distribution mean (matching how train() squashes
     sampled actions - see `_squash`) mapped through `policy.hedge_ratio`.
-    Returns shape (1,) or (n,). Shared by train()'s validation and test-hedge
-    so the two always evaluate the same action."""
+    Returns shape (1,) or (n,). Shared by train()'s validation and
+    test-hedge-legacy so the two always evaluate the same action."""
     device = next(policy.parameters()).device
     with torch.no_grad():
         x = torch.as_tensor(states, dtype=torch.float32, device=device)
@@ -73,11 +73,11 @@ def train(
     val_env: a HedgingEnv on held-out paths. When given, the checkpoint is the
         policy with the best `val_metric` over the terminal-mode P&L of its
         first `val_paths` paths (all of them if it has fewer; each run once, deterministic action - the
-        same numbers test-hedge reports). The untrained policy is scored and
-        saved first, then the policy is re-scored every `val_every` episodes
-        and after the last one. When None, falls back to the best trailing
-        50-episode mean raw training reward, which mostly reflects which
-        paths were drawn.
+        same numbers test-hedge-legacy reports). The untrained policy is scored
+        and saved first, then the policy is re-scored every `val_every`
+        episodes and after the last one. When None, falls back to the best
+        trailing 50-episode mean raw training reward, which mostly reflects
+        which paths were drawn.
     val_metric: "std" (default; lower P&L std, i.e. hedging error, is
         better) or "cvar" (higher 95% CVaR, i.e. mean of the worst 5% of
         P&Ls - see `cvar` - is better).
@@ -189,7 +189,8 @@ def train(
             next_state, reward, done = env.step(hedge)
             # Critic/actor train on a scaled, risk-shaped reward (mean-variance
             # style); episode_reward (and thus the checkpoint criterion) stays
-            # on the raw env reward so it remains comparable to test-hedge's P&L.
+            # on the raw env reward so it remains comparable to
+            # test-hedge-legacy's P&L.
             scaled_reward = reward_scale * reward
             shaped_reward = scaled_reward - risk_lambda * scaled_reward**2
             replay_buffer.push(state, action, shaped_reward, next_state, done)

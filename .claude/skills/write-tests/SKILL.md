@@ -142,7 +142,7 @@ to extend it:
   loosely, e.g. R² above some low floor) using a small bundled dataset, so a
   wiring break between training and evaluation is caught without a 40-minute
   full dataset regeneration.
-- **`train-hedge` → `test-hedge` smoke run** with a tiny `--n_episodes` and
+- **`train-hedge-legacy` → `test-hedge-legacy` smoke run** with a tiny `--n_episodes` and
   few warmup steps, asserting it completes and prints the three metrics
   (mean P&L, std P&L, CVaR) without erroring — this exercises the full SAC
   loop wiring (env, actor, twin critics, replay buffer) together, which no

@@ -5,11 +5,11 @@ import numpy as np
 import pytest
 import torch
 
-import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.hedging.evaluation import cvar
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.sac import train
-from tests.unit.hedge_fakes import FakeEnv, make_nets
+import optionpricing.ml.hedging.legacy.sac as hedge_module
+from optionpricing.hedging.legacy.evaluation import cvar
+from optionpricing.ml.hedging.legacy.replay_buffer import ReplayBuffer
+from optionpricing.ml.hedging.legacy.sac import train
+from tests.unit.hedging_legacy.hedge_fakes import FakeEnv, make_nets
 
 # --- train() with a validation env ------------------------------------------
 

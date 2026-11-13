@@ -20,9 +20,10 @@ def cvar(pnls: np.ndarray | list[float], level: float = 0.95) -> float:
 def evaluate(action_fn, env, n_episodes=1000):
     """
     action_fn: state (np.ndarray) -> hedge position (float). For a trained RL
-    policy, wrap `optionpricing.ml.rl.sac.deterministic_hedge(policy, s).item()`, as
-    scripts/test_hedge.py does; for a baseline, pass
-    one of optionpricing.hedging.baselines directly - they already match this
+    policy, wrap
+    `optionpricing.ml.hedging.legacy.sac.deterministic_hedge(policy, s).item()`,
+    as scripts/test_hedge_legacy.py does; for a baseline, pass one of
+    optionpricing.hedging.legacy.baselines directly - they already match this
     signature.
 
     Returns (mean_pnl, std_pnl, cvar_95); the 95% VaR is printed too.

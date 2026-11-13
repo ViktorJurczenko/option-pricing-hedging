@@ -1,12 +1,12 @@
 import pytest
 import torch
 
-from optionpricing.ml.rl.critic import Critic
+from optionpricing.ml.hedging.legacy.critic import Critic
 
 
 def test_first_layer_takes_state_plus_action_width():
     # A band-mode (2-D action) critic must be wider than a 1-D one, else
-    # train-hedge --action_mode band cannot feed the action in.
+    # train-hedge-legacy --action_mode band cannot feed the action in.
     assert Critic(5, 2).net[0].in_features == 7
 
 

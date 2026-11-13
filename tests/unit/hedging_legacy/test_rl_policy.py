@@ -5,9 +5,9 @@ import pytest
 import torch
 
 from optionpricing.core.gbm import GBM
-from optionpricing.hedging.baselines import delta_band
-from optionpricing.hedging.env import HedgingEnv
-from optionpricing.ml.rl.policy import (
+from optionpricing.hedging.legacy.baselines import delta_band
+from optionpricing.hedging.legacy.env import HedgingEnv
+from optionpricing.ml.hedging.legacy.policy import (
     _DELTA_IDX,
     _INITIAL_BAND_FRACTION,
     _INITIAL_BAND_TARGET,
@@ -289,7 +289,7 @@ def test_load_pre_gap_fraction_state_dict_loads_as_residual_strict():
 def test_load_gap_fraction_checkpoint_into_default_policy_restores_gap_mode():
     torch.manual_seed(0)
     source = RLPolicy(5, 1, action_mode="gap_fraction")
-    target = RLPolicy(5, 1)  # what test-hedge builds
+    target = RLPolicy(5, 1)  # what test-hedge-legacy builds
     target.load_state_dict(source.state_dict())
     assert target.gap_fraction.item() == 1.0
     state = _state(0.5, 0.1)
@@ -424,8 +424,8 @@ def test_band_init_only_touches_mean_half_of_bias():
 
 
 def test_band_checkpoint_round_trip_restores_mode_and_band_max():
-    """What test-hedge does: size the network from the checkpoint, build it
-    with default settings, load."""
+    """What test-hedge-legacy does: size the network from the checkpoint, build
+    it with default settings, load."""
     torch.manual_seed(0)
     source = RLPolicy(5, 2, action_mode="band", band_max=0.3)
     state_dict = source.state_dict()

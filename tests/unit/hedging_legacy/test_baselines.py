@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from optionpricing.hedging.baselines import delta_band, delta_hedge, no_hedge
+from optionpricing.hedging.legacy.baselines import delta_band, delta_hedge, no_hedge
 from tests.helpers import make_state
 
-# State layout (optionpricing/hedging/env.py::HedgingEnv._get_state):
+# State layout (optionpricing/hedging/legacy/env.py::HedgingEnv._get_state):
 # [S_t/K, t/T, delta, gamma, position]
 
 

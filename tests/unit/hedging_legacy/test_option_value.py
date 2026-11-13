@@ -1,7 +1,8 @@
 """
-Tests for optionpricing/hedging/option_value.py: the value functions used by
-HedgingEnv's "accounting" reward mode (see tests/unit/test_hedge_env.py) to
-know the option's value at every simulation row, not just at exercise.
+Tests for optionpricing/hedging/legacy/option_value.py: the value functions
+used by HedgingEnv's "accounting" reward mode (see
+tests/unit/hedging_legacy/test_hedge_env.py) to know the option's value at
+every simulation row, not just at exercise.
 
 Rather than pinning single hardcoded prices, these mostly check the
 functions against the principled relationships they're built from:
@@ -14,7 +15,7 @@ call-never-exercised-early / American->=European invariants.
 import numpy as np
 import pytest
 
-from optionpricing.hedging.option_value import (
+from optionpricing.hedging.legacy.option_value import (
     binomial_value_fn,
     black_scholes_value_fn,
     make_option_value_fn,

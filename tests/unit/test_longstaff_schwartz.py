@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from optionpricing.core.gbm import GBM
-from optionpricing.hedging.option_value import binomial_value_fn
+from optionpricing.hedging.legacy.option_value import binomial_value_fn
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz, least_squares
 from optionpricing.pricing.european.black_scholes import BlackScholes
 

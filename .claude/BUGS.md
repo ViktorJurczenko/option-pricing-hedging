@@ -31,6 +31,7 @@ Open and deferred issues first, then newest first.
 
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
+| [B-039](#b-039) | train-hedge-legacy runs differ on the same --seed | Hedging and RL | deferred | 2026-11-13 |
 | [B-038](#b-038) | Hedging P&L has no cash account, so the delta baseline hedges the wrong liability | Hedging and RL | open | 2026-11-13 |
 | [B-037](#b-037) | HedgingEnv applies each hedge one step late | Hedging and RL | open | 2026-11-13 |
 | [B-002](#b-002) | Price-vs-Binomial-Tree drift comparisons are noisy across seeds | Pricing | deferred | 2026-09-29 |
@@ -140,7 +141,7 @@ same error `BinomialTree` gives.
 
 ### B-007 Simulated horizon was one step short of the maturity
 
-Status: fixed · Found: 2026-09-30 · Files: `optionpricing/core/gbm.py`, `optionpricing/pricing/american/longstaff_schwartz.py`, `optionpricing/hedging/env.py`
+Status: fixed · Found: 2026-09-30 · Files: `optionpricing/core/gbm.py`, `optionpricing/pricing/american/longstaff_schwartz.py`, `optionpricing/hedging/legacy/env.py`
 
 **Symptom:** found during the LSM diagnosis below. With `maturity=1,
 sampling=365`, the LSM call price with an exact control variate came out at
@@ -912,11 +913,39 @@ reparameterization".
 
 ## Hedging and RL
 
+<a id="b-039"></a>
+
+### B-039 train-hedge-legacy runs differ on the same --seed
+
+Status: deferred · Found: 2026-11-13 · Files: `scripts/train_hedge_legacy.py`
+
+**Symptom:** found while checking that the move to `legacy/` changed no
+result. Two runs of the same command on the same code gave different
+untrained-policy validation scores, 0.0160 and 0.0151 (`python main.py
+train-hedge-legacy --n_episodes 30 --warmup_steps 50 --nb_predictions 300
+--val_paths 50 --val_every 10 --seed 3`). The same run with
+`torch.manual_seed(0)` and `random.seed(0)` set first printed the same
+scores before and after the move.
+
+**Root cause:** `--seed` reaches only the GBM simulation and `np.random`.
+The network weights come from torch's unseeded generator, and
+`ReplayBuffer.sample` draws from Python's unseeded `random` module.
+
+**Impact:** a legacy SAC run cannot be reproduced exactly. The RL ranges
+in `docs/results/hedging-rl.md` come from 4 training seeds, so they
+already show this spread. `test-hedge-legacy` is not affected: its output
+on a given checkpoint and `--seed` is identical run to run.
+
+**Status:** deferred. The legacy stack is kept frozen to reproduce the old
+results, and the Deep Hedging trainer seeds every run (`.claude/PLAN.md`,
+"Hedging rebuild", "Policy and training loop"). The fix would be to seed
+`torch` and `random` from `--seed` in `scripts/train_hedge_legacy.py`.
+
 <a id="b-038"></a>
 
 ### B-038 Hedging P&L has no cash account, so the delta baseline hedges the wrong liability
 
-Status: open · Found: 2026-11-13 · Files: `optionpricing/hedging/env.py`
+Status: open · Found: 2026-11-13 · Files: `optionpricing/hedging/legacy/env.py`
 
 **Symptom:** found by an external review of the hedging code. The env's P&L is `Σ δ_t (S_{t+1} - S_t) - costs - payoff`. The
 premium is never received and the cash leg earns no interest. On European
@@ -955,7 +984,7 @@ not kept in the repository.
 
 ### B-037 HedgingEnv applies each hedge one step late
 
-Status: open · Found: 2026-11-13 · Files: `optionpricing/hedging/env.py`
+Status: open · Found: 2026-11-13 · Files: `optionpricing/hedging/legacy/env.py`
 
 **Symptom:** found while reading `step()` for the hedging rebuild. The
 action chosen at row t only earns from row t + 1. On European calls
@@ -996,7 +1025,7 @@ kept in the repository.
 
 ### B-013 HedgingEnv.rollout_pnl crashes on an empty path list
 
-Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/env.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/legacy/env.py`
 
 **Symptom:** found by the test-suite cleanup. `rollout_pnl(hedge_fn, [])`
 raises `ValueError` instead of returning an empty array.
@@ -1013,7 +1042,7 @@ test is now a plain test.
 
 ### B-012 HedgingEnv.step() keeps stepping after done
 
-Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/env.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/legacy/env.py`
 
 **Symptom:** found by the test-suite cleanup. After `step()` returns
 `done=True` on a path exercised before the last row, calling `step()` again
@@ -1034,7 +1063,7 @@ covers zero-length row-0 episodes.
 
 ### B-011 HedgingEnv mishandles options exercised at row 0
 
-Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/env.py`
+Status: fixed · Found: 2026-10-02 · Files: `optionpricing/hedging/legacy/env.py`
 
 **Symptom:** found by the whole-suite test review. For a deep in-the-money
 put (S0=50, K=100), LSM sets `exercise_time = 0` on every path, and
@@ -1072,7 +1101,7 @@ payoff at S0, with no hedge ever held.
 
 ### B-010 RL policy under trading costs keeps trading every day; a simple band beats it
 
-Status: fixed · Found: 2026-10-01 · Files: `optionpricing/ml/rl/policy.py`, `optionpricing/hedging/baselines.py`
+Status: fixed · Found: 2026-10-01 · Files: `optionpricing/ml/hedging/legacy/policy.py`, `optionpricing/hedging/legacy/baselines.py`
 
 **Symptom:** found in PLAN_ARCHIVE.md's "Hedge under trading costs". Training with
 a 1% proportional cost (`--prop_tc 0.01 --residual_scale 0.25
@@ -1187,7 +1216,7 @@ sweep and longer runs for puts.
 
 ### B-009 "95% CVaR" in hedging evaluation is actually the 95% VaR
 
-Status: fixed · Found: 2026-10-01 · Files: `optionpricing/hedging/evaluation.py`
+Status: fixed · Found: 2026-10-01 · Files: `optionpricing/hedging/legacy/evaluation.py`
 
 **Symptom:** found while reviewing the validation-checkpointing change.
 `AmericanHedging/Hedge.py::evaluate()` reports `cvar_95 =
@@ -1216,7 +1245,7 @@ numbers with both.
 
 ### B-008 RL hedging policy trails the LSM delta hedge
 
-Status: fixed for puts; calls match delta · Found: 2026-09-30 · Files: `optionpricing/ml/rl/policy.py`, `optionpricing/ml/rl/sac.py`
+Status: fixed for puts; calls match delta · Found: 2026-09-30 · Files: `optionpricing/ml/hedging/legacy/policy.py`, `optionpricing/ml/hedging/legacy/sac.py`
 
 **Symptom:** once the LSM delta was fixed (see "LSM early-exercises American
 calls..."), the SAC policy's P&L std was ~2x the LSM delta hedge's. It
@@ -1298,7 +1327,7 @@ learn (PLAN_ARCHIVE.md, "Hedge under trading costs").
 
 ### B-005 RL hedging objective gives no incentive to hedge
 
-Status: fixed · Found: 2026-09-29 · Files: `optionpricing/hedging/env.py`, `optionpricing/hedging/option_value.py`, `optionpricing/ml/rl/sac.py`
+Status: fixed · Found: 2026-09-29 · Files: `optionpricing/hedging/legacy/env.py`, `optionpricing/hedging/legacy/option_value.py`, `optionpricing/ml/hedging/legacy/sac.py`
 
 **Symptom:** after the actor-divergence fix below, every trained SAC hedging
 policy lands on top of the `no_hedge` baseline (README table: mean/std/CVaR
@@ -1416,7 +1445,7 @@ delta estimate) is tracked separately.
 
 ### B-004 SAC actor diverged unboundedly during hedge training
 
-Status: fixed · Found: 2026-09-29 · Files: `optionpricing/ml/rl/sac.py`
+Status: fixed · Found: 2026-09-29 · Files: `optionpricing/ml/hedging/legacy/sac.py`
 
 **Symptom:** a `risk_lambda` sweep (5 independently-trained policies)
 produced bit-identical eval metrics across two clusters instead of a

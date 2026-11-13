@@ -2,11 +2,11 @@ import numpy as np
 import torch
 
 from optionpricing.core.gbm import GBM
-from optionpricing.hedging.baselines import delta_band, delta_hedge, no_hedge
-from optionpricing.hedging.env import HedgingEnv
-from optionpricing.hedging.evaluation import evaluate
-from optionpricing.ml.rl.policy import RLPolicy, checkpoint_action_dim
-from optionpricing.ml.rl.sac import deterministic_hedge
+from optionpricing.hedging.legacy.baselines import delta_band, delta_hedge, no_hedge
+from optionpricing.hedging.legacy.env import HedgingEnv
+from optionpricing.hedging.legacy.evaluation import evaluate
+from optionpricing.ml.hedging.legacy.policy import RLPolicy, checkpoint_action_dim
+from optionpricing.ml.hedging.legacy.sac import deterministic_hedge
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
 
 

@@ -1,26 +1,28 @@
 """
-Tests for scripts/train_hedge.py::add_arguments()/run() -- specifically the
---lr/--alpha flags added to expose optionpricing.ml.rl.sac.train()'s existing
-`lr`/`alpha` keyword arguments (previously stuck at their hardcoded defaults
-with no CLI override, unlike --risk_lambda/--fixed_tc/--grad_steps_per_update
-in the same file), plus the later --reward_mode/--gamma/--reward_scale/
---auto_alpha flags and run()'s accounting-mode value_fn wiring (see
-optionpricing/hedging/option_value.py and HedgingEnv's reward_mode).
+Tests for scripts/train_hedge_legacy.py::add_arguments()/run() -- specifically
+the --lr/--alpha flags added to expose
+optionpricing.ml.hedging.legacy.sac.train()'s existing `lr`/`alpha` keyword
+arguments (previously stuck at their hardcoded defaults with no CLI override,
+unlike --risk_lambda/--fixed_tc/--grad_steps_per_update in the same file), plus
+the later --reward_mode/--gamma/--reward_scale/--auto_alpha flags and run()'s
+accounting-mode value_fn wiring (see
+optionpricing/hedging/legacy/option_value.py and HedgingEnv's reward_mode).
 
-Mirrors tests/integration/test_hedge_policy_seeding.py's approach for the
-sibling script (scripts/test_hedge.py): run() is exercised with real GBM
-simulation + LongstaffSchwartz fit + env/policy/critic construction (all real,
-kept small/fast via tiny nb_predictions/sampling/maturity), while the actual
-training loop (optionpricing.ml.rl.sac.train) is stubbed out so the test stays
+Mirrors tests/integration/hedging_legacy/test_hedge_policy_seeding.py's
+approach for the sibling script (scripts/test_hedge_legacy.py): run() is
+exercised with real GBM simulation + LongstaffSchwartz fit + env/policy/critic
+construction (all real, kept small/fast via tiny
+nb_predictions/sampling/maturity), while the actual training loop
+(optionpricing.ml.hedging.legacy.sac.train) is stubbed out so the test stays
 fast and can assert on exactly what run() passed it.
 """
 
 import numpy as np
 import pytest
 
-import scripts.train_hedge as train_hedge_script
+import scripts.train_hedge_legacy as train_hedge_script
 from optionpricing.core.gbm import GBM
-from optionpricing.hedging.env import HedgingEnv
+from optionpricing.hedging.legacy.env import HedgingEnv
 from tests.helpers import make_parser, parse_script_args
 
 
@@ -270,7 +272,7 @@ def test_run_forwards_validation_settings_and_builds_terminal_validation_env(mon
     assert (captured["val_paths"], captured["val_every"], captured["val_metric"]) == (20, 7, "cvar")
     val_env = captured["val_env"]
     assert isinstance(val_env, HedgingEnv)
-    assert val_env.reward_mode == "terminal"  # so the metric is test-hedge's P&L
+    assert val_env.reward_mode == "terminal"  # so the metric is test-hedge-legacy's P&L
     assert val_env.fixed_tc == 0.25
 
 

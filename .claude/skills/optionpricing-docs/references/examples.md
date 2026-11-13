@@ -20,7 +20,7 @@ Assumptions and failure modes are stated, together with the guard that enforces 
 
 **Also good:**
 - `## The new model, part by part`. A design choice is explained through its target, its inputs and its loss. Rejected alternatives appear as "Why not X?" with measured evidence.
-- `# How the RL hedging policy works`, from "What the RLPolicy network outputs" on. It uses a pipeline diagram in a code block, and links to code lines as `[policy.py:67-69](optionpricing/ml/rl/policy.py#L67-L69)`.
+- `# How the RL hedging policy works`, from "What the RLPolicy network outputs" on. It uses a pipeline diagram in a code block, and links to code lines as `[policy.py:67-69](optionpricing/ml/hedging/legacy/policy.py#L67-L69)`.
 
 **Do not imitate in REMINDER.md:**
 - the dated "Personal notes from … after commit …" headers;
@@ -33,7 +33,7 @@ Assumptions and failure modes are stated, together with the guard that enforces 
 
 **Results subsections.** Each is a command block, then the protocol in one sentence, then a table, then bullets that interpret it:
 > ```
-> python main.py test-hedge --policy rl
+> python main.py test-hedge-legacy --policy rl
 > ```
 > Each policy's deterministic action, evaluated over the same 2,000 simulated hedging episodes (`--seed 999 --n_episodes 2000`) with a 0.1% proportional transaction cost.
 
@@ -58,7 +58,7 @@ The evidence section rules out the alternative explanation:
 - `optionpricing/pricing/american/batch_binomial_tree.py::binomial_put_batch`. It opens with prose, then a "Vocabulary" paragraph, then a `Methods:` list explaining each option and why it exists, then the units ("Scale price and gamma back with K * price, gamma / K").
 - `optionpricing/ml/surrogate/tree/tree_pricer.py::PutSurrogate.price`. A compact `Args:`/`Returns:`/`Raises:` block, where the `Raises:` entry says *why* the error happens.
 - `TreeResult` (NamedTuple) documents each field with its units in the class docstring.
-- `optionpricing/hedging/env.py::HedgingEnv.__init__`. A named-value block for a mode argument, explaining what each mode makes possible.
+- `optionpricing/hedging/legacy/env.py::HedgingEnv.__init__`. A named-value block for a mode argument, explaining what each mode makes possible.
 
 ## Incident: .claude/BUGS.md
 

@@ -69,8 +69,8 @@ def binomial_value_fn(
     clamped to the edge node's value, then floored at the intrinsic value
     (an American option is never worth less than immediate exercise).
 
-    substeps=4 default: on the train-hedge grid (365 steps, sigma=0.2), the
-    tree's call value stays within ~0.01 of the exact Black-Scholes value
+    substeps=4 default: on the train-hedge-legacy grid (365 steps, sigma=0.2),
+    the tree's call value stays within ~0.01 of the exact Black-Scholes value
     at every row checked (0.001 at t=0), and the build (~1.5k tree steps)
     takes well under a second - accurate enough for a reward term whose
     per-step scale is ~1e-2 * K, without the O(n^2) cost of more substeps.

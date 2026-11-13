@@ -3,21 +3,21 @@
 
 import numpy as np
 
-import optionpricing.ml.rl.sac as hedge_module
-from optionpricing.ml.rl.critic import Critic
-from optionpricing.ml.rl.policy import RLPolicy
-from optionpricing.ml.rl.replay_buffer import ReplayBuffer
-from optionpricing.ml.rl.sac import train
+import optionpricing.ml.hedging.legacy.sac as hedge_module
+from optionpricing.ml.hedging.legacy.critic import Critic
+from optionpricing.ml.hedging.legacy.policy import RLPolicy
+from optionpricing.ml.hedging.legacy.replay_buffer import ReplayBuffer
+from optionpricing.ml.hedging.legacy.sac import train
 
 # --- train() tests --------------------------------------------------------
 #
-# These target optionpricing/ml/rl/sac.py's two Stage 1/2 training-mechanics changes: the
-# reward-shaping split (replay buffer gets `reward - risk_lambda*reward**2`
-# while episode bookkeeping keeps the raw reward) and grad_steps_per_update
-# (N gradient-update cycles per trigger instead of always 1). Real RLPolicy/
-# Critic nets are used (they're tiny), but a fake env replaces HedgingEnv so
-# the reward sequence is fully controlled and the SAC math itself isn't what
-# is being asserted on.
+# These target optionpricing/ml/hedging/legacy/sac.py's two Stage 1/2
+# training-mechanics changes: the reward-shaping split (replay buffer gets
+# `reward - risk_lambda*reward**2` while episode bookkeeping keeps the raw
+# reward) and grad_steps_per_update (N gradient-update cycles per trigger
+# instead of always 1). Real RLPolicy/Critic nets are used (they're tiny), but
+# a fake env replaces HedgingEnv so the reward sequence is fully controlled and
+# the SAC math itself isn't what is being asserted on.
 
 
 class FakeEnv:

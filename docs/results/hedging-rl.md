@@ -5,18 +5,18 @@ The full results of the SAC hedging agent against the analytic baselines, with t
 ## RL hedging policy vs. analytic baselines
 
 ```
-python main.py test-hedge --policy rl
-python main.py test-hedge --policy delta
-python main.py test-hedge --policy no_hedge
+python main.py test-hedge-legacy --policy rl
+python main.py test-hedge-legacy --policy delta
+python main.py test-hedge-legacy --policy no_hedge
 ```
 
 Each policy's deterministic action, evaluated over the same 2,000 simulated
 hedging episodes (`--seed 999 --n_episodes 2000`) with a 0.1% proportional
-transaction cost. `test-hedge` reseeds `np.random` from `--seed` right
-before evaluation (`scripts/test_hedge.py`), so every policy sees identical
+transaction cost. `test-hedge-legacy` reseeds `np.random` from `--seed` right
+before evaluation (`scripts/test_hedge_legacy.py`), so every policy sees identical
 simulated paths — otherwise differences below could just be path-sampling
 noise rather than a real difference between policies. RL rows give the
-range over four policies trained with the `train-hedge` defaults (seeds
+range over four policies trained with the `train-hedge-legacy` defaults (seeds
 42/1/2/3, 1,000 episodes each). All figures are ×K:
 
 | Policy | Put: Std P&L | Put: 95% CVaR | Call: Std P&L | Call: 95% CVaR |
@@ -59,9 +59,9 @@ overtrades, the picture changes: see the next section.
 ## Hedging under trading costs
 
 ```
-python main.py train-hedge --prop_tc 0.01 --action_mode gap_fraction --val_metric cvar
-python main.py test-hedge  --prop_tc 0.01 --policy rl
-python main.py test-hedge  --prop_tc 0.01 --policy delta_band --band 0.1 --band_target edge
+python main.py train-hedge-legacy --prop_tc 0.01 --action_mode gap_fraction --val_metric cvar
+python main.py test-hedge-legacy  --prop_tc 0.01 --policy rl
+python main.py test-hedge-legacy  --prop_tc 0.01 --policy delta_band --band 0.1 --band_target edge
 ```
 
 With a 0.1% cost, daily delta hedging is already close to optimal. With
@@ -110,8 +110,8 @@ form and can learn a band that varies with time to expiry, moneyness and
 gamma:
 
 ```
-python main.py train-hedge --prop_tc 0.01 --fixed_tc 0.05 --action_mode band --val_metric cvar
-python main.py test-hedge  --prop_tc 0.01 --fixed_tc 0.05 --policy rl
+python main.py train-hedge-legacy --prop_tc 0.01 --fixed_tc 0.05 --action_mode band --val_metric cvar
+python main.py test-hedge-legacy  --prop_tc 0.01 --fixed_tc 0.05 --policy rl
 ```
 
 Same protocol (95% CVaR ×K, 2,000 test episodes, 4 training seeds of 1,000
