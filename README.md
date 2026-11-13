@@ -27,8 +27,9 @@ below is produced by a command in this repository.
   out-of-the-money delta error from 0.2-0.9 to under 0.02, and made hedging
   at the LSM delta as good as hedging at the exact delta.
 - **An RL hedger that beats delta hedging on the American put**
-  (snapshot, 2026-10). The SAC agent's hedging error is 19-25% below daily
-  delta hedging on the put, and on par with it on the call. Under trading
+  (snapshot, 2026-10, distorted by two env bugs, see the hedging results).
+  The SAC agent's hedging error is 19-25% below daily delta hedging on the
+  put, and on par with it on the call. Under trading
   costs, a learned no-trade band matches the best hand-tuned band within
   seed noise or beats it, without any tuning. RL hedging is still in
   development.
@@ -349,9 +350,15 @@ measure of hedge quality. Std P&L is the hedging error, and 95% CVaR, the
 mean of the worst 5% of episodes, is the tail risk (higher is better). RL
 rows give the range over 4 training seeds.
 
-> **Results snapshot.** Measured 2026-09-30 to 2026-10-01, not re-verified.
-> The agent is under active development, so these numbers will change. The
-> full analysis is in [`docs/results/hedging-rl.md`](docs/results/hedging-rl.md).
+> **Results snapshot, known to be distorted.** Measured 2026-09-30 to
+> 2026-10-01. The environment applies each hedge one step late and books no
+> cash account ([B-037](.claude/BUGS.md#b-037) and
+> [B-038](.claude/BUGS.md#b-038) in `.claude/BUGS.md`).
+> Both inflate the delta hedge's error. Most of RL's edge on puts is likely
+> the carry the second creates: in an external measurement, the untrained
+> Black-Scholes delta at r = 0 matched it. The hedger is being rebuilt, and
+> these numbers will be replaced. The full analysis is in
+> [`docs/results/hedging-rl.md`](docs/results/hedging-rl.md).
 
 **At a 0.1% proportional cost** (`train-hedge` defaults, 1,000 episodes per
 training run):
@@ -369,8 +376,8 @@ python main.py test-hedge --policy no_hedge
 | No hedge | 0.0725 | -0.186 | 0.154 | -0.571 |
 
 - **On the American put, RL beats delta hedging** on every seed: 19-25%
-  lower hedging error and a better tail. It even beats hedging at the exact
-  tree delta (std 0.012-0.013). A hypothesis, not verified: episodes end at
+  lower hedging error and a better tail (see the caveat above). It even
+  beats hedging at the exact tree delta (std 0.012-0.013). A hypothesis, not verified: episodes end at
   LSM's slightly suboptimal exercise date, which a learned hedge can adapt
   to and a model delta cannot.
 - **On the call, RL matches delta hedging**: training never improved on the

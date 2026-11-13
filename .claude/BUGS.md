@@ -31,6 +31,8 @@ Open and deferred issues first, then newest first.
 
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
+| [B-038](#b-038) | Hedging P&L has no cash account, so the delta baseline hedges the wrong liability | Hedging and RL | open | 2026-11-13 |
+| [B-037](#b-037) | HedgingEnv applies each hedge one step late | Hedging and RL | open | 2026-11-13 |
 | [B-002](#b-002) | Price-vs-Binomial-Tree drift comparisons are noisy across seeds | Pricing | deferred | 2026-09-29 |
 | [B-036](#b-036) | Width-256 softplus surrogate stopped learning in its first epoch | Surrogate | fixed | 2026-11-06 |
 | [B-035](#b-035) | A rerun of some variants dropped the others from summary.md | Tooling and tests | fixed | 2026-10-29 |
@@ -909,6 +911,86 @@ generalizes to is documented in `docs/architecture.md`, "Softplus
 reparameterization".
 
 ## Hedging and RL
+
+<a id="b-038"></a>
+
+### B-038 Hedging P&L has no cash account, so the delta baseline hedges the wrong liability
+
+Status: open · Found: 2026-11-13 · Files: `optionpricing/hedging/env.py`
+
+**Symptom:** found by an external review of the hedging code. The env's P&L is `Σ δ_t (S_{t+1} - S_t) - costs - payoff`. The
+premium is never received and the cash leg earns no interest. On European
+calls (20,000 seed-999 daily paths, no costs, textbook timing), std P&L / K
+is:
+
+| Hedge | Env accounting (no cash) | Financed (cash at r, premium received) |
+|---|---|---|
+| Black-Scholes delta at r = 5% | 0.0121 | **0.0035** |
+| Black-Scholes delta at r = 0 | **0.0037** | 0.0120 |
+
+The delta at the simulation's rate is the right hedge only under financed
+accounting. Under the env's accounting the right hedge is the delta at
+r = 0.
+
+**Root cause:** a self-financing hedge's P&L is the stock P&L plus the
+interest on the cash account. Without that term, the liability being
+replicated is the option priced at zero rate, whose delta is the r = 0
+delta. Every baseline and the RL state use the delta at r = 5%.
+
+**Impact:** most of the README's "RL beats delta by 19-25% on puts" is
+likely carry. On the env's own `test-hedge` paths, the untrained Black-Scholes
+delta at r = 0 matches the RL put agent (std 0.0096 for both) and beats
+every policy on calls (0.0090 against 0.0142). Measured by the external
+review on an earlier snapshot of the same env, not re-verified here. Every number
+in `docs/results/hedging-rl.md` and `docs/results/hedging-costs.md` uses
+this accounting.
+
+**Status:** to be fixed by the hedging rebuild (`.claude/PLAN.md`,
+"Hedging rebuild"), which books the P&L in discounted terms with the
+premium received at t = 0. The table was measured with a standalone NumPy
+script (Black-Scholes delta from `scipy.stats.norm`, not the project's env),
+not kept in the repository.
+
+<a id="b-037"></a>
+
+### B-037 HedgingEnv applies each hedge one step late
+
+Status: open · Found: 2026-11-13 · Files: `optionpricing/hedging/env.py`
+
+**Symptom:** found while reading `step()` for the hedging rebuild. The
+action chosen at row t only earns from row t + 1. On European calls
+(20,000 seed-999 daily paths, no costs, `r = 5%`, `σ = 20%`, `T = 1`),
+std P&L / K is:
+
+| Accounting and hedge | Hedge earns from t (textbook) | Hedge earns from t + 1 (env) |
+|---|---|---|
+| Financed, delta at r = 5% | **0.0035** | 0.0089 |
+| Env (no cash), delta at r = 5% | 0.0121 | 0.0142 |
+| Env (no cash), delta at r = 0 | **0.0037** | 0.0085 |
+
+All rows use the Black-Scholes delta, not the project's LSM delta. The
+lag multiplies the hedging error by 2.5 (financed), 1.17 (env, delta at
+r = 5%) and 2.3 (env, delta at r = 0). The env row at r = 5% with the lag,
+0.0142, is close to the README's call delta-hedge std (0.0142), which was
+measured differently: LSM delta, 0.1% cost, the project's own paths.
+
+**Root cause:** `step()` computes `hedge_pnl = self.position * (S_t1 - S_t)`
+with the position held *before* the trade at t, then stores the new
+action. So the position earning over `[t, t+1]` was chosen at `t - 1`
+with a delta one day old, nothing is held over the first day, and the
+last action is never used. `rollout_pnl` copies the same convention on
+purpose, and its tests pin it.
+
+**Impact:** every hedging result so far. The delta baseline carries an
+extra stale-hedge error, which a learned policy can partly undo by
+anticipating the next move of delta (the residual action can shift it by
+up to `residual_scale`).
+
+**Status:** to be fixed by the hedging rebuild (`.claude/PLAN.md`,
+"Hedging rebuild"), whose P&L has `δ_k` chosen at `t_k` earn
+`δ_k (S̃_{k+1} - S̃_k)`. Measured with a standalone NumPy script
+(Black-Scholes delta from `scipy.stats.norm`, not the project's env), not
+kept in the repository.
 
 <a id="b-013"></a>
 
