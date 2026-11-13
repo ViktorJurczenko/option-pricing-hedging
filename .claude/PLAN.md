@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Decide the remaining design with the user |
+| [Hedging rebuild](#hedging-rebuild) | active | Move the SAC stack to legacy |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -32,12 +32,18 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 
 **Layout.** The non-ML parts go in `optionpricing/hedging/` (`risk.py`, `costs.py`, `settlement.py`, `pnl.py`, `baselines.py`, `simulator.py`, `exercise.py`). The network pipeline goes in `optionpricing/ml/hedging/` (`generate_hedge_dataset.py`, `hedge_dataset.py`, `hedge_model.py`, `hedge_training.py`, `hedge_evaluation.py`). SAC and `HedgingEnv` move to `legacy/` packages, as the LSM-trained surrogate did. `train-hedge` and `test-hedge` become the Deep Hedging commands. The old ones stay as `train-hedge-legacy` and `test-hedge-legacy`. The choices and their reasons are recorded in `docs/results/hedging-training.md`.
 
-**Open, flagged.** With weekly hedging the holder can still exercise between two hedge dates. Two things are not settled yet. Does the holder check the boundary daily or only on hedge dates? And how does the P&L book a `τ` that falls between hedge dates?
+**Decided defaults.**
+- **Contracts.** `T` from 3 months to 1 year, `σ` from 15% to 30%, `r` from 2% to 6%, `S_0/K` from 0.9 to 1.1. A narrow family first, widened once training works. The ranges are dataset parameters, so widening means generating a new dataset.
+- **Rebalancing.** Daily (one date per day to expiry).
+- **Exercise between hedge dates.** The holder checks the boundary every day, whatever the hedging grid. If a coarser grid is used, the last position earns until `τ` and settlement happens at `τ`.
+- **Risk level.** CVaR at `α` = 95%.
+- **Settlement.** Cash, the most common convention. Physical stays available as a flag.
+- **Chosen by checks, not fixed in advance.** Dataset sizes, network size, batch size, `κ`, learning rates and how late the late holder is. Each is set by a check, for example more training paths while the validation score still improves with them.
+- **SAC.** Whether SAC is retrained once on the new P&L is decided at the end, once Deep Hedging has results.
 
 **Next:**
 - [x] Explain the theory to the user before writing any code
-- [ ] Decide the remaining design with the user
-  The contract family's ranges (within the surrogate's domain), the default rebalancing grid (daily, or weekly for fast experiments), the flagged exercise question above, and whether SAC is retrained once on the new P&L for one comparison.
+- [x] Decide the design with the user
 - [ ] Move the SAC stack to legacy
   `env.py`, `evaluation.py`, `baselines.py` and `option_value.py` go to `optionpricing/hedging/legacy/`, and `optionpricing/ml/rl/` goes to `optionpricing/ml/hedging/legacy/`, with their tests. The CLI commands become `train-hedge-legacy` and `test-hedge-legacy` and must reproduce the current results unchanged. Done first, so the new modules get the plain names.
 - [ ] Exercise boundary from the tree
@@ -55,7 +61,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [ ] Baselines
   `baselines.py`, as policies with the network's interface: no hedge, surrogate delta, tree delta, fixed bands tuned on validation paths, and the Whalley-Wilmott band. This re-measures what delta hedging achieves before any learning, and replaces the invalid results.
 - [ ] Dataset
-  `generate_hedge_dataset.py` and `hedge_dataset.py` save paths, contracts, premiums, surrogate delta and gamma per day, the boundary and `τ`. The metadata (seeds, ranges, surrogate checkpoint, exercise method) is saved too, so train and test can refuse a mismatched bank. Train, validation and test banks use distinct seeds. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, about 18 minutes for 50,000 paths, once. The file is about 220 MB for 50,000 daily paths in float32.
+  `generate_hedge_dataset.py` and `hedge_dataset.py` save paths, contracts, premiums, surrogate delta and gamma per day, the boundary and `τ`. The metadata (seeds, ranges, surrogate checkpoint, exercise method) is saved too, so train and test can refuse a mismatched bank. Train, validation and test banks use distinct seeds. Maturities differ per path, so paths are padded to the longest one and masked after expiry. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, about 18 minutes for 50,000 paths, once. The file is about 220 MB for 50,000 daily paths in float32.
 - [ ] Policy and training loop
   `hedge_model.py` and `hedge_training.py`: the band network with the optional boundary input, the objective chosen by flag, `κ` as a setting, and `w` on its own learning rate. Validation checkpointing on held-out paths keeps the untrained (delta) policy as a candidate. Runs are seeded and show a progress bar.
 - [ ] Evaluation
@@ -68,7 +74,8 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
   - one policy over the contract family against per-contract bands;
   - the boundary input on and off, with optimal and late holders;
   - CVaR training with `w` on its own learning rate and on the network's, to check that `w` needs its own;
-  - volatility misspecification (realized σ ≠ the hedger's σ) and stochastic volatility, where delta is no longer optimal.
+  - volatility misspecification (realized σ ≠ the hedger's σ) and stochastic volatility, where delta is no longer optimal;
+  - if time allows, SAC retrained once on the new P&L, for one comparison.
 
 
 ## Backlog

@@ -16,6 +16,10 @@ This page records the design choices for the Deep Hedging rebuild of the America
 | Straight-through gradient for the fixed fee | a smooth fee in the P&L, or ignoring the fee in training | the P&L stays exact and the network still gets a signal | The fixed fee: straight-through |
 | Risk measures, costs and settlement in their own files | built into the training loop | training and testing score with the same functions | The building blocks |
 | Separate dataset, training and test steps | one script | every choice can be changed at its own step | The pipeline |
+| Narrow contract family first | the surrogate's whole domain | faster first results, widened once training works | The defaults |
+| Daily rebalancing | weekly | realistic, and comparable with the earlier results | The defaults |
+| Holder checks the boundary daily | only on hedge dates | the holder does not follow the hedger's schedule | The defaults |
+| CVaR at 95%, cash settlement | other levels, physical settlement | the project's level so far, and the most common convention | The defaults |
 
 ## Deep Hedging instead of SAC
 
@@ -156,9 +160,20 @@ Straight-through is the only cheap option that keeps the P&L exact. Its approxim
 
 **Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, about 18 minutes for 50,000 paths, paid once.
 
+## The defaults
+
+Each default is a flag or a dataset parameter, so an experiment can change it.
+
+| Setting | Default | Why |
+|---|---|---|
+| Contract family | `T` 3 months to 1 year, `σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1 | Narrow enough to train quickly, wide enough that the surrogate is needed. Widened once training works, by generating a new dataset. |
+| Rebalancing | daily | Realistic, and comparable with the earlier results. The dataset is stored daily, so a coarser grid is a subset of its dates. |
+| Exercise between hedge dates | the holder checks the boundary every day | The holder does not follow the hedger's schedule. On a coarser grid, the last position earns until `τ` and settlement happens at `τ`. |
+| Risk level | CVaR at `α` = 95% | The level used across the project so far. |
+| Settlement | cash | The most common convention. Physical settlement stays available. |
+
+**Chosen by checks.** Dataset sizes, network size, batch size, `κ`, the learning rates and how late the late holder is are not fixed in advance. Each is set by a check and recorded here with its evidence. For example, the training set grows while the validation score still improves with more paths.
+
 ## Open questions
 
-- **Weekly hedging with daily exercise.** The holder can exercise between two hedge dates. Whether the holder checks the boundary daily or only on hedge dates, and how the P&L books a `τ` between hedge dates, is not settled.
-- **The contract family's ranges**, within the surrogate's domain.
-- **The default rebalancing grid**, daily or weekly.
-- **SAC on the new P&L.** Whether SAC is retrained once for one comparison.
+- **SAC on the new P&L.** Whether SAC is retrained once for one comparison. Decided at the end, once Deep Hedging has results.
