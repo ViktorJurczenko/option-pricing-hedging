@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from optionpricing.core.gbm import GBM
+from optionpricing.pricing.american.batch_binomial_tree import exercise_boundary, price_put_batch
 from optionpricing.pricing.american.binomial_tree import BinomialTree
 from optionpricing.pricing.american.longstaff_schwartz import LongstaffSchwartz
 from optionpricing.pricing.european.black_scholes import BlackScholes
@@ -86,3 +87,28 @@ def test_put_american_price_exceeds_european_by_the_early_exercise_premium():
     european = BlackScholes(0.2, 100.0, 100.0, 0.05, "put").calculate_option_price(1.0)
 
     assert lsm.calculate_option_price() > european + 0.3
+
+
+def test_exercise_boundary_converges_to_the_fine_tree_threshold():
+    # Reference: the moneyness where an 8000-step BBSR tree switches from
+    # exercising today to holding, by bisection on its `exercised` flag, at
+    # five times left on one contract (T = 1, r = 5%, sigma = 20%), all
+    # bisected together. The boundary is read along one tree's curve, as the
+    # hedger reads it, so late levels have fewer steps left than a tree for
+    # that maturity would. Measured max gaps: 2.1e-3 of K at 1000 steps (with
+    # 3 months and 1 month left), 8.4e-4 at 4000. The nearest node alone was
+    # off by up to 7.7e-3 at 1000 steps. The reference is itself still ~3e-4
+    # above the 16000-step value (0.80962 against 0.80937 with 1 year left),
+    # since smooth pasting makes any boundary location imprecise.
+    left = np.array([1.0, 0.5, 0.25, 0.1, 1 / 52])
+    lo, hi = np.full(len(left), 0.3), np.ones(len(left))
+    for _ in range(30):  # 0.7 / 2^30 ~ 7e-10
+        mid = (lo + hi) / 2
+        exercised = price_put_batch(mid, left, 0.05, 0.2, nb_steps=8000).exercised
+        lo, hi = np.where(exercised, mid, lo), np.where(exercised, hi, mid)
+    reference = (lo + hi) / 2
+
+    for nb_steps, tol in ((1000, 3e-3), (4000, 1.2e-3)):
+        boundary = exercise_boundary(1.0, 0.05, 0.2, nb_steps=nb_steps)
+        at_left = boundary[np.rint(nb_steps * (1 - left)).astype(int)]
+        np.testing.assert_allclose(at_left, reference, rtol=0, atol=tol, err_msg=f"{nb_steps} steps")

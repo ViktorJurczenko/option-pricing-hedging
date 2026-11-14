@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Exercise boundary from the tree |
+| [Hedging rebuild](#hedging-rebuild) | active | Risk measures |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -45,8 +45,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Explain the theory to the user before writing any code
 - [x] Decide the design with the user
 - [x] Move the SAC stack to legacy
-- [ ] Exercise boundary from the tree
-  A new induction function replaces `_induct` in `batch_binomial_tree.py`. It does the same backward induction and also records, at every level, the highest node where exercising beats holding. That node is interpolated with the first continuation node, to smooth out the node spacing (about 0.6% of `K` at 1000 steps, `T = 1`). A public function returns the boundary `S*/K` over time per contract, and the dataset generation uses it. `price_put_batch` keeps its outputs bit for bit (regression test). Under `bbsr` the boundary comes from the finer tree, since Richardson extrapolation applies to prices, not to a location. Tests: against the boundary found by bisection on price = payoff (S* from 81.11 at 1 year to 94.52 at 1 week for the default contract), rising toward `K` as maturity nears, and absent for a European put.
+- [x] Exercise boundary from the tree
 - [ ] Risk measures
   `risk.py` holds four functions. `cvar(pnl, alpha)` is the average of the worst `1 - α` share, the reported metric. `cvar_loss(pnl, w, alpha)` is the Rockafellar-Uryasev training form. `entropic(pnl, lam)` uses `logsumexp`, so `e^{-λ PL}` cannot overflow. `variance(pnl)` completes the set. Tested on the 20-outcome example: the minimum of `cvar_loss` over `w` equals `cvar`.
 - [ ] Transaction costs

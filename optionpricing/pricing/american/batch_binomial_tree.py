@@ -38,91 +38,38 @@ def price_put_batch(
     chunk_size: int | None = None,
 ) -> TreeResult:
     """
-    Price a batch of puts with Cox-Ross-Rubinstein trees, all options stepped
-    together. Every option gets its own tree (its own u, d, p, discount),
-    with the same number of steps.
+    Price a batch of puts, with delta and gamma, on binomial trees.
 
-    Vocabulary: an N-step tree has N + 1 *levels*, one per time step. Level i
-    is time i * dt (dt = maturity / N): level 0 is today (one node, the
-    current spot), level N is expiry, and level i holds the i + 1 spots the
-    stock can reach after i up-or-down moves. Backward induction computes the
-    option value level by level, from expiry back to today. Here each level
-    is one numpy array of shape (n_options, i + 1), so the Python overhead is
-    paid once per level instead of once per option.
+    Each option gets its own tree, and all are stepped together. Everything
+    is per unit of strike (K = 1), so an option is given by its moneyness
+    m = S / K: multiply the price by K and divide gamma by K.
 
-    Everything is per unit of strike (K = 1): the option is described by its
-    moneyness m = S / K. Scale price and gamma back with K * price, gamma / K.
-
-    Methods:
-        "crr": plain CRR, the same recursion as `BinomialTree`. Its price
-            zig-zags as nb_steps changes (odd and even trees place a node
-            on or off the strike), which would be structured noise in labels.
-        "bbs": binomial Black-Scholes. The last tree step (level N - 1 to
-            expiry) is valued with the European Black-Scholes formula over
-            that last dt instead of the tree, which smooths out the payoff's
-            kink at the strike, where the zig-zag comes from.
-        "bbsr": "bbs" with Richardson extrapolation, 2 * P(N) - P(N / 2).
-            The BBS error shrinks roughly like c / N, so this combination
-            cancels the leading error term. Needs an even nb_steps. For a
-            European put the remainder then shrinks like 1 / N^2; for an
-            American put it still shrinks roughly like 1 / N (the early
-            exercise boundary falls between nodes differently for each N,
-            which no power series in 1 / N captures), but about 10 times
-            smaller than BBS's error and without CRR's zig-zag.
-
-    Delta and gamma are finite differences over the nodes of levels 1 and 2
-    (they sit dt and 2 dt after today, an O(dt) offset that vanishes as
-    nb_steps grows); "bbsr" extrapolates them like the price. When the put is
-    exercised today (price at most its payoff 1 - m, with m < 1), the exact
-    values replace them: price 1 - m, delta -1, gamma 0.
+        res = price_put_batch(m, T, r, sigma)  # arrays that broadcast together
+        res.price, res.delta, res.gamma, res.exercised
 
     Args:
         moneyness, maturity, risk_free_rate, sigma: arrays (or scalars) that
             broadcast together; the outputs have their broadcast shape.
         nb_steps: tree steps per option (for "bbsr", of the finer tree).
-        method: "crr", "bbs" or "bbsr" (see above).
-        american: allow early exercise (False gives the European put, whose
-            exact value is known, which tests the tree itself).
-        chunk_size: options stepped together per pass (None: the whole batch
-            at once). Only affects speed and memory, never the results.
+        method: "crr" (plain Cox-Ross-Rubinstein), "bbs" (Black-Scholes over
+            the last step, which removes CRR's odd/even zig-zag) or "bbsr"
+            (BBS with Richardson extrapolation, 2 P(N) - P(N/2); the most
+            accurate, needs an even nb_steps).
+        american: allow early exercise (False gives the European put).
+        chunk_size: options stepped together per pass (None: all at once).
+            Only affects speed and memory, never the results.
 
     Returns:
-        TreeResult(price, delta, gamma, exercised).
+        TreeResult(price, delta, gamma, exercised). A put exercised today
+        gets its exact values: price 1 - m, delta -1, gamma 0.
 
     Raises:
-        ValueError: for an unknown method, a non-finite (NaN or infinite)
-            parameter, moneyness/maturity/sigma <= 0, too
-            few steps (gamma needs levels 1 and 2 below the root, after the
-            BBS last step is taken off and N halved), an odd nb_steps with
-            "bbsr", chunk_size < 1, or a risk-neutral probability outside
-            (0, 1) (a step so long that the rate's drift beats the
-            volatility's up/down move).
+        ValueError: for an unknown method, a non-finite parameter,
+            moneyness/maturity/sigma <= 0, too few steps, an odd nb_steps
+            with "bbsr", chunk_size < 1, or a step so long that the
+            risk-neutral probability leaves (0, 1).
     """
-    if method not in METHODS:
-        raise ValueError(f"method must be one of {METHODS}, got {method!r}")
-    if chunk_size is not None and chunk_size < 1:
-        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
-    # one (4, *batch_shape) array: rows are moneyness, maturity, rate, sigma
-    params = np.stack(np.broadcast_arrays(moneyness, maturity, risk_free_rate, sigma)).astype(float)
-    # NaN passes every `<= 0` check and would silently give NaN prices
-    if not np.all(np.isfinite(params)):
-        raise ValueError("moneyness, maturity, risk_free_rate and sigma must be finite")
-    m, T, r, sigma = params
-    if np.any(m <= 0):
-        raise ValueError("moneyness must be > 0")
-    if np.any(T <= 0):
-        raise ValueError("maturity must be > 0")
-    if np.any(sigma <= 0):
-        raise ValueError("sigma must be > 0")
-    if method == "bbsr" and nb_steps % 2:
-        raise ValueError(f"nb_steps must be even for 'bbsr', got {nb_steps}")
-    coarsest = nb_steps // 2 if method == "bbsr" else nb_steps
-    min_steps = 2 if method == "crr" else 3
-    if coarsest < min_steps:
-        raise ValueError(
-            f"method {method!r} needs nb_steps >= {min_steps * (2 if method == 'bbsr' else 1)}, got {nb_steps}"
-        )
-
+    params = _validated_params(moneyness, maturity, risk_free_rate, sigma, nb_steps, method, chunk_size)
     batch_shape = params.shape[1:]
     params = params.reshape(4, -1)  # flat batch: column k is option k
     n_options = params.shape[1]
@@ -131,11 +78,11 @@ def price_put_batch(
     for start in range(0, n_options, step):
         part = params[:, start : start + step]
         if method == "bbsr":
-            out[:, start : start + step] = 2 * _induct(part, nb_steps, bbs=True, american=american) - _induct(
-                part, nb_steps // 2, bbs=True, american=american
-            )
+            fine, _ = _induct(part, nb_steps, bbs=True, american=american)
+            coarse, _ = _induct(part, nb_steps // 2, bbs=True, american=american)
+            out[:, start : start + step] = 2 * fine - coarse
         else:
-            out[:, start : start + step] = _induct(part, nb_steps, bbs=method == "bbs", american=american)
+            out[:, start : start + step], _ = _induct(part, nb_steps, bbs=method == "bbs", american=american)
     # If the put is exercised today, it is worth exactly 1 - m around today's
     # spot: delta -1, gamma 0. The finite differences can't see that when
     # m is just inside the exercise region, since their outer nodes reach
@@ -155,10 +102,132 @@ def price_put_batch(
     return TreeResult(*out.reshape(3, *batch_shape), exercised.reshape(batch_shape))
 
 
-def _induct(params, n, bbs, american):
+def exercise_boundary(
+    maturity,
+    risk_free_rate,
+    sigma,
+    nb_steps: int = 1000,
+    method: str = "bbsr",
+    chunk_size: int | None = None,
+) -> np.ndarray:
+    """
+    Early-exercise boundary of American puts over time, per unit of strike.
+
+    The holder of an American put exercises the first time the spot falls to
+    or below the boundary S*(t). This returns S*/K at every step of one tree
+    per contract, from today to expiry. It does not depend on today's spot.
+
+        boundary = exercise_boundary(T, r, sigma)  # shape (*batch, 1001)
+        boundary[..., i]  # S*/K at time i * T / 1000
+
+    "bbsr" gives the same boundary as "bbs" (Richardson extrapolation
+    applies to prices, not to the boundary).
+
+    Args:
+        maturity, risk_free_rate, sigma: arrays (or scalars) that broadcast
+            together, one contract per element.
+        nb_steps: tree steps per contract.
+        method: "crr", "bbs" or "bbsr", as in `price_put_batch`.
+        chunk_size: contracts stepped together per pass (None: all at once).
+            Only affects speed and memory, never the results.
+
+    Returns:
+        An array of shape (*broadcast_shape, nb_steps + 1). Entry i is S*/K
+        at time i * maturity / nb_steps. The last entry, at expiry, is 1
+        (exercise exactly when in the money). With a rate <= 0 every entry
+        before expiry is NaN: early exercise of a put then never pays.
+
+    Raises:
+        ValueError: for an invalid parameter, as `price_put_batch` (with
+            moneyness fixed at 1).
+    """
+    params = _validated_params(1.0, maturity, risk_free_rate, sigma, nb_steps, method, chunk_size)
+    batch_shape = params.shape[1:]
+    params = params.reshape(4, -1)
+    n_options = params.shape[1]
+    step = chunk_size or max(n_options, 1)
+    out = np.empty((n_options, nb_steps + 1))
+    for start in range(0, n_options, step):
+        part = params[:, start : start + step]
+        _, out[start : start + step] = _induct(
+            part,
+            nb_steps,
+            bbs=method != "crr",
+            american=True,
+            nb_extra_nodes=_nb_extra_nodes(part, nb_steps),
+            record_boundary=True,
+        )
+    return out.reshape(*batch_shape, nb_steps + 1)
+
+
+def _nb_extra_nodes(params, nb_steps):
+    """Number of nodes to add below every level of trees with nb_steps steps
+    started at m = 1, so that even the first levels reach down to the
+    boundary.
+
+    A tree started at m = 1 spans only u^(-i) to u^i at level i, too narrow
+    near today to reach S*. Neighbouring nodes of one level are a factor u^2
+    apart, so with n extra nodes level 0 spans down to u^(-2n). The count is
+    the smallest n that puts u^(-2n) at or below the perpetual put's boundary
+    2r / (2r + sigma^2), a lower bound on S* at every maturity:
+    n = ceil(ln(1 / perpetual) / (2 sigma sqrt(dt))), since ln u = sigma
+    sqrt(dt). One count for the whole chunk (the largest), since the
+    contracts share one array; 0 when no rate is positive. Why this is
+    enough, and its cost: `docs/results/hedging-training.md`, "The exercise
+    boundary"."""
+    T, r, sigma = params[1:]
+    positive = r > 0
+    if not positive.any():
+        return 0
+    r, sigma, dt = r[positive], sigma[positive], T[positive] / nb_steps
+    perpetual = 2 * r / (2 * r + sigma**2)
+    return int(np.ceil(np.max(np.log(1 / perpetual) / (2 * sigma * np.sqrt(dt)))))
+
+
+def _validated_params(moneyness, maturity, risk_free_rate, sigma, nb_steps, method, chunk_size):
+    """Check the arguments of `price_put_batch` and return the parameters
+    as one float array of shape (4, *broadcast_shape), rows moneyness,
+    maturity, rate, sigma. Raises ValueError as documented there."""
+    if method not in METHODS:
+        raise ValueError(f"method must be one of {METHODS}, got {method!r}")
+    if chunk_size is not None and chunk_size < 1:
+        raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+    params = np.stack(np.broadcast_arrays(moneyness, maturity, risk_free_rate, sigma)).astype(float)
+    # NaN passes every `<= 0` check and would silently give NaN prices
+    if not np.all(np.isfinite(params)):
+        raise ValueError("moneyness, maturity, risk_free_rate and sigma must be finite")
+    m, T, r, sigma = params
+    if np.any(m <= 0):
+        raise ValueError("moneyness must be > 0")
+    if np.any(T <= 0):
+        raise ValueError("maturity must be > 0")
+    if np.any(sigma <= 0):
+        raise ValueError("sigma must be > 0")
+    if method == "bbsr" and nb_steps % 2:
+        raise ValueError(f"nb_steps must be even for 'bbsr', got {nb_steps}")
+    coarsest = nb_steps // 2 if method == "bbsr" else nb_steps
+    min_steps = 2 if method == "crr" else 3
+    if coarsest < min_steps:
+        raise ValueError(
+            f"method {method!r} needs nb_steps >= {min_steps * (2 if method == 'bbsr' else 1)}, got {nb_steps}"
+        )
+    return params
+
+
+def _induct(params, n, bbs, american, nb_extra_nodes=0, record_boundary=False):
     """Backward induction over n-step trees for a (4, n_options) parameter
-    array (rows: moneyness, maturity, rate, sigma). Returns a
-    (3, n_options) array, rows price, delta, gamma."""
+    array (rows: moneyness, maturity, rate, sigma).
+
+    `nb_extra_nodes` adds that many nodes below every level. They change none
+    of the values of the plain tree's nodes, which keep their arithmetic
+    operation for operation. With `record_boundary`, every level also
+    records the exercise boundary (see `exercise_boundary`).
+
+    Returns:
+        (greeks, boundary): greeks is a (3, n_options) array, rows price,
+        delta, gamma; boundary is an (n_options, n + 1) array of S*/K per
+        level, or None without `record_boundary`.
+    """
     # Each parameter as a column, shape (n_options, 1), so it broadcasts
     # against a level's (n_options, nodes) arrays: option k's row of nodes
     # is combined with option k's own u, p, discount.
@@ -172,10 +241,16 @@ def _induct(params, n, bbs, american):
     # discounted up/down weights, so each level costs two products, not three
     up, down = p / growth, (1 - p) / growth
 
+    boundary = None
+    if record_boundary:
+        boundary = np.full((params.shape[1], n + 1), np.nan)
+        boundary[:, n] = 1.0  # at expiry: exercise exactly when in the money
+
     # Spots at the last level the tree reaches, ascending: node j has j up
-    # moves, so S = m * u ** (2j - level). BBS stops one level before expiry.
+    # moves, so S = m * u ** (2j - level), and the extra nodes have j < 0.
+    # BBS stops one level before expiry.
     level = n - 1 if bbs else n
-    spot = m * u ** (2 * np.arange(level + 1) - level)
+    spot = m * u ** (2 * np.arange(-nb_extra_nodes, level + 1) - level)
     exercise = np.maximum(1 - spot, 0)
     if not bbs:
         values = exercise  # at expiry the put is worth its payoff
@@ -184,23 +259,66 @@ def _induct(params, n, bbs, american):
         # put is worth less held than exercised), so an American put takes
         # the larger of the two.
         values = black_scholes_price(spot, 1.0, dt, r, sigma, "put")
+        if record_boundary:
+            boundary[:, level] = _boundary_at_level(spot, values, exercise)
         if american:
             values = np.maximum(values, exercise)
 
-    def back_one_level(spot, values):
+    def back_one_level(spot, values, i):
         values = up * values[:, 1:] + down * values[:, :-1]  # discounted expected value of holding
         spot = spot[:, :-1] * u  # node j at level i is node j at level i+1, one down move earlier
+        if record_boundary:
+            boundary[:, i] = _boundary_at_level(spot, values, 1 - spot)
         if american:
             values = np.maximum(values, 1 - spot)  # or exercise now, if that pays more
         return spot, values
 
-    for _ in range(level - 2):
-        spot, values = back_one_level(spot, values)
-    s2, v2 = spot, values  # level 2: three nodes
-    s1, v1 = back_one_level(s2, v2)  # level 1: two nodes
-    _, v0 = back_one_level(s1, v1)  # level 0: today
+    for i in range(level - 1, 1, -1):
+        spot, values = back_one_level(spot, values, i)
+    s2, v2 = spot, values  # level 2
+    s1, v1 = back_one_level(s2, v2, 1)  # level 1
+    _, v0 = back_one_level(s1, v1, 0)  # level 0: today
+    # The Greeks use the plain tree's nodes, which start after the extra
+    # ones: today's spot m, its two children at level 1, its three
+    # grandchildren at level 2.
+    first = nb_extra_nodes
+    s1, v1, s2, v2 = s1[:, first:], v1[:, first:], s2[:, first:], v2[:, first:]
 
     delta = (np.diff(v1) / np.diff(s1))[:, 0]
     slopes = np.diff(v2) / np.diff(s2)  # (n_options, 2): slopes between nodes 0-1 and 1-2
     gamma = np.diff(slopes)[:, 0] / ((s2[:, 2] - s2[:, 0]) / 2)
-    return np.stack([v0[:, 0], delta, gamma])
+    return np.stack([v0[:, first], delta, gamma]), boundary
+
+
+def _boundary_at_level(spot, hold, exercise):
+    """S*/K at one level of the trees, from the spots (ascending), the value
+    of holding and the value of exercising at each node, all of shape
+    (n_options, nodes). The zero of hold - exercise, linearly interpolated
+    between the highest node where exercising wins by more than
+    _EXERCISE_TOL and the node above it. NaN where no node exercises, or
+    where the top node does (the boundary is then above the level's nodes,
+    which a tree started at m = 1 never has, since its top node is >= 1)."""
+    hold_minus_exercise = hold - exercise
+    exercise_wins = hold_minus_exercise < -_EXERCISE_TOL
+    nb_nodes = spot.shape[1]
+    # Index of the highest node where exercising wins, -1 where none does.
+    # For a put the exercise region is the low spots, so this node sits just
+    # below the boundary and the node above it just above.
+    highest_exercise = np.where(exercise_wins, np.arange(nb_nodes), -1).max(axis=1)
+    boundary_found = (highest_exercise >= 0) & (highest_exercise < nb_nodes - 1)
+    below = np.clip(highest_exercise, 0, nb_nodes - 2)[:, None]
+    above = below + 1
+    spot_below = np.take_along_axis(spot, below, 1)[:, 0]
+    spot_above = np.take_along_axis(spot, above, 1)[:, 0]
+    gap_below = np.take_along_axis(hold_minus_exercise, below, 1)[:, 0]
+    gap_above = np.take_along_axis(hold_minus_exercise, above, 1)[:, 0]
+    # gap_below < -tol <= gap_above, so the weight is in (0, 1], up to the
+    # tolerance. (Rows with no boundary divide garbage, hence the errstate;
+    # np.where drops them.)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        weight = np.minimum(-gap_below / (gap_above - gap_below), 1.0)
+        boundary = spot_below + weight * (spot_above - spot_below)
+    # Near expiry the node above can sit above the strike, and the
+    # interpolation then lands past it. Nobody exercises an out-of-the-money
+    # put, so S* <= K.
+    return np.where(boundary_found, np.minimum(boundary, 1.0), np.nan)

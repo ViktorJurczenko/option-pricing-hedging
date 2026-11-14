@@ -1,7 +1,13 @@
 import numpy as np
 import pytest
 
-from optionpricing.pricing.american.batch_binomial_tree import _EXERCISE_TOL, METHODS, price_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import (
+    _EXERCISE_TOL,
+    METHODS,
+    _induct,
+    exercise_boundary,
+    price_put_batch,
+)
 from optionpricing.pricing.american.binomial_tree import BinomialTree
 from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
 
@@ -296,3 +302,143 @@ def test_risk_neutral_probability_outside_unit_interval_raises():
     # The N/2 = 3-step tree has dt = 5/3: e^{r dt} = 1.40 beats u = e^{sigma sqrt(dt)} = 1.013.
     with pytest.raises(ValueError, match="probability"):
         price_put_batch(1.0, 5.0, 0.2, 0.01, nb_steps=6)
+
+
+# --- exercise_boundary ---
+
+# Contracts over the sampling domain, down to r = 0.5% and T = 1 week: low
+# rates push the boundary far down, long maturities and high volatility too.
+BOUNDARY_GRID = np.meshgrid([1 / 52, 0.25, 1.0, 5.0], [0.005, 0.02, 0.08], [0.05, 0.2, 0.6], indexing="ij")
+
+
+def _bisect_exercise_threshold(maturity, rate, sigma, nb_steps):
+    """The moneyness where `price_put_batch` ("bbs") switches from
+    exercising today to holding, by bisection on its `exercised` flag."""
+    lo, hi = 0.3, 1.0
+    assert price_put_batch(lo, maturity, rate, sigma, nb_steps=nb_steps, method="bbs").exercised
+    for _ in range(40):  # 0.7 / 2^40 ~ 6e-13
+        mid = (lo + hi) / 2
+        if price_put_batch(mid, maturity, rate, sigma, nb_steps=nb_steps, method="bbs").exercised:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+@pytest.mark.parametrize("maturity, rate, sigma", [(1.0, 0.05, 0.2), (0.25, 0.02, 0.3), (1.0, 0.06, 0.15)])
+def test_boundary_is_within_one_node_of_the_same_trees_exercise_threshold(maturity, rate, sigma):
+    # Level i of an n-step tree is a put with maturity * (1 - i/n) left, the
+    # same dt as an (n - i)-step tree for that maturity. Each node is valued
+    # from its own subtree, so the pricer's exercise test at moneyness S is
+    # the boundary's test at a node with spot S. Bisection on the pricer
+    # therefore lands between the two nodes the boundary interpolates
+    # between, and so does the boundary: they differ by less than one node
+    # spacing S (u^2 - 1). Measured: at most half of it, near expiry.
+    n = 100
+    boundary = exercise_boundary(maturity, rate, sigma, nb_steps=n, method="bbs")
+    spacing = np.exp(2 * sigma * np.sqrt(maturity / n)) - 1
+    for level in (0, 1, 50, 90, 96):
+        threshold = _bisect_exercise_threshold(maturity * (1 - level / n), rate, sigma, n - level)
+        assert abs(boundary[level] - threshold) <= threshold * spacing, level
+
+
+def test_boundary_is_found_at_every_time_between_the_perpetual_bound_and_the_strike():
+    # The perpetual put's boundary 2r / (2r + sigma^2) is below S* at every
+    # maturity, and S* <= K. A tree that only fans out from its root has no
+    # node at the boundary for the first levels (33 of them for T = 1,
+    # r = 5%, sigma = 20% at 1000 steps): those levels would be NaN.
+    boundary = exercise_boundary(*BOUNDARY_GRID, nb_steps=400)
+    _, r, sigma = BOUNDARY_GRID
+    perpetual = 2 * r / (2 * r + sigma**2)
+    assert not np.isnan(boundary).any()
+    assert np.all(boundary >= perpetual[..., None])
+    # Includes T = 5, r = 8%, sigma = 5%, whose interpolation one level
+    # before expiry gave 1.0002 before the cap at the strike.
+    assert np.all(boundary <= 1.0)
+
+
+def test_boundary_rises_toward_the_strike_as_expiry_nears():
+    # The exact boundary rises with time. The tree's wiggles by up to about a
+    # sixth of a node spacing between neighbouring levels (odd and even
+    # levels' nodes are offset by one up move), so the check uses every 5% of
+    # the maturity, much farther apart than one node spacing moves it.
+    n = 400
+    boundary = exercise_boundary(*BOUNDARY_GRID, nb_steps=n)
+    every_5_percent = boundary[..., np.linspace(0, n, 21).astype(int)]
+    assert np.all(np.diff(every_5_percent, axis=-1) > 0)
+    assert np.all(boundary[..., -1] == 1.0)  # at expiry: exercise exactly when in the money
+
+
+@pytest.mark.parametrize("rate", [0.0, -0.01])
+def test_no_early_exercise_boundary_without_a_positive_rate(rate):
+    # Without interest on the strike, holding a put is always worth at least
+    # exercising it (the American put is the European one).
+    boundary = exercise_boundary(1.0, rate, 0.2, nb_steps=200)
+    assert np.isnan(boundary[:-1]).all()
+    assert boundary[-1] == 1.0
+
+
+def test_bbsr_boundary_is_the_finer_bbs_trees():
+    # Richardson extrapolation applies to prices, not to the boundary's location.
+    bbsr = exercise_boundary(*BOUNDARY_GRID, nb_steps=100)
+    bbs = exercise_boundary(*BOUNDARY_GRID, nb_steps=100, method="bbs")
+    assert np.array_equal(bbsr, bbs)
+
+
+def test_crr_and_bbs_boundaries_agree_to_a_node_spacing():
+    # Two discretizations of the same boundary, which differ only in the last
+    # step (payoff against Black-Scholes over dt). Node spacing at 1000 steps
+    # for T = 1, sigma = 20%: e^(2 * 0.2 * sqrt(0.001)) - 1 = 1.3%.
+    crr = exercise_boundary(1.0, 0.05, 0.2, method="crr")
+    bbs = exercise_boundary(1.0, 0.05, 0.2, method="bbs")
+    assert np.max(np.abs(crr - bbs)) < 0.013
+
+
+@pytest.mark.parametrize("chunk_size", [1, 5, 1000])
+def test_chunking_never_changes_the_boundary(chunk_size):
+    # Chunks add different numbers of extra nodes (the most any of their
+    # contracts needs), which must not change any contract's boundary.
+    whole = exercise_boundary(*BOUNDARY_GRID, nb_steps=50)
+    chunked = exercise_boundary(*BOUNDARY_GRID, nb_steps=50, chunk_size=chunk_size)
+    assert np.array_equal(whole, chunked)
+
+
+def test_boundary_shape_follows_the_broadcast_inputs():
+    assert exercise_boundary(1.0, 0.05, 0.2, nb_steps=50).shape == (51,)
+    rates = np.array([0.02, 0.05, 0.08])[:, None]
+    sigmas = np.array([0.1, 0.2, 0.3, 0.4])[None, :]
+    grid = exercise_boundary(1.0, rates, sigmas, nb_steps=50)
+    assert grid.shape == (3, 4, 51)
+    # Each cell is that contract on its own: its own rate and sigma, not paired with the time axis.
+    np.testing.assert_array_equal(grid[2, 1], exercise_boundary(1.0, 0.08, 0.2, nb_steps=50))
+    assert exercise_boundary(np.array([]), 0.05, 0.2, nb_steps=50).shape == (0, 51)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        (dict(method="lsm"), "method"),
+        (dict(maturity=0.0), "maturity"),
+        (dict(sigma=-0.1), "sigma"),
+        (dict(risk_free_rate=np.nan), "finite"),
+        (dict(nb_steps=101), "even"),
+        (dict(nb_steps=2, method="bbs"), "nb_steps"),
+        (dict(chunk_size=0), "chunk_size"),
+    ],
+)
+def test_invalid_boundary_arguments_raise(kwargs, match):
+    args = dict(maturity=1.0, risk_free_rate=0.05, sigma=0.2, nb_steps=50) | kwargs
+    with pytest.raises(ValueError, match=match):
+        exercise_boundary(**args)
+
+
+def test_extra_nodes_leave_price_delta_and_gamma_unchanged():
+    # exercise_boundary widens the tree with nodes below every level; the
+    # Greeks must still come from the plain tree's nodes. A wrong slice past
+    # the extra nodes would read delta and gamma at the wrong spot. Private
+    # on purpose: no public function prices on a widened tree. Same machine,
+    # same operations per node, so the results must match bit for bit.
+    params = np.stack(np.broadcast_arrays(*[g.ravel() for g in DOMAIN_GRID])).astype(float)
+    plain, _ = _induct(params, 200, bbs=True, american=True)
+    widened, _ = _induct(params, 200, bbs=True, american=True, nb_extra_nodes=57)
+    assert np.array_equal(plain, widened)
