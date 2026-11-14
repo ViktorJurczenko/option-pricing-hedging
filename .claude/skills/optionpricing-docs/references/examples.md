@@ -55,7 +55,7 @@ The evidence section rules out the alternative explanation:
 
 ## Docstrings
 
-- `optionpricing/pricing/american/batch_binomial_tree.py::binomial_put_batch`. It opens with prose, then a "Vocabulary" paragraph, then a `Methods:` list explaining each option and why it exists, then the units ("Scale price and gamma back with K * price, gamma / K").
+- `optionpricing/pricing/american/batch_binomial_tree.py::price_put_batch`. It opens with prose, then a "Vocabulary" paragraph, then a `Methods:` list explaining each option and why it exists, then the units ("Scale price and gamma back with K * price, gamma / K").
 - `optionpricing/ml/surrogate/tree/tree_pricer.py::PutSurrogate.price`. A compact `Args:`/`Returns:`/`Raises:` block, where the `Raises:` entry says *why* the error happens.
 - `TreeResult` (NamedTuple) documents each field with its units in the class docstring.
 - `optionpricing/hedging/legacy/env.py::HedgingEnv.__init__`. A named-value block for a mode argument, explaining what each mode makes possible.

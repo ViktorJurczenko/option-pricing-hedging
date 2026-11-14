@@ -41,7 +41,7 @@ from optionpricing.ml.surrogate.tree.tree_training import (
     price_derivatives,
     scaled_violations,
 )
-from optionpricing.pricing.american.batch_binomial_tree import TreeResult, binomial_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import TreeResult, price_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_price
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ TEACHER_METHOD, TEACHER_STEPS = "bbsr", 1000
 # (0.05) that is a vega error of ~1.5e-3, still ~7x below MIN_IV_VEGA.
 VEGA_BUMP = 0.01
 
-# Options per binomial_put_batch call, so the progress bar ticks: 256
+# Options per price_put_batch call, so the progress bar ticks: 256
 # options take ~12 s at the reference's 4000 steps, ~0.6 s at the
 # teacher's 1000; the per-call overhead is negligible at either.
 TREE_BLOCK = 256
@@ -275,14 +275,14 @@ def evaluation_grid(
 
 
 def tree_prices(m, T, r, sigma, nb_steps: int, method: str, desc: str = "Tree") -> TreeResult:
-    """binomial_put_batch over (n,) arrays in blocks of TREE_BLOCK, with a progress bar."""
+    """price_put_batch over (n,) arrays in blocks of TREE_BLOCK, with a progress bar."""
     n = len(m)
     price, delta, gamma = np.empty((3, n))
     exercised = np.zeros(n, dtype=bool)
     with tqdm(total=n, desc=desc, unit="option") as bar:
         for start in range(0, n, TREE_BLOCK):
             sl = slice(start, start + TREE_BLOCK)
-            res = binomial_put_batch(
+            res = price_put_batch(
                 m[sl], T[sl], r[sl], sigma[sl], nb_steps=nb_steps, method=method, chunk_size=TREE_CHUNK
             )
             price[sl], delta[sl], gamma[sl], exercised[sl] = res
@@ -589,7 +589,7 @@ def time_pricers(surrogate: PutSurrogate, grid: Grid) -> dict:
     # the teacher tree, the alternative the surrogate replaces
     k = min(TIMING_TREE, n)
     start = time.perf_counter()
-    binomial_put_batch(
+    price_put_batch(
         grid.m[:k],
         grid.T[:k],
         grid.r[:k],

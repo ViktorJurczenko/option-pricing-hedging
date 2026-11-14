@@ -9,7 +9,7 @@ from scipy.stats import qmc
 from tqdm import tqdm
 
 from optionpricing.ml.surrogate.chunks import chunk_file, n_chunks_for, prepare_chunk_dir, save_chunk, tqdm_joblib
-from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import price_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_price
 
 # The sampling domain, stored in the dataset so consumers know where the
@@ -139,7 +139,7 @@ def thin_exercised(exercised: np.ndarray, keep: float, n_rows: int) -> np.ndarra
 
 def check_teacher(nb_steps: int, method: str, domain: dict = DOMAIN) -> None:
     """
-    Checks, before any work starts, that the teacher (`binomial_put_batch`
+    Checks, before any work starts, that the teacher (`price_put_batch`
     with these `nb_steps` and `method`) can price every put of the
     sampling domain; raises the pricer's ValueError if not.
 
@@ -166,7 +166,7 @@ def check_teacher(nb_steps: int, method: str, domain: dict = DOMAIN) -> None:
     be refused as "other settings".
     """
     T, sigma, r = np.meshgrid(domain["T_range"], domain["sigma_range"], domain["r_range"])
-    binomial_put_batch(1.0, T, r, sigma, nb_steps=nb_steps, method=method)
+    price_put_batch(1.0, T, r, sigma, nb_steps=nb_steps, method=method)
 
 
 def label_puts(params: dict, nb_steps: int, method: str) -> dict:
@@ -183,7 +183,7 @@ def label_puts(params: dict, nb_steps: int, method: str) -> dict:
     # while a batch of 1000 (8 MB) goes to main memory on every pass. 32 was
     # the fastest of 16-1000 for "bbsr" at 1000 steps; smaller chunks pay more
     # Python overhead per level.
-    tree = binomial_put_batch(
+    tree = price_put_batch(
         params["m"], params["T"], params["r"], params["sigma"], nb_steps=nb_steps, method=method, chunk_size=32
     )
     european = black_scholes_price(params["m"], 1.0, params["T"], params["r"], params["sigma"], "put")
@@ -251,7 +251,7 @@ def main(argv=None):
     )
     parser.add_argument("--nb_steps", default=1000, type=int, help="Tree steps per put (of the finer tree for 'bbsr').")
     parser.add_argument(
-        "--method", default="bbsr", choices=["crr", "bbs", "bbsr"], help="Tree method (see binomial_put_batch)."
+        "--method", default="bbsr", choices=["crr", "bbs", "bbsr"], help="Tree method (see price_put_batch)."
     )
     parser.add_argument("--nb_jobs", default=6, type=int, help="CPU cores used; each job labels one chunk.")
     parser.add_argument(

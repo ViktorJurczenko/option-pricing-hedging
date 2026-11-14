@@ -8,7 +8,7 @@ from numpy.typing import ArrayLike
 
 from optionpricing.ml.surrogate.tree.tree_dataset import FeatureStats, build_features
 from optionpricing.ml.surrogate.tree.tree_model import MLP
-from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import price_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
 
 # The sampling ranges a surrogate is valid on, as generate_tree_dataset stores
@@ -30,7 +30,7 @@ ROUTES = ("net", "payoff_floor", "black_scholes", "exercised", "tree")
 class SurrogateResult(NamedTuple):
     """
     Per-option outputs of PutSurrogate.price, per unit of strike like
-    binomial_put_batch's TreeResult: price = V / K, delta = dV/dS, gamma =
+    price_put_batch's TreeResult: price = V / K, delta = dV/dS, gamma =
     K d2V/dS2 (scale back with K * price and gamma / K). `route` names the
     method that answered each option, one of ROUTES.
     """
@@ -56,7 +56,7 @@ class PutSurrogate:
     - T, sigma, r inside, z < z_range low end, r >= EXERCISE_MIN_RATE:
       exercised today, 1 - m, delta -1, gamma 0;
     - otherwise outside (m beyond its cap, T, sigma or r outside, small r
-      deep in the money): binomial_put_batch at the dataset teacher's
+      deep in the money): price_put_batch at the dataset teacher's
       settings (BBSR, 1000 steps).
     The two closed forms are only used where T, sigma and r are inside the
     domain, since that is where they were measured to hold.
@@ -101,7 +101,7 @@ class PutSurrogate:
             SurrogateResult(price, delta, gamma, route).
 
         Raises:
-            ValueError: from binomial_put_batch, for a non-finite parameter
+            ValueError: from price_put_batch, for a non-finite parameter
                 or m, T or sigma <= 0: such queries are kept out of every
                 other route, so they always reach the tree, which rejects them.
         """
@@ -172,7 +172,7 @@ class PutSurrogate:
             # chunks of 32 (results don't depend on it): stepping the whole
             # batch at once makes each level's arrays too big for the CPU
             # cache, which the generator's timing found slower
-            res = binomial_put_batch(m[tree], T[tree], r[tree], sigma[tree], chunk_size=32)
+            res = price_put_batch(m[tree], T[tree], r[tree], sigma[tree], chunk_size=32)
             price[tree], delta[tree], gamma[tree] = res.price, res.delta, res.gamma
 
         return SurrogateResult(*(x.reshape(shape) for x in (price, delta, gamma, route)))

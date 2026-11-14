@@ -1,3 +1,3 @@
-from .batch_binomial_tree import TreeResult, binomial_put_batch
+from .batch_binomial_tree import TreeResult, price_put_batch
 from .binomial_tree import BinomialTree
 from .longstaff_schwartz import LongstaffSchwartz

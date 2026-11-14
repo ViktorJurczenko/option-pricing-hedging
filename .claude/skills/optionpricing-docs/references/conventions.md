@@ -61,7 +61,7 @@ Sources:
 
 - **Show commands as a fenced block run from the project root**, with an end-of-line `#` comment for what each produces or costs (`# artifacts/data/tree_put_dataset.npz`, `# ~40 min at defaults`) [RD Usage].
 - **Run modules as modules:** `python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`, never a script path [RD].
-- **Name code in backticks:** `` `binomial_put_batch` ``, `` `HedgingEnv` ``. Write `path.py::function` for a specific function [D].
+- **Name code in backticks:** `` `price_put_batch` ``, `` `HedgingEnv` ``. Write `path.py::function` for a specific function [D].
 - **Link to code lines** in theory notes, relative to the repo root: `[policy.py:67-69](optionpricing/ml/hedging/legacy/policy.py#L67-L69)` [R RL part]. Check the line numbers at write time; they go stale.
 - **Short excerpts only.** Quote the few lines that carry the idea, not whole functions [R §1–2].
 
@@ -76,11 +76,11 @@ Sources:
 
 ## 6. Docstrings
 
-- **Format.** Start with a summary paragraph in prose. Then give `Args:`, `Returns:` and `Raises:` sections (Google style) [DS `binomial_put_batch`, `PutSurrogate.price`, `GBM.simulate_paths`]. For a long parameter list, a named-value block is also used (`reward_mode: "terminal" (default): …`) [DS `HedgingEnv.__init__`].
+- **Format.** Start with a summary paragraph in prose. Then give `Args:`, `Returns:` and `Raises:` sections (Google style) [DS `price_put_batch`, `PutSurrogate.price`, `GBM.simulate_paths`]. For a long parameter list, a named-value block is also used (`reward_mode: "terminal" (default): …`) [DS `HedgingEnv.__init__`].
 - **Say what is not obvious:** units and scaling ("per unit of strike … Scale price and gamma back with K * price, gamma / K"), array shapes, broadcasting, and why a guard exists [DS].
 - **NamedTuple results** document each field in the class docstring [DS `TreeResult`, `SurrogateResult`].
 - **Module constants** get a comment saying why they have that value [DS `_EXERCISE_TOL`, `HedgingEnv._TRADE_EPS`].
-- **Name other code in backticks**, as in `` `binomial_put_batch` `` [DS].
+- **Name other code in backticks**, as in `` `price_put_batch` `` [DS].
 
 ## 7. Naming, headings, links, file locations
 

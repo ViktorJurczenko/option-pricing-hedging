@@ -209,12 +209,12 @@ project root):
 import numpy as np
 
 from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
-from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import price_put_batch
 
 surrogate = PutSurrogate.load("artifacts/checkpoints/put_surrogate.pth")
 m = np.array([0.9, 1.0, 1.1])  # S / K: in, at and out of the money
 res = surrogate.price(m, T=1.0, r=0.05, sigma=0.2)  # per unit of strike
-tree = binomial_put_batch(m, 1.0, 0.05, 0.2)  # the 1000-step BBSR tree it learned from
+tree = price_put_batch(m, 1.0, 0.05, 0.2)  # the 1000-step BBSR tree it learned from
 print("surrogate price at K = 100:", np.round(100 * res.price, 4), "delta:", np.round(res.delta, 4))
 print("tree price at K = 100:     ", np.round(100 * tree.price, 4), "delta:", np.round(tree.delta, 4))
 ```

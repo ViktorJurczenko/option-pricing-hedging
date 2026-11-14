@@ -7,7 +7,7 @@ from optionpricing.ml.surrogate.tree.generate_tree_dataset import DOMAIN, map_to
 from optionpricing.ml.surrogate.tree.tree_dataset import FeatureStats, build_features
 from optionpricing.ml.surrogate.tree.tree_model import MLP
 from optionpricing.ml.surrogate.tree.tree_pricer import EXERCISE_MIN_RATE, PutSurrogate
-from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import price_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
 
 
@@ -140,7 +140,7 @@ def test_far_in_the_money_with_a_positive_rate_is_exercised_today(m):
 def test_other_queries_outside_the_domain_go_to_the_tree(m, T, r, sigma):
     res = _surrogate().price(m, T, r, sigma)
     assert res.route == "tree"
-    tree = binomial_put_batch(m, T, r, sigma)
+    tree = price_put_batch(m, T, r, sigma)
     assert (res.price, res.delta, res.gamma) == (tree.price, tree.delta, tree.gamma)
 
 

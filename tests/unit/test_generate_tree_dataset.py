@@ -15,7 +15,7 @@ from optionpricing.ml.surrogate.tree.generate_tree_dataset import (
     sobol_points,
     thin_exercised,
 )
-from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import price_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_price
 
 # small trees keep these fast; the labels' accuracy is the pricer's tests' job
@@ -108,7 +108,7 @@ def test_label_puts_match_the_tree_and_black_scholes():
     p = map_to_domain(sobol_points(64, N_DIMS, seed=4))
     out = label_puts(p, nb_steps=50, method="bbsr")
     assert set(out) == set(COLUMNS)
-    tree = binomial_put_batch(p["m"], p["T"], p["r"], p["sigma"], nb_steps=50)
+    tree = price_put_batch(p["m"], p["T"], p["r"], p["sigma"], nb_steps=50)
     np.testing.assert_array_equal(out["price"], tree.price)
     np.testing.assert_array_equal(out["exercised"], tree.exercised)
     np.testing.assert_array_equal(

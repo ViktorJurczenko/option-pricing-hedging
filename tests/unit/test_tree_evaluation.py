@@ -10,7 +10,7 @@ from optionpricing.ml.surrogate.tree.tree_dataset import FeatureStats, TreePutDa
 from optionpricing.ml.surrogate.tree.tree_model import MLP
 from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
 from optionpricing.ml.surrogate.tree.tree_training import SHAPE_CONDITIONS, ShapePoints, shape_violations
-from optionpricing.pricing.american.batch_binomial_tree import binomial_put_batch
+from optionpricing.pricing.american.batch_binomial_tree import price_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_price, black_scholes_vega
 from tests.helpers import write_tree_dataset
 
@@ -74,7 +74,7 @@ def test_tree_prices_in_blocks_equal_one_tree_call():
     m = np.linspace(0.7, 1.3, te.TREE_BLOCK + 3)  # crosses a block boundary
     T, r, s = np.full_like(m, 0.5), np.full_like(m, 0.04), np.full_like(m, 0.3)
     res = te.tree_prices(m, T, r, s, nb_steps=50, method="bbsr")
-    ref = binomial_put_batch(m, T, r, s, nb_steps=50, method="bbsr")
+    ref = price_put_batch(m, T, r, s, nb_steps=50, method="bbsr")
     for got, want in zip(res, ref):
         np.testing.assert_array_equal(got, want)
 
@@ -305,7 +305,7 @@ def test_grid_evaluation_with_rates_separates_exercised_rows_and_prices_them_exa
     out = te.evaluate_grid(sur, ref_steps=200, ref_method="bbsr", **kw)
 
     grid = te.evaluation_grid(DOMAIN, **kw)
-    exercised = binomial_put_batch(grid.m, grid.T, grid.r, grid.sigma, nb_steps=200, method="bbsr").exercised
+    exercised = price_put_batch(grid.m, grid.T, grid.r, grid.sigma, nb_steps=200, method="bbsr").exercised
     assert 0 < exercised.sum() < len(grid.m)  # both regions present, else this test checks nothing
 
     by_r = {row["name"]: row for row in out["by_r"]}

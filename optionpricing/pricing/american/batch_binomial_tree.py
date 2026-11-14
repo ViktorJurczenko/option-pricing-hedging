@@ -12,7 +12,7 @@ _EXERCISE_TOL = 1e-12
 
 
 class TreeResult(NamedTuple):
-    """Per-option outputs of `binomial_put_batch`, all per unit of strike.
+    """Per-option outputs of `price_put_batch`, all per unit of strike.
 
     price: option value / K. delta: dV/dS (the same number for any K, since
     V is homogeneous of degree 1 in (S, K)). gamma: d2V/dS2 times K.
@@ -27,7 +27,7 @@ class TreeResult(NamedTuple):
     exercised: np.ndarray
 
 
-def binomial_put_batch(
+def price_put_batch(
     moneyness,
     maturity,
     risk_free_rate,
