@@ -482,7 +482,7 @@ optionpricing/          the library, one importable package
   core/                 GBM simulator, pricer base class, generic metrics
   pricing/european/     Black-Scholes, Monte-Carlo
   pricing/american/     binomial trees, Longstaff-Schwartz, basis functions
-  hedging/              Deep Hedging building blocks (risk measures and costs so far)
+  hedging/              Deep Hedging building blocks (risk measures, costs and settlement so far)
   hedging/legacy/       SAC's hedging env, option values, baselines, P&L evaluation
   ml/surrogate/         MLP surrogate pricer (tree/, legacy/)
   ml/hedging/legacy/    SAC hedging agent

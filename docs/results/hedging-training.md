@@ -1,6 +1,6 @@
 # How the hedging model is designed
 
-This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary and the risk measures. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
+This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary and the building blocks (risk measures, costs, settlement). So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at K = 100, in dollars. Costs use a proportional rate `ε` (1% means 1 cent per dollar traded) and a fixed fee `f` per trade.
 
@@ -37,7 +37,7 @@ This page records the design choices for the Deep Hedging rebuild of the America
 PL = p_0 + Σ_k δ_k (S̃_{k+1} - S̃_k) - Σ_k c̃_k - Z̃
 ```
 
-`p_0` is the premium received at `t_0`. `S̃_k = e^{-r t_k} S_k` is the discounted price, so cash earns `r`. `δ_k` is chosen at `t_k` and earns over `[t_k, t_{k+1}]`. `c̃_k` is the discounted cost of the trade at `t_k`, including the opening and closing trades. `Z̃` is the discounted settlement at exercise or expiry. The function takes any policy with one interface (inputs in, position out). The network, every baseline, training and testing all call it.
+`p_0` is the premium received at `t_0`. `S̃_k = e^{-r t_k} S_k` is the discounted price, so cash earns `r`. `δ_k` is chosen at `t_k` and earns over `[t_k, t_{k+1}]`. `c̃_k` is the discounted cost of the trade at `t_k`, including the opening trade. `Z̃` is the discounted settlement at exercise or expiry: the payoff owed to the holder plus the cost of closing the share position. The function takes any policy with one interface (inputs in, position out). The network, every baseline, training and testing all call it.
 
 **Why.** The current env gets two terms wrong. It pays the gain over `[t_k, t_{k+1}]` to the position chosen at `t_{k-1}` (B-037). It also has no premium and no cash account (B-038). The lag survived because the accounting existed twice, in `HedgingEnv.step` and in `rollout_pnl`, and the copy kept the bug. With one function, a baseline and the network can't be booked differently.
 
@@ -219,9 +219,9 @@ Straight-through is the only cheap option that keeps the P&L exact. Its approxim
 **Choice.** Three small files, each used by training, testing and the baselines alike:
 - **Risk measures** (`risk.py`): CVaR, the entropic risk and the variance, below.
 - **Costs** (`costs.py`): a proportional rate on the dollars traded plus a fixed fee per trade, the fee straight-through as above.
-- **Settlement** (`settlement.py`): `cash_settlement` pays `K - S` and buys back the short shares at cost. `physical_settlement` pays `K`, receives one share and closes `δ + 1` shares at cost.
+- **Settlement** (`settlement.py`): in cash, the hedger pays `K - S` and closes its `δ` shares. By delivery, it pays `K` for a share worth `S` and closes the `δ + 1` shares left. A put exercised before expiry is always in the money, since the boundary lies below the strike. A put that is out of the money at expiry lapses, leaving only the closing trade.
 
-**Why.** "Trained on CVaR" and "scored on CVaR" must be the same number, so both steps call the same function. Both settlements give the same P&L before costs and differ only in the cost of closing the position, so the choice is a flag rather than a design fork.
+**Why.** "Trained on CVaR" and "scored on CVaR" must be the same number, so both steps call the same function. Both settlements give the same P&L before costs and differ only in the cost of closing the position, so the choice is a flag rather than a design fork. Deep in the money a put hedge holds about −1 share. Delivery then closes almost nothing, while cash settlement buys back about one share. So under costs, physical settlement is cheaper exactly on the paths that are exercised.
 
 ### The risk measures
 
