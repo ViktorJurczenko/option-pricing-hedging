@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Risk measures |
+| [Hedging rebuild](#hedging-rebuild) | active | Transaction costs |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -46,8 +46,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Decide the design with the user
 - [x] Move the SAC stack to legacy
 - [x] Exercise boundary from the tree
-- [ ] Risk measures
-  `risk.py` holds four functions. `cvar(pnl, alpha)` is the average of the worst `1 - α` share, the reported metric. `cvar_loss(pnl, w, alpha)` is the Rockafellar-Uryasev training form. `entropic(pnl, lam)` uses `logsumexp`, so `e^{-λ PL}` cannot overflow. `variance(pnl)` completes the set. Tested on the 20-outcome example: the minimum of `cvar_loss` over `w` equals `cvar`.
+- [x] Risk measures
 - [ ] Transaction costs
   `costs.py`: `transaction_cost(trade, spot, proportional, fixed, kappa)` = `ε |x| S + f 1[x ≠ 0]`, with the fee straight-through (`hard + (soft - soft.detach())`). Tests: hand values, a zero trade costs nothing, the forward value equals the exact fee, and the gradient equals `ε S sign(x) + f sign(x) e^{-|x|/κ} / κ` (0 at `x = 0`).
 - [ ] Settlement

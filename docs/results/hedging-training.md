@@ -1,6 +1,6 @@
 # How the hedging model is designed
 
-This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
+This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary and the risk measures. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at K = 100, in dollars. Costs use a proportional rate `ε` (1% means 1 cent per dollar traded) and a fixed fee `f` per trade.
 
@@ -217,11 +217,37 @@ Straight-through is the only cheap option that keeps the P&L exact. Its approxim
 ## The building blocks
 
 **Choice.** Three small files, each used by training, testing and the baselines alike:
-- **Risk measures** (`risk.py`): `cvar(pnl, alpha)`, the average of the worst `1 - α` share, as the reported metric. `cvar_loss(pnl, w, alpha)`, the Rockafellar-Uryasev form `w + mean((L - w)^+) / (1 - α)` with `L = -PL`, for training. `entropic(pnl, lam)`, computed with `logsumexp`. `variance(pnl)`.
+- **Risk measures** (`risk.py`): CVaR, the entropic risk and the variance, below.
 - **Costs** (`costs.py`): `transaction_cost(trade, spot, proportional, fixed, kappa)`, with the straight-through fee above.
 - **Settlement** (`settlement.py`): `cash_settlement` pays `K - S` and buys back the short shares at cost. `physical_settlement` pays `K`, receives one share and closes `δ + 1` shares at cost.
 
-**Why.** "Trained on CVaR" and "scored on CVaR" must be the same number, so both steps call the same function. In CVaR training, `w` is one extra trainable number with its own, larger learning rate. In earlier experiments outside this repository (not re-run here), `w` on the network's learning rate lagged far behind the true VaR and the network did no better than delta. The training loop takes the two learning rates separately, so an experiment can check this. Both settlements give the same P&L before costs and differ only in the cost of closing the position, so the choice is a flag rather than a design fork.
+**Why.** "Trained on CVaR" and "scored on CVaR" must be the same number, so both steps call the same function. Both settlements give the same P&L before costs and differ only in the cost of closing the position, so the choice is a flag rather than a design fork.
+
+### The risk measures
+
+A hedging strategy gives one P&L per path, so it is judged by a summary of their distribution. Write `L = -PL` for the loss. The measures below are losses to minimize, except CVaR as reported, which stays on the P&L scale like every CVaR in the project's results (higher is better).
+
+| Measure | Definition | What it penalizes | Role |
+|---|---|---|---|
+| CVaR at level `α` | the average of the worst `1 - α` share of P&Ls | only the tail, and how deep it goes | the default objective and the reported metric, at `α` = 95% |
+| Entropic risk | `(1/λ) ln E[e^{-λ PL}]` | every loss, more than linearly in its size | an alternative objective, `λ` sets the risk aversion |
+| Variance | `E[(PL - E[PL])^2]` | gains as much as losses | the classic quadratic criterion, kept as a reference |
+
+**CVaR is the default** because it measures what a seller fears: how much is lost in the bad cases. The variance treats a $3 gain as just as bad as a $3 loss. The VaR only says where the bad cases start, not how bad they are. CVaR at 95% is also the level of every earlier result, so the rebuild stays comparable with them.
+
+**CVaR is trained through the Rockafellar-Uryasev form.** "The average of the worst 5%" needs a sort, which gives a poor training signal. Rockafellar and Uryasev (2000) showed that
+
+```
+CVaR_α(L) = min_w { w + E[(L - w)^+] / (1 - α) }
+```
+
+The minimizing `w` is the VaR. So training lowers this expression over the network and `w` together, with no sort. `w` is one extra trainable number with its own, larger learning rate. In earlier experiments outside this repository (not re-run here), `w` on the network's learning rate lagged far behind the true VaR and the network did no better than delta. The training loop takes the two learning rates separately, so an experiment can check this.
+
+**A fractional tail counts the edge path for its share.** With `n` paths, the tail holds `(1 - α) n` of them, which is often not a whole number. Rounding up to a whole number of paths, as the legacy metric did, makes the reported CVaR differ from the minimum of the training form by up to one path's share. Counting the edge path for the fraction inside the tail makes the two equal at every batch size. When the tail is a whole number of paths, as with 2,000 paths at 95%, both definitions give the plain average of the worst ones.
+
+**The entropic risk is the alternative.** It uses every path, so its gradient is less noisy than CVaR's, which comes from about 5% of the batch. But it has no reading as plain as "the average of the worst 5%", so it is not the reported metric. `e^{-λ PL}` overflows on a large loss, so the mean is taken in log space (`logsumexp`).
+
+**The variance is a reference.** It is the quadratic hedging criterion of the textbooks, and its square root is what the earlier results called the hedging error. It is not the default because it penalizes gains.
 
 ## The pipeline
 
