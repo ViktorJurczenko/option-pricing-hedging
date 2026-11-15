@@ -2,7 +2,7 @@
 Tests for optionpricing/hedging/legacy/option_value.py: the value functions
 used by HedgingEnv's "accounting" reward mode (see
 tests/unit/hedging_legacy/test_hedge_env.py) to know the option's value at
-every simulation row, not just at exercise.
+every simulation step, not just at exercise.
 
 Rather than pinning single hardcoded prices, these mostly check the
 functions against the principled relationships they're built from:
@@ -47,7 +47,7 @@ def test_black_scholes_value_fn_raises_type_error_when_option_type_omitted():
 
 
 def test_black_scholes_value_fn_matches_direct_bs_at_remaining_time():
-    """value_fn(t, S) must equal a fresh BlackScholes priced at the row's
+    """value_fn(t, S) must equal a fresh BlackScholes priced at the step's
     remaining time tau = (n_steps-1-t)*dt with dt = maturity/(n_steps-1)."""
     value_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call")
     t = 5
@@ -59,7 +59,7 @@ def test_black_scholes_value_fn_matches_direct_bs_at_remaining_time():
     np.testing.assert_allclose(value_fn(t, S), expected)
 
 
-def test_black_scholes_value_fn_last_row_is_exactly_intrinsic_for_call_and_put():
+def test_black_scholes_value_fn_last_step_is_exactly_intrinsic_for_call_and_put():
     S = np.array([80.0, 100.0, 120.0])
     call_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call")
     put_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="put")
@@ -82,7 +82,7 @@ def test_black_scholes_value_fn_accepts_vectorized_spot_input():
 
 
 def test_black_scholes_value_fn_t_zero_uses_full_maturity():
-    """Regression: row 0 used to have remaining time (n-1)/n * maturity
+    """Regression: step 0 used to have remaining time (n-1)/n * maturity
     (the grid ended short of maturity). It is now the full maturity."""
     value_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="put")
     expected = BlackScholes(
@@ -112,7 +112,7 @@ def test_binomial_value_fn_raises_on_substeps_below_one():
         binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="put", substeps=0)
 
 
-def test_binomial_value_fn_last_row_is_exactly_intrinsic():
+def test_binomial_value_fn_last_step_is_exactly_intrinsic():
     value_fn = binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="put")
     S = np.array([80.0, 100.0, 120.0])
 
@@ -162,10 +162,10 @@ def test_binomial_value_fn_put_at_t_zero_exceeds_the_european_value_by_the_early
 def test_binomial_value_fn_call_tracks_black_scholes_closely():
     """For a call on a non-dividend stock, early exercise is never optimal,
     so the American tree value should stay close to the closed-form European
-    (Black-Scholes) value at every simulation row. Measured worst absolute
+    (Black-Scholes) value at every simulation step. Measured worst absolute
     error over this grid is 0.057 (discretisation of a 76-step tree), so
     atol=0.15 is ~2.6x that; no rtol, since far-OTM relative error is large
-    while the absolute one is not. Row 0 is excluded: the tree has only its
+    while the absolute one is not. Step 0 is excluded: the tree has only its
     single root node there, so value_fn(0, S) is constant in S by
     construction (covered by the t=0 check against BinomialTree above)."""
     bs_fn = black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, N_STEPS, option_type="call")
@@ -177,7 +177,7 @@ def test_binomial_value_fn_call_tracks_black_scholes_closely():
 
 
 def test_binomial_value_fn_floors_interpolated_value_at_intrinsic_outside_node_range():
-    """A spot far outside a row's node range gets clamped by np.interp to
+    """A spot far outside a step's node range gets clamped by np.interp to
     the nearest edge node's (low) value; the function must still floor the
     result at the immediate-exercise intrinsic value, which for a deep-ITM
     put/near-zero spot is far larger than that clamped continuation value."""
@@ -246,17 +246,17 @@ def test_make_option_value_fn_put_is_the_american_binomial_tree():
     assert combined(0, np.array([STRIKE]))[0] > european + 0.3
 
 
-# --- n_steps (simulation row count) must leave at least one interval ---------
+# --- n_steps (simulation step count) must leave at least one interval --------
 
 
 @pytest.mark.parametrize("n_steps", [0, 1])
-def test_black_scholes_value_fn_raises_when_fewer_than_two_rows(n_steps):
-    # Regression: dt = maturity / (n_steps - 1) divided by zero for one row.
+def test_black_scholes_value_fn_raises_when_fewer_than_two_steps(n_steps):
+    # Regression: dt = maturity / (n_steps - 1) divided by zero for one step.
     with pytest.raises(ValueError, match="n_steps"):
         black_scholes_value_fn(STRIKE, R, SIGMA, MATURITY, n_steps, option_type="call")
 
 
 @pytest.mark.parametrize("n_steps", [0, 1])
-def test_binomial_value_fn_raises_when_fewer_than_two_rows(n_steps):
+def test_binomial_value_fn_raises_when_fewer_than_two_steps(n_steps):
     with pytest.raises(ValueError, match="n_steps"):
         binomial_value_fn(STRIKE, STRIKE, R, SIGMA, MATURITY, n_steps, option_type="put")

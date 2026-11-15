@@ -97,6 +97,7 @@ class LongstaffSchwartz(OptionPricing):
         self.simulation = simulation
         # The backward induction reads and writes one step of every path at a time, so it works on step-major
         # copies, where a step is contiguous in memory; the public arrays below are time-last views of them.
+        # The copy of the simulation doubles its memory (~150 MB at 50,000 paths x 366 steps).
         self._by_step = np.ascontiguousarray(simulation.T)
         n_steps, n_paths = self._by_step.shape
         self._continue_val = np.zeros((n_steps, n_paths))

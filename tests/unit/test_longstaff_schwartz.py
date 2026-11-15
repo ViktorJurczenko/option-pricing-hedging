@@ -82,7 +82,7 @@ def _fitted_lsm(option_type="call", sigma=SIGMA, seed=42):
 
 
 def _bs(lsm, t, option_type):
-    # Row 0 is today, row N_STEPS is expiry, rows are T / N_STEPS apart.
+    # Step 0 is today, step N_STEPS is expiry, steps are T / N_STEPS apart.
     tau = (N_STEPS - t) * T / N_STEPS
     return BlackScholes(SIGMA, lsm.simulation[:, t], K, R, option_type), tau
 
@@ -146,7 +146,9 @@ def test_put_delta_is_negative_and_bounded_on_average(put_lsm):
 def test_put_delta_close_to_tree_reference(put_lsm):
     # Central difference of the American-put tree value. Measured mean abs
     # error 0.004-0.03 on a larger config; 0.1 leaves margin for 4000 paths.
-    value_fn = binomial_value_fn(100.0, K, R, SIGMA, T, N_STEPS + 1, "put")  # n_steps = row count
+    value_fn = binomial_value_fn(
+        100.0, K, R, SIGMA, T, N_STEPS + 1, "put"
+    )  # n_steps = step count, start and expiry included
     for t in [10, 25]:
         S = put_lsm.simulation[:, t]
         near = (S > 85) & (S < 115)
@@ -223,7 +225,7 @@ def test_call_with_control_variate_never_exercises_early():
 def test_call_with_control_variate_prices_exactly_at_european_bs_price():
     # With no early exercise, payoff[0] equals the discounted European payoff
     # path by path, so the estimator collapses to the exact BS price at the
-    # full maturity T (the grid's last row sits exactly at T). Exact up to float error.
+    # full maturity T (the grid's last step sits exactly at T). Exact up to float error.
     lsm = _lsm("call", sigma=SIGMA, control_variate=True)
     bs_price = BlackScholes(SIGMA, 100.0, K, R, "call").calculate_option_price(T)
     assert lsm.calculate_option_price() == pytest.approx(float(bs_price), abs=1e-6)
@@ -351,7 +353,7 @@ def test_least_squares_matches_lstsq_on_the_polynomial_basis():
 
 
 def test_least_squares_is_minimum_norm_when_every_path_shares_the_spot():
-    # Row 0 of a simulation: one distinct x, so the regression is rank 1 and
+    # Step 0 of a simulation: one distinct x, so the regression is rank 1 and
     # the fit must still predict the target's mean (the plain MC estimate).
     features = np.column_stack([np.full(50, 1.0) ** i for i in range(4)])
     target = np.random.default_rng(1).uniform(0, 5, 50)

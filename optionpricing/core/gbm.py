@@ -59,7 +59,7 @@ class GBM:
         Returns:
             self.simulations: shape `(nb_predictions, n_steps + 1)` for one contract, or
                 `(n_contracts, nb_predictions, n_steps + 1)` with per-contract parameters, where
-                `n_steps = int(maturity * sampling)`. Step 0 is the start price and the last step sits exactly
+                `n_steps = int(round(maturity * sampling, 9))` (rounded so float error cannot drop a step). Step 0 is the start price and the last step sits exactly
                 at `maturity` (`n_steps` intervals of `maturity / n_steps`).
 
         Raises:

@@ -6,9 +6,9 @@ from tests.helpers import make_fake_lsm, two_path_call_lsm
 
 
 def early_exercise_put_lsm():
-    """Single put path with 4 rows, exercised at t=2, strictly before the
-    final row (t=3) -- used to check the accounting/terminal telescoping
-    identity past a mid-episode early exercise, not just at the last row."""
+    """Single put path with 4 steps, exercised at t=2, strictly before the
+    final step (t=3) -- used to check the accounting/terminal telescoping
+    identity past a mid-episode early exercise, not just at the last step."""
     return make_fake_lsm([[100.0, 95.0, 90.0, 85.0]], [2], option_type="put")
 
 
@@ -133,7 +133,7 @@ def test_accounting_mode_without_value_fn_raises():
 
 def test_accounting_mode_precomputes_option_values_grid_from_value_fn():
     """The precomputed self.option_values[i, t] must equal value_fn(t, sim[:, t])[i]
-    for every row/path -- a wrong axis or an off-by-one in the precompute
+    for every path/step -- a wrong axis or an off-by-one in the precompute
     loop would silently mis-price every step's reward without raising."""
 
     def value_fn(t, S):
@@ -170,7 +170,7 @@ def test_accounting_reward_matches_hand_calculation(monkeypatch):
 def test_accounting_reward_on_exercise_step_replaces_v_t1_with_payoff(monkeypatch):
     """On the done/exercise step, V_{t+1} in the accounting formula is
     replaced by the option's actual payoff, not the precomputed
-    option_values lookup for that row."""
+    option_values lookup for that step."""
 
     def value_fn(t, S):
         return 0.1 * S
@@ -194,10 +194,10 @@ def test_accounting_episode_sum_telescopes_to_terminal_sum_plus_v0_over_strike(m
     for any fixed action sequence, sum(accounting rewards) == sum(terminal
     rewards) + option_values[path, 0]/K. Uses early_exercise_put_lsm so the
     identity is checked across an episode that ends in early exercise
-    (t=2), not just at the final simulated row."""
+    (t=2), not just at the final simulated step."""
 
     def value_fn(t, S):
-        return 0.1 * S + t  # arbitrary but deterministic per-row function
+        return 0.1 * S + t  # arbitrary but deterministic per-step function
 
     monkeypatch.setattr(np.random, "randint", lambda n: 0)  # only one path anyway
     actions = [0.4, -0.2]
@@ -229,20 +229,20 @@ def test_accounting_episode_sum_telescopes_to_terminal_sum_plus_v0_over_strike(m
 # --- reset(path_idx), _build_states, rollout_pnl --------------------------
 
 
-def random_lsm(option_type="put", n_rows=8, n_paths=12, seed=0, row0_paths=(), strike=100.0):
+def random_lsm(option_type="put", n_steps=8, n_paths=12, seed=0, step0_paths=(), strike=100.0):
     """Fake fitted LSM with random (seeded) paths, Greeks and several distinct
     exercise times, so paths drop out of a vectorized rollout at different steps."""
     rng = np.random.default_rng(seed)
-    steps = np.exp(0.03 * rng.standard_normal((n_paths, n_rows - 1)))
-    exercise_time = np.arange(n_paths) % (n_rows - 1) + 1  # 1..n_rows-1, all present
-    exercise_time[list(row0_paths)] = 0  # exercised at row 0: zero-length episodes
+    moves = np.exp(0.03 * rng.standard_normal((n_paths, n_steps - 1)))
+    exercise_time = np.arange(n_paths) % (n_steps - 1) + 1  # 1..n_steps-1, all present
+    exercise_time[list(step0_paths)] = 0  # exercised at step 0: zero-length episodes
     return make_fake_lsm(
-        100.0 * np.hstack([np.ones((n_paths, 1)), np.cumprod(steps, axis=1)]),
+        100.0 * np.hstack([np.ones((n_paths, 1)), np.cumprod(moves, axis=1)]),
         exercise_time,
         option_type=option_type,
         strike=strike,
-        delta=rng.uniform(-1, 1, (n_paths, n_rows - 1)),
-        gamma=rng.uniform(0, 0.1, (n_paths, n_rows - 1)),
+        delta=rng.uniform(-1, 1, (n_paths, n_steps - 1)),
+        gamma=rng.uniform(0, 0.1, (n_paths, n_steps - 1)),
     )
 
 
@@ -314,7 +314,7 @@ def test_build_states_batch_rows_equal_scalar_calls():
         np.testing.assert_array_equal(batch[k], env._build_states(4, idx[k], pos[k]))
 
 
-def test_build_states_clamps_greeks_to_last_row_at_maturity():
+def test_build_states_clamps_greeks_to_last_step_at_maturity():
     lsm = random_lsm()
     env = HedgingEnv(lsm)
     last = lsm.simulation.shape[1] - 1  # greeks only have `last` steps
@@ -324,12 +324,12 @@ def test_build_states_clamps_greeks_to_last_row_at_maturity():
     np.testing.assert_allclose(state[:, 1], 1.0)
 
 
-def _rollout_pnl_and_summed_step_rewards(option_type, tc, fixed_tc, reward_mode, row0_paths=()):
+def _rollout_pnl_and_summed_step_rewards(option_type, tc, fixed_tc, reward_mode, step0_paths=()):
     """rollout_pnl on every path of a random_lsm, the per-path sums of
     terminal-mode step() rewards, and the model."""
-    # Start at 100: strike 95 (call) / 105 (put) makes the row-0 payoff 5, not 0
+    # Start at 100: strike 95 (call) / 105 (put) makes the step-0 payoff 5, not 0
     strike = 95.0 if option_type == "call" else 105.0
-    lsm = random_lsm(option_type, row0_paths=row0_paths, strike=strike)
+    lsm = random_lsm(option_type, step0_paths=step0_paths, strike=strike)
     n_paths = lsm.simulation.shape[0]
     kwargs = {}
     if reward_mode == "accounting":
@@ -358,11 +358,11 @@ def test_rollout_pnl_equals_summed_terminal_step_rewards(option_type, tc, fixed_
 
 
 @pytest.mark.parametrize("option_type,reward_mode", [("call", "terminal"), ("put", "accounting")])
-def test_rollout_pnl_equals_summed_step_rewards_with_paths_exercised_at_row0(option_type, reward_mode):
+def test_rollout_pnl_equals_summed_step_rewards_with_paths_exercised_at_step0(option_type, reward_mode):
     # Regression (BUGS.md, "HedgingEnv mishandles options exercised at row 0"):
     # rollout_pnl used to return 0 for these paths and step() used to take a
     # hedging step. The ITM strike makes the payoff real (5 / K).
-    got, expected, lsm = _rollout_pnl_and_summed_step_rewards(option_type, 0.002, 0.3, reward_mode, row0_paths=(0, 5))
+    got, expected, lsm = _rollout_pnl_and_summed_step_rewards(option_type, 0.002, 0.3, reward_mode, step0_paths=(0, 5))
     np.testing.assert_allclose(got, expected, rtol=0, atol=1e-12)
     assert (lsm.exercise_time == 0).sum() == 2
     np.testing.assert_allclose(got[[0, 5]], -5.0 / lsm.strike, atol=1e-12)
@@ -451,18 +451,18 @@ def test_payoff_put_scalar_and_array():
 # exercised at row 0") ---------------------------------------------------------
 
 
-def row0_put_lsm():
+def step0_put_lsm():
     """Two-path put with a deep-ITM start (S0=90, K=100, payoff 10) on path 0,
-    exercised at row 0, and an ordinary path 1 exercised at row 2. Nonzero
+    exercised at step 0, and an ordinary path 1 exercised at step 2. Nonzero
     delta/position noise makes an ignored action observable."""
     return make_fake_lsm(
         [[90.0, 80.0, 70.0], [100.0, 95.0, 90.0]], [0, 2], option_type="put", delta=np.full((2, 2), -0.5)
     )
 
 
-def test_step_on_row0_path_terminal_pays_minus_payoff_and_ignores_action_and_costs():
-    # Before the fix step() hedged into row 1 and earned/charged on that move.
-    env = HedgingEnv(row0_put_lsm(), prop_tc=0.01, fixed_tc=0.5)
+def test_step_on_step0_path_terminal_pays_minus_payoff_and_ignores_action_and_costs():
+    # Before the fix step() hedged into step 1 and earned/charged on that move.
+    env = HedgingEnv(step0_put_lsm(), prop_tc=0.01, fixed_tc=0.5)
     env.reset(0)
 
     state, reward, done = env.step(1.0)  # a full trade, which would be charged if executed
@@ -473,9 +473,9 @@ def test_step_on_row0_path_terminal_pays_minus_payoff_and_ignores_action_and_cos
     assert state[4] == 0.0  # no hedge held
 
 
-def test_step_on_row0_path_accounting_reward_is_minus_payoff_excess_over_v0():
+def test_step_on_step0_path_accounting_reward_is_minus_payoff_excess_over_v0():
     env = HedgingEnv(
-        row0_put_lsm(), reward_mode="accounting", fixed_tc=0.5, value_fn=lambda t, S: np.full_like(S, 12.0 + t)
+        step0_put_lsm(), reward_mode="accounting", fixed_tc=0.5, value_fn=lambda t, S: np.full_like(S, 12.0 + t)
     )
     env.reset(0)
 
@@ -485,18 +485,18 @@ def test_step_on_row0_path_accounting_reward_is_minus_payoff_excess_over_v0():
     assert reward == pytest.approx(-(10.0 - 12.0) / 100.0)  # V_0 = 12
 
 
-def test_row0_accounting_episode_sum_equals_terminal_sum_plus_v0_over_strike():
+def test_step0_accounting_episode_sum_equals_terminal_sum_plus_v0_over_strike():
     value_fn = lambda t, S: np.full_like(S, 12.0 + t)
-    terminal = HedgingEnv(row0_put_lsm())
-    accounting = HedgingEnv(row0_put_lsm(), reward_mode="accounting", value_fn=value_fn)
+    terminal = HedgingEnv(step0_put_lsm())
+    accounting = HedgingEnv(step0_put_lsm(), reward_mode="accounting", value_fn=value_fn)
     t_sum = _sum_step_rewards(terminal, 0, lambda s: 0.7)
     a_sum = _sum_step_rewards(accounting, 0, lambda s: 0.7)
     assert a_sum == pytest.approx(t_sum + 12.0 / 100.0, abs=1e-12)
 
 
-def test_row0_path_does_not_disturb_the_ordinary_path_in_the_same_env():
+def test_step0_path_does_not_disturb_the_ordinary_path_in_the_same_env():
     # Path 1 must still hedge normally (position 0 -> 0.5 costs 0.001*0.5*100).
-    env = HedgingEnv(row0_put_lsm())
+    env = HedgingEnv(step0_put_lsm())
     env.reset(1)
     _, reward, done = env.step(0.5)
     assert not done
@@ -506,9 +506,9 @@ def test_row0_path_does_not_disturb_the_ordinary_path_in_the_same_env():
 @pytest.mark.parametrize(
     "make_model, exercise_time, path",
     [
-        (two_path_call_lsm, 1, 0),  # exercised before the last row: used to silently step on
-        (two_path_call_lsm, 2, 0),  # exercised at the last row: used to run off the grid (IndexError)
-        (row0_put_lsm, None, 0),  # exercised at row 0
+        (two_path_call_lsm, 1, 0),  # exercised before the last step: used to silently step on
+        (two_path_call_lsm, 2, 0),  # exercised at the last step: used to run off the grid (IndexError)
+        (step0_put_lsm, None, 0),  # exercised at step 0
     ],
 )
 def test_step_after_done_raises_until_reset(make_model, exercise_time, path):

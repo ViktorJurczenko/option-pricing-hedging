@@ -4,7 +4,7 @@ import numpy as np
 
 from optionpricing.pricing.european.black_scholes import BlackScholes
 
-# value_fn(t, S) -> option value at simulation row t for spot(s) S.
+# value_fn(t, S) -> option value at simulation step t for spot(s) S.
 ValueFn = Callable[[int, np.ndarray], np.ndarray]
 
 
@@ -32,7 +32,7 @@ def black_scholes_value_fn(
     if option_type not in ["call", "put"]:
         raise ValueError("option_type must be 'call' or 'put'")
     if n_steps < 2:
-        raise ValueError("n_steps (simulation rows) must be >= 2")
+        raise ValueError("n_steps (simulation steps, start and expiry included) must be >= 2")
     dt = maturity / (n_steps - 1)
 
     def value_fn(t: int, S: np.ndarray) -> np.ndarray:
@@ -62,17 +62,17 @@ def binomial_value_fn(
     Cox-Ross-Rubinstein tree rooted at `start_price`.
 
     The tree has `substeps` steps per simulation step, and the full node
-    vector is recorded at every simulation row, so a path's spot at row t can
+    vector is recorded at every simulation step, so a path's spot at step t can
     be priced by interpolating (in log-price, where CRR nodes are evenly
-    spaced) between that row's nodes. More substeps widen each row's node
+    spaced) between that step's nodes. More substeps widen each step's node
     range (paths far from S0 early on would otherwise fall outside it) at
-    O((n_steps * substeps)^2) build cost. Spots outside a row's node range are
+    O((n_steps * substeps)^2) build cost. Spots outside a step's node range are
     clamped to the edge node's value, then floored at the intrinsic value
     (an American option is never worth less than immediate exercise).
 
     substeps=4 default: on the train-hedge-legacy grid (365 steps, sigma=0.2),
     the tree's call value stays within ~0.01 of the exact Black-Scholes value
-    at every row checked (0.001 at t=0), and the build (~1.5k tree steps)
+    at every step checked (0.001 at t=0), and the build (~1.5k tree steps)
     takes well under a second - accurate enough for a reward term whose
     per-step scale is ~1e-2 * K, without the O(n^2) cost of more substeps.
     """
@@ -81,7 +81,7 @@ def binomial_value_fn(
     if substeps < 1:
         raise ValueError("substeps must be >= 1")
     if n_steps < 2:
-        raise ValueError("n_steps (simulation rows) must be >= 2")
+        raise ValueError("n_steps (simulation steps, start and expiry included) must be >= 2")
 
     dt_tree = maturity / (n_steps - 1) / substeps
     n_tree = (n_steps - 1) * substeps

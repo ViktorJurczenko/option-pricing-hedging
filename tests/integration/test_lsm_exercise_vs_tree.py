@@ -9,20 +9,20 @@ S0, K, R, SIGMA, T = 100.0, 100.0, 0.05, 0.2, 1.0
 SAMPLING, N_PATHS = 52, 5000
 
 
-def _tree_exercise_rows(simulation):
-    """Tree-optimal exercise row per path: the first row before expiry where
+def _tree_exercise_steps(simulation):
+    """Tree-optimal exercise step per path: the first step before expiry where
     the put is in the money and the CRR value has collapsed to intrinsic."""
-    n_paths, n_rows = simulation.shape  # time last
-    value_fn = binomial_value_fn(S0, K, R, SIGMA, T, n_rows, "put", substeps=5)
-    rows = np.full(n_paths, n_rows - 1)
+    n_paths, n_steps = simulation.shape  # time last
+    value_fn = binomial_value_fn(S0, K, R, SIGMA, T, n_steps, "put", substeps=5)
+    steps = np.full(n_paths, n_steps - 1)
     undecided = np.ones(n_paths, dtype=bool)
-    for t in range(n_rows - 1):
+    for t in range(n_steps - 1):
         S = simulation[:, t]
         intrinsic = np.maximum(K - S, 0.0)
         stop = undecided & (intrinsic > 0) & (value_fn(t, S) <= intrinsic + 1e-6)
-        rows[stop] = t
+        steps[stop] = t
         undecided &= ~stop
-    return rows
+    return steps
 
 
 @pytest.mark.parametrize("seed", [1, 42])
@@ -33,7 +33,7 @@ def test_lsm_put_exercise_decisions_agree_with_tree_optimal_rule(seed):
     last = sim.shape[1] - 1
 
     lsm_early = lsm.exercise_time < last
-    tree_early = _tree_exercise_rows(sim) < last
+    tree_early = _tree_exercise_steps(sim) < last
 
     # Measured agreement 95-97% here (seeds 1,2,3,42; 93-98% on 10000x365); 85% leaves margin
     # for this coarser 52-step grid while still failing on a wrong-horizon or

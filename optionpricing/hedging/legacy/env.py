@@ -31,7 +31,7 @@ class HedgingEnv:
                 (train()'s risk_lambda) a real mean-variance objective instead
                 of a penalty on holding any position. The episode sum telescopes
                 to the terminal-mode sum plus the constant V_0/K.
-        value_fn: value_fn(t, S) -> option value at simulation row t for spots S
+        value_fn: value_fn(t, S) -> option value at simulation step t for spots S
             (see optionpricing/hedging/legacy/option_value.py). Required for
             "accounting".
         """
@@ -66,7 +66,7 @@ class HedgingEnv:
         return self._build_states(self.t, self.path_idx, self.position)
 
     def _build_states(self, t, path_idx, position):
-        """State(s) at row t for path index/indices `path_idx` holding `position`.
+        """State(s) at step t for path index/indices `path_idx` holding `position`.
         Scalar path_idx/position give shape (5,); arrays give shape (n, 5)."""
         t_clamped = min(t, self.lsm.delta.shape[1] - 1)  # greeks undefined at maturity
         spot = self.lsm.simulation[path_idx, t]
@@ -112,7 +112,7 @@ class HedgingEnv:
         sim = self.lsm.simulation
         T_exercise = self.lsm.exercise_time[path_idxs]
         position = np.zeros(len(path_idxs))
-        # Exercised at row 0: the payoff at S0, no hedging step (see step()).
+        # Exercised at step 0: the payoff at S0, no hedging step (see step()).
         pnl = -np.where(T_exercise == 0, self._payoff(sim[path_idxs, 0]), 0.0)
 
         for t in range(int(T_exercise.max())):
@@ -173,7 +173,7 @@ class HedgingEnv:
         return self._get_state(), reward, done
 
     def _exercise_at_start(self):
-        """Zero-length episode for a path exercised at row 0: the option pays
+        """Zero-length episode for a path exercised at step 0: the option pays
         out at S0 before any hedge is held, so the action is ignored, nothing
         is traded or charged, and the reward is minus the payoff (in
         "accounting" mode, minus the payoff's excess over V_0, so the episode
