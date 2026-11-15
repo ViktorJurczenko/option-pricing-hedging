@@ -31,6 +31,8 @@ Open and deferred issues first, then newest first.
 
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
+| [B-041](#b-041) | train-hedge-legacy passed the path count as the value function's step count | Hedging and RL | fixed | 2026-11-15 |
+| [B-040](#b-040) | GBM drops a step when maturity * sampling is just below a whole number | Pricing | fixed | 2026-11-15 |
 | [B-039](#b-039) | train-hedge-legacy runs differ on the same --seed | Hedging and RL | deferred | 2026-11-13 |
 | [B-038](#b-038) | Hedging P&L has no cash account, so the delta baseline hedges the wrong liability | Hedging and RL | open | 2026-11-13 |
 | [B-037](#b-037) | HedgingEnv applies each hedge one step late | Hedging and RL | open | 2026-11-13 |
@@ -72,6 +74,22 @@ Open and deferred issues first, then newest first.
 | [B-001](#b-001) | ML surrogate pricer's target had a self-inflicted kink at ATM | Surrogate | fixed | 2026-09-29 |
 
 ## Pricing
+
+<a id="b-040"></a>
+
+### B-040 GBM drops a step when maturity * sampling is just below a whole number
+
+Status: fixed · Found: 2026-11-15 · Files: `optionpricing/core/gbm.py`
+
+**Symptom:** found while building the hedging path bank, whose maturities are whole days. `GBM.simulate_paths(n, maturity=3/365, sampling=365)` returned 3 rows (2 intervals of 1.5 days) instead of 4. Of the maturities from 1 to 3650 days, 277 lose a day this way, among them 53, 96, 101, 191 and 192 days.
+
+**Root cause:** the interval count was `int(maturity * sampling)`, and `3/365 * 365` is `2.9999999999999996` in floating point, which `int` truncates to 2. The grid still ended at `maturity` (B-007), but with one interval fewer, each `maturity / (rows - 1)` long instead of `1 / sampling`.
+
+**Impact:** only maturities where the product lands just below a whole number. The defaults (`maturity=1, sampling=365`) and the `price` command are not affected. The legacy LSM dataset (random `T` on a weekly grid) may have a few samples with one week fewer; it is kept frozen.
+
+**Fix:** the count is `int(round(maturity * sampling, 9))`, so float error no longer removes a step while a fractional count (15.6) still truncates as before.
+
+**Regression test:** `test_a_whole_number_of_days_is_not_truncated_by_float_error`, which fails if the fix is removed.
 
 <a id="b-018"></a>
 
@@ -912,6 +930,22 @@ generalizes to is documented in `docs/architecture.md`, "Softplus
 reparameterization".
 
 ## Hedging and RL
+
+<a id="b-041"></a>
+
+### B-041 train-hedge-legacy passed the path count as the value function's step count
+
+Status: fixed · Found: 2026-11-15 · Files: `scripts/train_hedge_legacy.py`
+
+**Symptom:** found by review while `GBM.simulate_paths` moved time to the last axis, before the change was committed. `run()` built the accounting-mode value function with `simulation.shape[0]` as its step count. After the switch that is the number of paths: 10,000 with the defaults instead of 366 steps.
+
+**Root cause:** the script read the step count from the array's first axis, which held time only while the simulation was time-first. The call was not on the list of `simulate_paths` callers that were converted, and no test checked the argument: `test_run_accounting_mode_builds_a_value_fn_via_make_option_value_fn` only counted the calls.
+
+**Impact:** none on committed code or results. Had it shipped, every accounting reward (the default reward mode) would have used the wrong time grid, with no error.
+
+**Fix:** `simulation.shape[1]`, the step count of the time-last array.
+
+**Regression test:** the step-count assertion in `test_run_accounting_mode_builds_a_value_fn_via_make_option_value_fn`, which fails if the fix is removed.
 
 <a id="b-039"></a>
 

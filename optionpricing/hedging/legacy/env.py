@@ -45,12 +45,13 @@ class HedgingEnv:
         self.tc = prop_tc
         self.fixed_tc = fixed_tc
         self.reward_mode = reward_mode
-        self.n_steps = lsm_model.simulation.shape[0]
-        self.n_paths = lsm_model.simulation.shape[1]
+        self.n_paths, self.n_steps = lsm_model.simulation.shape  # time last
 
         if reward_mode == "accounting":
-            # Precomputed once for every (row, path) so step() stays a lookup.
-            self.option_values = np.stack([value_fn(t, lsm_model.simulation[t]) for t in range(self.n_steps)])
+            # Precomputed once for every (path, step) so step() stays a lookup.
+            self.option_values = np.stack(
+                [value_fn(t, lsm_model.simulation[:, t]) for t in range(self.n_steps)], axis=1
+            )
 
     def reset(self, path_idx: int | None = None):
         """Start an episode on path `path_idx`, or on a random path if None."""
@@ -67,14 +68,14 @@ class HedgingEnv:
     def _build_states(self, t, path_idx, position):
         """State(s) at row t for path index/indices `path_idx` holding `position`.
         Scalar path_idx/position give shape (5,); arrays give shape (n, 5)."""
-        t_clamped = min(t, self.lsm.delta.shape[0] - 1)  # greeks undefined at maturity
-        spot = self.lsm.simulation[t, path_idx]
+        t_clamped = min(t, self.lsm.delta.shape[1] - 1)  # greeks undefined at maturity
+        spot = self.lsm.simulation[path_idx, t]
         return np.stack(
             np.broadcast_arrays(
                 spot / self.lsm.strike,  # normalized spot
                 t / (self.n_steps - 1),  # normalized time (1 at expiry)
-                self.lsm.delta[t_clamped, path_idx],  # L-S delta
-                self.lsm.gamma[t_clamped, path_idx],  # L-S gamma
+                self.lsm.delta[path_idx, t_clamped],  # L-S delta
+                self.lsm.gamma[path_idx, t_clamped],  # L-S gamma
                 position,  # current hedge held
             ),
             axis=-1,
@@ -112,7 +113,7 @@ class HedgingEnv:
         T_exercise = self.lsm.exercise_time[path_idxs]
         position = np.zeros(len(path_idxs))
         # Exercised at row 0: the payoff at S0, no hedging step (see step()).
-        pnl = -np.where(T_exercise == 0, self._payoff(sim[0, path_idxs]), 0.0)
+        pnl = -np.where(T_exercise == 0, self._payoff(sim[path_idxs, 0]), 0.0)
 
         for t in range(int(T_exercise.max())):
             active = t < T_exercise
@@ -120,7 +121,7 @@ class HedgingEnv:
             states = self._build_states(t, idx, position[active])
             action = np.clip(np.asarray(hedge_fn(states), dtype=np.float64).reshape(-1), -1, 1)
 
-            S_t, S_t1 = sim[t, idx], sim[t + 1, idx]
+            S_t, S_t1 = sim[idx, t], sim[idx, t + 1]
             step_pnl = position[active] * (S_t1 - S_t) - self._trading_cost(action - position[active], S_t)
 
             done = t + 1 >= T_exercise[active]
@@ -141,8 +142,8 @@ class HedgingEnv:
         action = np.clip(action, -1, 1)  # enforce valid hedge ratio
 
         i = self.path_idx
-        S_t = self.lsm.simulation[self.t, i]
-        S_t1 = self.lsm.simulation[self.t + 1, i]
+        S_t = self.lsm.simulation[i, self.t]
+        S_t1 = self.lsm.simulation[i, self.t + 1]
 
         trade = action - self.position
         hedge_pnl = self.position * (S_t1 - S_t)
@@ -158,11 +159,11 @@ class HedgingEnv:
             option_payoff = self._payoff(S_t1)
 
         if self.reward_mode == "accounting":
-            V_t = self.option_values[t, i]
+            V_t = self.option_values[i, t]
             # option_payoff is only defined when done; the conditional
             # expression never evaluates it otherwise. On the exercise step the
             # option is worth its payoff, not its continuation value V.
-            V_t1 = option_payoff if done else self.option_values[t + 1, i]
+            V_t1 = option_payoff if done else self.option_values[i, t + 1]
             reward = (hedge_pnl - cost - (V_t1 - V_t)) / self.lsm.strike
         elif done:
             reward = (hedge_pnl - cost - option_payoff) / self.lsm.strike
@@ -178,9 +179,9 @@ class HedgingEnv:
         "accounting" mode, minus the payoff's excess over V_0, so the episode
         sum still equals the terminal-mode sum plus V_0/K)."""
         i = self.path_idx
-        option_payoff = self._payoff(self.lsm.simulation[0, i])
+        option_payoff = self._payoff(self.lsm.simulation[i, 0])
         if self.reward_mode == "accounting":
-            reward = -(option_payoff - self.option_values[0, i]) / self.lsm.strike
+            reward = -(option_payoff - self.option_values[i, 0]) / self.lsm.strike
         else:
             reward = -option_payoff / self.lsm.strike
         return self._get_state(), reward, True

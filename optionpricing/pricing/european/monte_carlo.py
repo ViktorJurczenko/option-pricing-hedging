@@ -21,7 +21,8 @@ class MonteCarlo(OptionPricing):
         Initialize the Monte-Carlo simulator.
 
         Args:
-            predictions: The price prediciton obtained with Geometric Brownian Motion (GBM).
+            predictions: Simulated prices, shape (n_paths, n_steps + 1), time last as `GBM.simulate_paths`
+                returns them.
             strike: Strike price of the option.
             risk_free_rate: Risk-free interest rate.
             option_type: Type of option ("call" or "put").
@@ -42,7 +43,7 @@ class MonteCarlo(OptionPricing):
             payoffs: Array of payoffs for each path.
         """
 
-        final_prices = self.predictions[-1]
+        final_prices = self.predictions[:, -1]
         if self.option_type == "call":
             payoffs = np.maximum(final_prices - self.strike, 0)
         else:

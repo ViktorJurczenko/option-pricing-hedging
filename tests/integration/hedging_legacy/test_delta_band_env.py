@@ -39,8 +39,8 @@ def _implied_costs(env, action_fn, n_paths):
             action = action_fn(state)
             traded = abs(np.clip(action, -1, 1) - pos) > env._TRADE_EPS
             state, reward, done = env.step(action)
-            payoff = env._payoff(sim[t + 1, p]) if done else 0.0
-            cost = pos * (sim[t + 1, p] - sim[t, p]) - payoff - reward * K
+            payoff = env._payoff(sim[p, t + 1]) if done else 0.0
+            cost = pos * (sim[p, t + 1] - sim[p, t]) - payoff - reward * K
             out.append((traded, cost))
     return out
 

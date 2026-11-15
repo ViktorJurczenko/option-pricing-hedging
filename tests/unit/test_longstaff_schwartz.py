@@ -8,36 +8,36 @@ from optionpricing.pricing.european.black_scholes import BlackScholes
 
 
 def test_calculate_option_price_is_mean_of_time_zero_payoff():
-    simulation = np.ones((3, 5)) * 100.0
+    simulation = np.ones((5, 3)) * 100.0
     lsm = LongstaffSchwartz(simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put")
-    lsm.predict_payoff()  # required before pricing; the row-0 payoffs are then overwritten by hand
-    lsm.payoff[0] = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    lsm.predict_payoff()  # required before pricing; the step-0 payoffs are then overwritten by hand
+    lsm.payoff[:, 0] = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
 
     assert lsm.calculate_option_price() == pytest.approx(3.0)
 
 
 def test_terminal_payoff_matches_vanilla_put_payoff():
     rng = np.random.default_rng(0)
-    simulation = rng.uniform(80, 120, size=(4, 20))
+    simulation = rng.uniform(80, 120, size=(20, 4))
     lsm = LongstaffSchwartz(
         simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2
     )
     lsm.predict_payoff()
 
-    expected_terminal = np.maximum(100.0 - simulation[-1], 0)
-    np.testing.assert_allclose(lsm.payoff[-1], expected_terminal)
+    expected_terminal = np.maximum(100.0 - simulation[:, -1], 0)
+    np.testing.assert_allclose(lsm.payoff[:, -1], expected_terminal)
 
 
 def test_path_that_is_always_out_of_the_money_never_exercises_early():
     # Put, strike 100, price constant at 200 the whole time -> always OTM
-    simulation = np.full((4, 3), 200.0)
+    simulation = np.full((3, 4), 200.0)
     lsm = LongstaffSchwartz(
         simulation, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2
     )
     lsm.predict_payoff()
 
-    assert np.all(lsm.exercise_time == simulation.shape[0] - 1)
-    assert np.all(lsm.payoff[0] == 0)
+    assert np.all(lsm.exercise_time == simulation.shape[1] - 1)
+    assert np.all(lsm.payoff[:, 0] == 0)
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ def test_non_positive_sigma_raises(sigma):
 # ITM-only continuation fit extrapolated to OTM paths, giving deltas in the tens) ---
 
 SIGMA, R, K, T = 0.2, 0.05, 100.0, 1.0
-N_STEPS, N_PATHS = 50, 4000  # N_STEPS time intervals -> N_STEPS + 1 simulation rows; last row index N_STEPS
+N_STEPS, N_PATHS = 50, 4000  # N_STEPS time intervals -> N_STEPS + 1 simulation steps; last step index N_STEPS
 
 
 def _fitted_lsm(option_type="call", sigma=SIGMA, seed=42):
@@ -84,7 +84,7 @@ def _fitted_lsm(option_type="call", sigma=SIGMA, seed=42):
 def _bs(lsm, t, option_type):
     # Row 0 is today, row N_STEPS is expiry, rows are T / N_STEPS apart.
     tau = (N_STEPS - t) * T / N_STEPS
-    return BlackScholes(SIGMA, lsm.simulation[t], K, R, option_type), tau
+    return BlackScholes(SIGMA, lsm.simulation[:, t], K, R, option_type), tau
 
 
 @pytest.fixture(scope="module")
@@ -104,8 +104,8 @@ def test_call_delta_close_to_black_scholes_itm_and_otm(call_lsm, t, moneyness):
     # Tolerance 0.05 mean abs error: measured 0.001-0.017 on a 10000x365 config;
     # margin covers the smaller sample here.
     bs, tau = _bs(call_lsm, t, "call")
-    mask = call_lsm.simulation[t] > K if moneyness == "itm" else call_lsm.simulation[t] < K
-    err = np.abs(call_lsm.delta[t][mask] - bs.calculate_delta(tau)[mask])
+    mask = call_lsm.simulation[:, t] > K if moneyness == "itm" else call_lsm.simulation[:, t] < K
+    err = np.abs(call_lsm.delta[:, t][mask] - bs.calculate_delta(tau)[mask])
     assert mask.sum() > 20
     assert err.mean() < 0.05
 
@@ -114,7 +114,7 @@ def test_call_delta_close_to_black_scholes_itm_and_otm(call_lsm, t, moneyness):
 def test_call_gamma_close_to_black_scholes(call_lsm, t):
     # Measured mean abs error <= 0.0015 on a larger config; 0.005 leaves margin.
     bs, tau = _bs(call_lsm, t, "call")
-    err = np.abs(call_lsm.gamma[t] - bs.calculate_gamma(tau))
+    err = np.abs(call_lsm.gamma[:, t] - bs.calculate_gamma(tau))
     assert err.mean() < 0.005
 
 
@@ -122,9 +122,9 @@ def test_otm_call_delta_near_expiry_is_near_zero_not_extrapolated(call_lsm):
     # Regression: the old continuation-derivative delta gave ~0.9 (and values in
     # the tens) for OTM paths near expiry via polynomial extrapolation.
     t = N_STEPS - 3
-    otm = call_lsm.simulation[t] < 0.95 * K
+    otm = call_lsm.simulation[:, t] < 0.95 * K
     assert otm.sum() > 20
-    assert np.abs(call_lsm.delta[t][otm]).mean() < 0.1
+    assert np.abs(call_lsm.delta[:, t][otm]).mean() < 0.1
 
 
 def test_call_delta_stays_bounded_everywhere(call_lsm):
@@ -135,10 +135,10 @@ def test_call_delta_stays_bounded_everywhere(call_lsm):
 
 def test_put_delta_is_negative_and_bounded_on_average(put_lsm):
     for t in [10, 25, 40]:
-        d = put_lsm.delta[t]
+        d = put_lsm.delta[:, t]
         assert np.abs(d).max() < 2.0
-        deep_itm = put_lsm.simulation[t] < 0.9 * K
-        deep_otm = put_lsm.simulation[t] > 1.1 * K
+        deep_itm = put_lsm.simulation[:, t] < 0.9 * K
+        deep_otm = put_lsm.simulation[:, t] > 1.1 * K
         assert d[deep_itm].mean() < -0.5
         assert d[deep_otm].mean() > -0.3
 
@@ -148,11 +148,11 @@ def test_put_delta_close_to_tree_reference(put_lsm):
     # error 0.004-0.03 on a larger config; 0.1 leaves margin for 4000 paths.
     value_fn = binomial_value_fn(100.0, K, R, SIGMA, T, N_STEPS + 1, "put")  # n_steps = row count
     for t in [10, 25]:
-        S = put_lsm.simulation[t]
+        S = put_lsm.simulation[:, t]
         near = (S > 85) & (S < 115)
         h = 0.5
         ref = (value_fn(t, S[near] + h) - value_fn(t, S[near] - h)) / (2 * h)
-        assert np.abs(put_lsm.delta[t][near] - ref).mean() < 0.1
+        assert np.abs(put_lsm.delta[:, t][near] - ref).mean() < 0.1
 
 
 def test_sigma_none_still_gives_finite_deltas_and_same_price():
@@ -172,7 +172,7 @@ def test_sigma_feature_improves_call_delta_near_expiry():
     for sigma in (SIGMA, None):
         lsm = _fitted_lsm("call", sigma=sigma)
         bs, tau = _bs(lsm, t, "call")
-        errs.append(np.abs(lsm.delta[t] - bs.calculate_delta(tau)).mean())
+        errs.append(np.abs(lsm.delta[:, t] - bs.calculate_delta(tau)).mean())
     assert errs[0] < errs[1]
 
 
@@ -235,7 +235,7 @@ def test_call_with_control_variate_delta_stays_close_to_black_scholes():
     lsm = _lsm("call", sigma=SIGMA, control_variate=True)
     for t in [10, 25, 40]:
         bs, tau = _bs(lsm, t, "call")
-        assert np.abs(lsm.delta[t] - bs.calculate_delta(tau)).mean() < 0.05
+        assert np.abs(lsm.delta[:, t] - bs.calculate_delta(tau)).mean() < 0.05
 
 
 def test_control_variate_false_matches_omitting_the_argument():
@@ -261,35 +261,40 @@ def test_put_with_control_variate_runs_and_prices_near_tree_price():
     assert (lsm.exercise_time < N_STEPS).mean() > 0.2  # puts do exercise early
 
 
-# --- Grid/horizon: the last simulation row is expiry at exactly `maturity` ---
+# --- Grid/horizon: the last simulation step is expiry at exactly `maturity` ---
 
 
 def test_dt_is_maturity_over_number_of_intervals():
-    # Regression: dt used to be maturity / rows, so the last row sat at
-    # (rows-1)/rows of the maturity and the option was priced too short.
-    lsm = LongstaffSchwartz(np.ones((11, 3)), strike=100.0, risk_free_rate=0.05, maturity=2.0, option_type="put")
+    # Regression: dt used to be maturity / steps, so the last step sat at
+    # (steps-1)/steps of the maturity and the option was priced too short.
+    lsm = LongstaffSchwartz(np.ones((3, 11)), strike=100.0, risk_free_rate=0.05, maturity=2.0, option_type="put")
     assert lsm.dt == pytest.approx(2.0 / 10)
 
 
-@pytest.mark.parametrize("rows", [0, 1])
-def test_simulation_with_fewer_than_two_rows_raises(rows):
-    with pytest.raises(ValueError, match="2 rows"):
-        LongstaffSchwartz(np.ones((rows, 3)))
+@pytest.mark.parametrize("steps", [0, 1])
+def test_simulation_with_fewer_than_two_steps_raises(steps):
+    with pytest.raises(ValueError, match="2 steps"):
+        LongstaffSchwartz(np.ones((3, steps)))
 
 
-def test_two_row_simulation_prices_the_one_step_option():
+def test_a_one_dimensional_simulation_raises():
+    with pytest.raises(ValueError, match=r"\(n_paths, n_steps \+ 1\)"):
+        LongstaffSchwartz(np.ones(5))
+
+
+def test_two_step_simulation_prices_the_one_interval_option():
     # Minimal grid: start and expiry only. A single ITM-at-expiry path must be
     # discounted by the full maturity (dt = maturity / 1).
-    sim = np.array([[100.0], [80.0]])
+    sim = np.array([[100.0, 80.0]])
     lsm = LongstaffSchwartz(sim, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put")
     lsm.predict_payoff()
     assert lsm.calculate_option_price() == pytest.approx(20.0 * np.exp(-0.05))
 
 
-def test_constant_itm_put_exercises_immediately_on_five_row_grid():
+def test_constant_itm_put_exercises_immediately_on_five_step_grid():
     # Deep ITM put: holding to expiry is worth 99*exp(-rT) < 99, so exercise at
-    # row 0 and the price is intrinsic.
-    sim = np.full((5, 4), 1.0)
+    # step 0 and the price is intrinsic.
+    sim = np.full((4, 5), 1.0)
     lsm = LongstaffSchwartz(sim, strike=100.0, risk_free_rate=0.05, maturity=1.0, option_type="put", max_degree=2)
     lsm.predict_payoff()
     assert lsm.calculate_option_price() == pytest.approx(99.0)
@@ -311,8 +316,8 @@ def test_laguerre_call_greeks_close_to_black_scholes(laguerre_call_lsm, t):
     # Same bounds as the simple basis; measured laguerre errors are identical to it
     # (mean abs delta error 0.003-0.014, gamma 0.0003-0.0018), since both span cubics.
     bs, tau = _bs(laguerre_call_lsm, t, "call")
-    assert np.abs(laguerre_call_lsm.delta[t] - bs.calculate_delta(tau)).mean() < 0.03
-    assert np.abs(laguerre_call_lsm.gamma[t] - bs.calculate_gamma(tau)).mean() < 0.005
+    assert np.abs(laguerre_call_lsm.delta[:, t] - bs.calculate_delta(tau)).mean() < 0.03
+    assert np.abs(laguerre_call_lsm.gamma[:, t] - bs.calculate_gamma(tau)).mean() < 0.005
 
 
 def test_laguerre_greeks_match_simple_basis_greeks(call_lsm, laguerre_call_lsm):
@@ -325,7 +330,7 @@ def test_laguerre_greeks_match_simple_basis_greeks(call_lsm, laguerre_call_lsm):
 def test_calculate_option_price_before_predict_payoff_raises():
     # Like BinomialTree: the unfitted payoff array is all zeros, which used to
     # price the option at a silent 0.0.
-    lsm = LongstaffSchwartz(np.full((3, 4), 100.0), strike=100.0, option_type="put")
+    lsm = LongstaffSchwartz(np.full((4, 3), 100.0), strike=100.0, option_type="put")
     with pytest.raises(AttributeError, match="predict_payoff"):
         lsm.calculate_option_price()
 

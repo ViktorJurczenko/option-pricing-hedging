@@ -148,12 +148,12 @@ def test_delta_idx_matches_hedging_env_state_layout():
     state = env.reset()
     steps_checked = 0
     while True:
-        t = min(env.t, lsm.delta.shape[0] - 1)
-        expected_delta = lsm.delta[t, env.path_idx]
+        t = min(env.t, lsm.delta.shape[1] - 1)
+        expected_delta = lsm.delta[env.path_idx, t]
         assert state[_DELTA_IDX] == expected_delta
         # Guard against coincidental matches: delta must differ from the
         # neighbouring entries (gamma, position, S/K) at the checked point.
-        assert expected_delta != lsm.gamma[t, env.path_idx]
+        assert expected_delta != lsm.gamma[env.path_idx, t]
         assert expected_delta != state[4]
         steps_checked += 1
         if steps_checked >= 3:

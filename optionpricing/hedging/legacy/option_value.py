@@ -19,10 +19,11 @@ def black_scholes_value_fn(
 ) -> ValueFn:
     """Closed-form option value on the simulation's time grid.
 
-    `n_steps` is the number of rows of a `GBM.simulate_paths` array: row t
-    sits at time t*dt with dt = maturity / (n_steps - 1), and the last row is
-    expiry, so the remaining time at row t is (n_steps - 1 - t) * dt. On the
-    last row the value is exactly the intrinsic payoff.
+    `n_steps` is the number of steps (columns) of the env's simulation, start
+    and expiry included: step t sits at time t*dt with dt = maturity /
+    (n_steps - 1), and the last step is expiry, so the remaining time at step t
+    is (n_steps - 1 - t) * dt. On the last step the value is exactly the
+    intrinsic payoff.
 
     For a call on a non-dividend stock this is also the exact *American*
     value (early exercise is never optimal), which is why the hedging env

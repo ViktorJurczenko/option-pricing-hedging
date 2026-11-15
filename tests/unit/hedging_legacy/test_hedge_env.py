@@ -9,7 +9,7 @@ def early_exercise_put_lsm():
     """Single put path with 4 rows, exercised at t=2, strictly before the
     final row (t=3) -- used to check the accounting/terminal telescoping
     identity past a mid-episode early exercise, not just at the last row."""
-    return make_fake_lsm([[100.0], [95.0], [90.0], [85.0]], [2], option_type="put")
+    return make_fake_lsm([[100.0, 95.0, 90.0, 85.0]], [2], option_type="put")
 
 
 def test_reset_returns_five_dim_state():
@@ -132,7 +132,7 @@ def test_accounting_mode_without_value_fn_raises():
 
 
 def test_accounting_mode_precomputes_option_values_grid_from_value_fn():
-    """The precomputed self.option_values[t, i] must equal value_fn(t, sim[t])[i]
+    """The precomputed self.option_values[i, t] must equal value_fn(t, sim[:, t])[i]
     for every row/path -- a wrong axis or an off-by-one in the precompute
     loop would silently mis-price every step's reward without raising."""
 
@@ -142,7 +142,7 @@ def test_accounting_mode_precomputes_option_values_grid_from_value_fn():
     model = two_path_call_lsm()
     env = HedgingEnv(model, reward_mode="accounting", value_fn=value_fn)
 
-    expected = np.stack([value_fn(t, model.simulation[t]) for t in range(model.simulation.shape[0])])
+    expected = np.stack([value_fn(t, model.simulation[:, t]) for t in range(model.simulation.shape[1])], axis=1)
     np.testing.assert_allclose(env.option_values, expected)
 
 
@@ -192,7 +192,7 @@ def test_accounting_reward_on_exercise_step_replaces_v_t1_with_payoff(monkeypatc
 def test_accounting_episode_sum_telescopes_to_terminal_sum_plus_v0_over_strike(monkeypatch):
     """Key invariant (checked by the implementer to 1e-15 on real LSM envs):
     for any fixed action sequence, sum(accounting rewards) == sum(terminal
-    rewards) + option_values[0, path]/K. Uses early_exercise_put_lsm so the
+    rewards) + option_values[path, 0]/K. Uses early_exercise_put_lsm so the
     identity is checked across an episode that ends in early exercise
     (t=2), not just at the final simulated row."""
 
@@ -233,16 +233,16 @@ def random_lsm(option_type="put", n_rows=8, n_paths=12, seed=0, row0_paths=(), s
     """Fake fitted LSM with random (seeded) paths, Greeks and several distinct
     exercise times, so paths drop out of a vectorized rollout at different steps."""
     rng = np.random.default_rng(seed)
-    steps = np.exp(0.03 * rng.standard_normal((n_rows - 1, n_paths)))
+    steps = np.exp(0.03 * rng.standard_normal((n_paths, n_rows - 1)))
     exercise_time = np.arange(n_paths) % (n_rows - 1) + 1  # 1..n_rows-1, all present
     exercise_time[list(row0_paths)] = 0  # exercised at row 0: zero-length episodes
     return make_fake_lsm(
-        100.0 * np.vstack([np.ones(n_paths), np.cumprod(steps, axis=0)]),
+        100.0 * np.hstack([np.ones((n_paths, 1)), np.cumprod(steps, axis=1)]),
         exercise_time,
         option_type=option_type,
         strike=strike,
-        delta=rng.uniform(-1, 1, (n_rows - 1, n_paths)),
-        gamma=rng.uniform(0, 0.1, (n_rows - 1, n_paths)),
+        delta=rng.uniform(-1, 1, (n_paths, n_rows - 1)),
+        gamma=rng.uniform(0, 0.1, (n_paths, n_rows - 1)),
     )
 
 
@@ -296,8 +296,8 @@ def test_reset_path_idx_zero_is_not_treated_as_none(monkeypatch):
 
 def test_build_states_scalar_matches_hand_computed_state():
     lsm = two_path_call_lsm()
-    lsm.delta = np.array([[0.1, 0.2], [0.3, 0.4]])
-    lsm.gamma = np.array([[0.01, 0.02], [0.03, 0.04]])
+    lsm.delta = np.array([[0.1, 0.3], [0.2, 0.4]])  # (path, step)
+    lsm.gamma = np.array([[0.01, 0.03], [0.02, 0.04]])
     env = HedgingEnv(lsm)
     state = env._build_states(1, 1, 0.5)
     assert state.shape == (5,)
@@ -317,10 +317,10 @@ def test_build_states_batch_rows_equal_scalar_calls():
 def test_build_states_clamps_greeks_to_last_row_at_maturity():
     lsm = random_lsm()
     env = HedgingEnv(lsm)
-    last = lsm.simulation.shape[0] - 1  # greeks only have `last` rows
+    last = lsm.simulation.shape[1] - 1  # greeks only have `last` steps
     state = env._build_states(last, np.array([2, 5]), np.zeros(2))
-    np.testing.assert_array_equal(state[:, 2], lsm.delta[-1, [2, 5]])
-    np.testing.assert_array_equal(state[:, 3], lsm.gamma[-1, [2, 5]])
+    np.testing.assert_array_equal(state[:, 2], lsm.delta[[2, 5], -1])
+    np.testing.assert_array_equal(state[:, 3], lsm.gamma[[2, 5], -1])
     np.testing.assert_allclose(state[:, 1], 1.0)
 
 
@@ -330,7 +330,7 @@ def _rollout_pnl_and_summed_step_rewards(option_type, tc, fixed_tc, reward_mode,
     # Start at 100: strike 95 (call) / 105 (put) makes the row-0 payoff 5, not 0
     strike = 95.0 if option_type == "call" else 105.0
     lsm = random_lsm(option_type, row0_paths=row0_paths, strike=strike)
-    n_paths = lsm.simulation.shape[1]
+    n_paths = lsm.simulation.shape[0]
     kwargs = {}
     if reward_mode == "accounting":
         kwargs = dict(reward_mode="accounting", value_fn=lambda t, S: np.full_like(S, 7.0 + t))
@@ -456,7 +456,7 @@ def row0_put_lsm():
     exercised at row 0, and an ordinary path 1 exercised at row 2. Nonzero
     delta/position noise makes an ignored action observable."""
     return make_fake_lsm(
-        [[90.0, 100.0], [80.0, 95.0], [70.0, 90.0]], [0, 2], option_type="put", delta=np.full((2, 2), -0.5)
+        [[90.0, 80.0, 70.0], [100.0, 95.0, 90.0]], [0, 2], option_type="put", delta=np.full((2, 2), -0.5)
     )
 
 

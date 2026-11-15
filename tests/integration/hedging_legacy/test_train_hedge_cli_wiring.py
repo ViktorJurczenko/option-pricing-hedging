@@ -144,6 +144,10 @@ def test_run_accounting_mode_builds_a_value_fn_via_make_option_value_fn(monkeypa
     train_hedge_script.run(args)
 
     assert len(calls) == 1
+    # Regression: after GBM moved time to the last axis, run() passed simulation.shape[0], the path count (50),
+    # as the value function's step count, so every accounting reward used the wrong time grid.
+    n_steps = calls[0][0][6]
+    assert n_steps == int(args.maturity * args.sampling) + 1 != args.nb_predictions
 
 
 @pytest.mark.parametrize("val_paths", [0, 20])

@@ -232,7 +232,7 @@ def run(args):
             args.risk_free_rate,
             args.sigma,
             args.maturity,
-            simulation.shape[0],
+            simulation.shape[1],  # steps, start and expiry included (time last)
         )
     env = HedgingEnv(lsm, prop_tc=args.prop_tc, fixed_tc=args.fixed_tc, reward_mode=args.reward_mode, value_fn=value_fn)
 

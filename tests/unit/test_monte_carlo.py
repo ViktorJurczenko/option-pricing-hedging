@@ -6,11 +6,13 @@ from optionpricing.pricing.european.monte_carlo import MonteCarlo
 
 @pytest.fixture
 def predictions():
-    # 2 time steps, 4 paths; only the final row (maturity prices) matters
+    # 4 paths, 2 time steps (time last); only the final step (maturity prices) matters
     return np.array(
         [
-            [100.0, 100.0, 100.0, 100.0],
-            [110.0, 90.0, 105.0, 95.0],
+            [100.0, 110.0],
+            [100.0, 90.0],
+            [100.0, 105.0],
+            [100.0, 95.0],
         ]
     )
 

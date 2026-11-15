@@ -18,10 +18,11 @@ SMALL_SIMULATION = dict(nb_predictions=50, maturity=0.1, sampling=20, max_degree
 
 def make_fake_lsm(simulation, exercise_time, option_type="call", strike=100.0, delta=None, gamma=None):
     """Stand-in for a fitted LongstaffSchwartz with the attributes HedgingEnv
-    reads. Greeks default to zero and have one row fewer than the simulation
-    (none at maturity), like the real model's."""
+    reads. `simulation` is (n_paths, n_steps + 1), time last. Greeks default to
+    zero and have one step fewer than the simulation (none at maturity), like
+    the real model's."""
     simulation = np.asarray(simulation, dtype=float)
-    greeks_shape = (simulation.shape[0] - 1, simulation.shape[1])
+    greeks_shape = (simulation.shape[0], simulation.shape[1] - 1)
     return SimpleNamespace(
         option_type=option_type,
         strike=strike,
@@ -34,7 +35,7 @@ def make_fake_lsm(simulation, exercise_time, option_type="call", strike=100.0, d
 
 def two_path_call_lsm(delta=None):
     """Two call paths (100 -> 105 -> 110 and 100 -> 95 -> 90), both run to maturity."""
-    return make_fake_lsm([[100.0, 100.0], [105.0, 95.0], [110.0, 90.0]], [2, 2], delta=delta)
+    return make_fake_lsm([[100.0, 105.0, 110.0], [100.0, 95.0, 90.0]], [2, 2], delta=delta)
 
 
 def make_state(delta, position=-0.3, spot=1.1, t=0.4, gamma=0.7, batch=None):

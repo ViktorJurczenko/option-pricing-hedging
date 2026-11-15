@@ -72,10 +72,10 @@ def test_evaluate_with_delta_hedge_baseline_hand_calculated_reward(monkeypatch):
     compose correctly under the new action_fn interface, with a non-zero,
     time-varying delta driving the hedge position."""
     monkeypatch.setattr(np.random, "randint", lambda n: 0)
-    delta = np.array(
+    delta = np.array(  # (path, step)
         [
-            [0.5, -0.3],
-            [0.4, 0.2],
+            [0.5, 0.4],
+            [-0.3, 0.2],
         ]
     )
     env = HedgingEnv(two_path_call_lsm(delta=delta))

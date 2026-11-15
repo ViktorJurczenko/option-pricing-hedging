@@ -20,7 +20,7 @@ def least_squares(features: np.ndarray, target: np.ndarray) -> np.ndarray:
     regressions here. Forming `X^T X` squares the condition number, which costs
     about 4-5 digits on the Laguerre basis (deltas differ by ~1e-5), so
     LongstaffSchwartz uses it only when it isn't fitting Greeks. The Gram matrix is still handed to `lstsq`, not `solve`,
-    so a degenerate system (every path at the same spot at row 0, or too few
+    so a degenerate system (every path at the same spot at step 0, or too few
     ITM paths) gets the same minimum-norm solution as lstsq on `X` itself.
     """
     return np.linalg.lstsq(features.T @ features, features.T @ target, rcond=None)[0]
@@ -49,7 +49,8 @@ class LongstaffSchwartz(OptionPricing):
         Initialize the Longstaff-Schwartz model.
 
         Args:
-            simulation: The price prediciton obtained with Geometric Brownian Motion (GBM).
+            simulation: Simulated prices, shape (n_paths, n_steps + 1), time last as `GBM.simulate_paths`
+                returns them.
             strike: Strike price of the option.
             risk_free_rate: Risk-free interest rate.
             maturity: Time to maturity in years (defaults to 1).
@@ -88,30 +89,53 @@ class LongstaffSchwartz(OptionPricing):
             raise ValueError("sigma must be > 0")
         if control_variate and sigma is None:
             raise ValueError("control_variate requires sigma")
-        if simulation.shape[0] < 2:
-            raise ValueError("simulation needs at least 2 rows (start and expiry)")
+        if simulation.ndim != 2 or simulation.shape[1] < 2:
+            raise ValueError(
+                "simulation must have shape (n_paths, n_steps + 1) with at least 2 steps (start and expiry)"
+            )
 
         self.simulation = simulation
-        self.continue_val = np.zeros(simulation.shape)
-        self.exercise_time = np.full(
-            simulation.shape[1], simulation.shape[0] - 1
-        )  # Default = maturity (i.e. not early exercised)
+        # The backward induction reads and writes one step of every path at a time, so it works on step-major
+        # copies, where a step is contiguous in memory; the public arrays below are time-last views of them.
+        self._by_step = np.ascontiguousarray(simulation.T)
+        n_steps, n_paths = self._by_step.shape
+        self._continue_val = np.zeros((n_steps, n_paths))
+        self.exercise_time = np.full(n_paths, n_steps - 1)  # Default = maturity (i.e. not early exercised)
         self.compute_greeks = compute_greeks
         # No delta at the end. None (not zeros) without compute_greeks, so using them fails loudly.
-        self.delta = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) if compute_greeks else None
-        self.gamma = np.zeros((simulation.shape[0] - 1, simulation.shape[1])) if compute_greeks else None
-        self.payoff = None  # Allocated by predict_payoff(); None marks an unfitted model
+        self._delta = np.zeros((n_steps - 1, n_paths)) if compute_greeks else None
+        self._gamma = np.zeros((n_steps - 1, n_paths)) if compute_greeks else None
+        self._payoff = None  # Allocated by predict_payoff(); None marks an unfitted model
         self.strike = strike
         self.risk_free_rate = risk_free_rate
         self.maturity = maturity
-        # Row 0 is today and the last row is expiry, so the rows are
-        # simulation.shape[0] - 1 intervals apart.
-        self.dt = maturity / (simulation.shape[0] - 1)
+        # Step 0 is today and the last step is expiry, so the steps are n_steps - 1 intervals apart.
+        self.dt = maturity / (n_steps - 1)
         self.option_type = option_type
         self.reg_type = reg_type
         self.max_degree = max_degree
         self.sigma = sigma
         self.control_variate = control_variate
+
+    @property
+    def payoff(self) -> np.ndarray | None:
+        """Each path's cashflow under the fitted rule, discounted to each step, shape (n_paths, n_steps + 1)."""
+        return None if self._payoff is None else self._payoff.T
+
+    @property
+    def continue_val(self) -> np.ndarray:
+        """Fitted continuation value per path and step, shape (n_paths, n_steps + 1)."""
+        return self._continue_val.T
+
+    @property
+    def delta(self) -> np.ndarray | None:
+        """Fitted delta per path and step, shape (n_paths, n_steps) (none at expiry), or None without Greeks."""
+        return None if self._delta is None else self._delta.T
+
+    @property
+    def gamma(self) -> np.ndarray | None:
+        """Fitted gamma per path and step, shape (n_paths, n_steps) (none at expiry), or None without Greeks."""
+        return None if self._gamma is None else self._gamma.T
 
     def _basis(self, x: np.ndarray, k: int = 0) -> np.ndarray:
         """k-th derivative (0 = the values) of the regression basis at x = S/K."""
@@ -132,18 +156,18 @@ class LongstaffSchwartz(OptionPricing):
         return np.maximum(self.strike - S, 0)
 
     def _european(self, S: np.ndarray) -> BlackScholes:
-        """The European option on the same strike at spots S (callers pass the row's remaining maturity)."""
+        """The European option on the same strike at spots S (callers pass the step's remaining maturity)."""
         return BlackScholes(self.sigma, S, self.strike, self.risk_free_rate, self.option_type)
 
     def _realized_european_payoff(self, index: int) -> np.ndarray:
-        """Each path's realized European payoff, discounted from expiry to row `index`."""
-        n_steps = self.simulation.shape[0]
-        return np.exp(-self.risk_free_rate * (n_steps - 1 - index) * self.dt) * self._intrinsic(self.simulation[-1])
+        """Each path's realized European payoff, discounted from expiry to step `index`."""
+        n_steps = self._by_step.shape[0]
+        return np.exp(-self.risk_free_rate * (n_steps - 1 - index) * self.dt) * self._intrinsic(self._by_step[-1])
 
     def fit(self, payoff_next: np.ndarray, index: int):
-        """Regressions at row `index`, given each path's realized cashflow
-        `payoff_next` (discounted to row index + 1) under the exercise rule
-        already fitted for the later rows.
+        """Regressions at step `index`, given each path's realized cashflow
+        `payoff_next` (discounted to step index + 1) under the exercise rule
+        already fitted for the later steps.
 
         - Continuation value: regressed on in-the-money paths only, as in the
           original method. It drives the exercise decision in predict_payoff().
@@ -157,13 +181,13 @@ class LongstaffSchwartz(OptionPricing):
           instead extrapolates the ITM-only polynomial to out-of-the-money
           paths, where it gave deltas in the tens (see BUGS.md).
 
-        At row 0 every path shares S0, so both regressions are degenerate:
+        At step 0 every path shares S0, so both regressions are degenerate:
         lstsq returns the minimum-norm fit, whose prediction is the mean of the
         targets (the plain Monte-Carlo estimate) at that single spot.
         """
-        n_steps = self.simulation.shape[0]
+        n_steps = self._by_step.shape[0]
         dt = self.dt
-        S = self.simulation[index]
+        S = self._by_step[index]
         x = S / self.strike
 
         realized_continuation = np.exp(-self.risk_free_rate * dt) * payoff_next
@@ -176,23 +200,23 @@ class LongstaffSchwartz(OptionPricing):
         # Continuation value, on ITM paths only
         itm_mask = self._intrinsic(S) > 0
         if not np.any(itm_mask):
-            # No ITM paths → no exercise decision to make at this row
-            self.continue_val[index] = realized_continuation
+            # No ITM paths → no exercise decision to make at this step
+            self._continue_val[index] = realized_continuation
         elif self.control_variate:
             target = realized_continuation - self._realized_european_payoff(index)
             continuation_weights = self._regress(features[itm_mask], target[itm_mask])
-            self.continue_val[index] = features @ continuation_weights + european.calculate_option_price(tau)
+            self._continue_val[index] = features @ continuation_weights + european.calculate_option_price(tau)
         else:
             continuation_weights = self._regress(features[itm_mask], realized_continuation[itm_mask])
-            self.continue_val[index] = features @ continuation_weights
+            self._continue_val[index] = features @ continuation_weights
 
         if not self.compute_greeks:
             return
 
         # Pathwise delta. At this point exercise_time holds each path's
-        # cashflow row under the rule for rows index + 1 onward.
+        # cashflow step under the rule for steps index + 1 onward.
         stop = self.exercise_time
-        stop_price = self.simulation[stop, np.arange(S.shape[0])]
+        stop_price = self._by_step[stop, np.arange(S.shape[0])]
         sign = 1.0 if self.option_type == "call" else -1.0
         pathwise_delta = np.where(
             payoff_next > 0,
@@ -207,8 +231,8 @@ class LongstaffSchwartz(OptionPricing):
             gamma_features = np.column_stack([gamma_features, european.calculate_gamma(tau)])
 
         greeks_weights = self._regress(delta_features, pathwise_delta)
-        self.delta[index] = delta_features @ greeks_weights
-        self.gamma[index] = gamma_features @ greeks_weights
+        self._delta[index] = delta_features @ greeks_weights
+        self._gamma[index] = gamma_features @ greeks_weights
 
     def predict_payoff(self) -> None:
         """
@@ -216,34 +240,34 @@ class LongstaffSchwartz(OptionPricing):
         """
         dt = self.dt
 
-        self.payoff = np.zeros(self.simulation.shape)
-        self.payoff[-1] = self._intrinsic(self.simulation[-1])
+        self._payoff = np.zeros(self._by_step.shape)
+        self._payoff[-1] = self._intrinsic(self._by_step[-1])
 
         for i in range(
-            self.simulation.shape[0] - 2, -1, -1
+            self._by_step.shape[0] - 2, -1, -1
         ):  # Traverses prediction backward starting from the second last element
-            self.fit(self.payoff[i + 1], i)
+            self.fit(self._payoff[i + 1], i)
 
-            exercice_payoff = self._intrinsic(self.simulation[i])
+            exercice_payoff = self._intrinsic(self._by_step[i])
 
-            exercice_mask = (exercice_payoff > 0) & (exercice_payoff >= self.continue_val[i])
+            exercice_mask = (exercice_payoff > 0) & (exercice_payoff >= self._continue_val[i])
             # It's important to make sure exercice payoff is positive as it could be null but still selected since
             # the continue payoff which is found via regression may be negative
 
-            self.payoff[i, exercice_mask] = exercice_payoff[exercice_mask]
-            self.payoff[i, ~exercice_mask] = np.exp(-self.risk_free_rate * dt) * self.payoff[i + 1, ~exercice_mask]
+            self._payoff[i, exercice_mask] = exercice_payoff[exercice_mask]
+            self._payoff[i, ~exercice_mask] = np.exp(-self.risk_free_rate * dt) * self._payoff[i + 1, ~exercice_mask]
 
             self.exercise_time[exercice_mask] = i
 
     def calculate_option_price(self, T: float = 1) -> float:
         # It's important to note that we don't use T here because we are evaluating the price of an american option which can be exercised
         # at any time so the time to maturity is pointless in american option pricing.
-        if self.payoff is None:
+        if self._payoff is None:
             # Same error as BinomialTree, which has no payoff until predict_payoff().
             raise AttributeError("call predict_payoff() before calculate_option_price()")
         if self.control_variate:
             # Same control variate as the regressions: exact European price plus
             # the simulated early-exercise premium (cashflow minus European payoff).
-            european_price = self._european(self.simulation[0]).calculate_option_price(self.maturity)
-            return np.mean(european_price + self.payoff[0] - self._realized_european_payoff(0), dtype=float)
-        return np.mean(self.payoff[0], dtype=float)
+            european_price = self._european(self._by_step[0]).calculate_option_price(self.maturity)
+            return np.mean(european_price + self._payoff[0] - self._realized_european_payoff(0), dtype=float)
+        return np.mean(self._payoff[0], dtype=float)

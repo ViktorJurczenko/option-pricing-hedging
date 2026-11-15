@@ -12,12 +12,12 @@ SAMPLING, N_PATHS = 52, 5000
 def _tree_exercise_rows(simulation):
     """Tree-optimal exercise row per path: the first row before expiry where
     the put is in the money and the CRR value has collapsed to intrinsic."""
-    n_rows = simulation.shape[0]
+    n_paths, n_rows = simulation.shape  # time last
     value_fn = binomial_value_fn(S0, K, R, SIGMA, T, n_rows, "put", substeps=5)
-    rows = np.full(simulation.shape[1], n_rows - 1)
-    undecided = np.ones(simulation.shape[1], dtype=bool)
+    rows = np.full(n_paths, n_rows - 1)
+    undecided = np.ones(n_paths, dtype=bool)
     for t in range(n_rows - 1):
-        S = simulation[t]
+        S = simulation[:, t]
         intrinsic = np.maximum(K - S, 0.0)
         stop = undecided & (intrinsic > 0) & (value_fn(t, S) <= intrinsic + 1e-6)
         rows[stop] = t
@@ -30,7 +30,7 @@ def test_lsm_put_exercise_decisions_agree_with_tree_optimal_rule(seed):
     sim = GBM(sigma=SIGMA, start_price=S0, risk_free_rate=R, seed=seed).simulate_paths(N_PATHS, T, SAMPLING)
     lsm = LongstaffSchwartz(sim, K, R, T, "put", "simple", 3, sigma=SIGMA)
     lsm.predict_payoff()
-    last = sim.shape[0] - 1
+    last = sim.shape[1] - 1
 
     lsm_early = lsm.exercise_time < last
     tree_early = _tree_exercise_rows(sim) < last
