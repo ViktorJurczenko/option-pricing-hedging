@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | P&L |
+| [Hedging rebuild](#hedging-rebuild) | active | Baselines |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -52,8 +52,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Settlement
   `settlement.py`: `cash_settlement` pays `K - S` and buys back `-δ` shares at cost. `physical_settlement` pays `K`, receives one share and closes `δ + 1` shares at cost. Tests: both agree when costs are zero, physical pays cost on `|δ + 1|` only, and an out-of-the-money expiry just closes the position under both.
 - [x] Simulator and exercise dates
-- [ ] P&L
-  `pnl.py`: the one function of the Goal. Tests against closed forms: no hedge gives `p_0 - Z̃`. The step-by-step bookkeeping and the compact formula agree on a hand-worked path. The financed Black-Scholes delta on a European call gives an error that shrinks like `√Δt` (std ≈ 0.0035 K daily, as in the bug entries).
+- [x] P&L
 - [ ] Baselines
   `baselines.py`, as policies with the network's interface: no hedge, surrogate delta, tree delta, fixed bands tuned on validation paths, and the Whalley-Wilmott band. This re-measures what delta hedging achieves before any learning, and replaces the invalid results.
 - [ ] Dataset
