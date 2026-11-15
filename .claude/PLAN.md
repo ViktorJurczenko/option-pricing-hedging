@@ -52,7 +52,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Settlement
   `settlement.py`: `cash_settlement` pays `K - S` and buys back `-δ` shares at cost. `physical_settlement` pays `K`, receives one share and closes `δ + 1` shares at cost. Tests: both agree when costs are zero, physical pays cost on `|δ + 1|` only, and an out-of-the-money expiry just closes the position under both.
 - [ ] Simulator and exercise dates
-  `simulator.py`: a seeded GBM path bank with one contract per path. `exercise.py`: `τ` per path from the chosen method (`tree`, `lsm`, `never`, or `late`, the boundary shifted down).
+  `simulator.py` (done): a seeded bank of scenarios, contracts drawn from the family with `paths_per_contract` GBM paths each. `exercise.py`: `τ` per path from the chosen method (`tree`, `lsm`, `never`, or `late`, the boundary shifted down).
 - [ ] P&L
   `pnl.py`: the one function of the Goal. Tests against closed forms: no hedge gives `p_0 - Z̃`. The step-by-step bookkeeping and the compact formula agree on a hand-worked path. The financed Black-Scholes delta on a European call gives an error that shrinks like `√Δt` (std ≈ 0.0035 K daily, as in the bug entries).
 - [ ] Baselines

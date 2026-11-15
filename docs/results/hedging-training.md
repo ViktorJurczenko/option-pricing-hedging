@@ -271,13 +271,13 @@ Each default is a flag or a dataset parameter, so an experiment can change it.
 
 | Setting | Default | Why |
 |---|---|---|
-| Contract family | `T` 3 months to 1 year, `σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1 | Narrow enough to train quickly, wide enough that the surrogate is needed. Widened once training works, by generating a new dataset. |
+| Contract family | `T` 3 months to 1 year, `σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1, each drawn uniformly | Narrow enough to train quickly, wide enough that the surrogate is needed. Widened once training works, by generating a new dataset. `T` is a whole number of days, so every path lives on the same daily grid and expires exactly on a grid date. |
 | Rebalancing | daily | Realistic, and comparable with the earlier SAC results (also daily). The dataset is stored daily, so a coarser grid is a subset of its dates. |
 | Exercise between hedge dates | the holder checks the boundary every day | The holder does not follow the hedger's schedule. On a coarser grid, the last position earns until `τ` and settlement happens at `τ`. |
 | Risk level | CVaR at `α` = 95% | The level used across the project so far. |
 | Settlement | cash | The most common convention. Physical settlement stays available. |
 
-**Chosen by checks.** Dataset sizes, network size, batch size, `κ`, the learning rates and how late the late holder is are not fixed in advance. Each is set by a check and recorded here with its evidence. For example, the training set grows while the validation score still improves with more paths.
+**Chosen by checks.** Dataset sizes (number of contracts and paths per contract), network size, batch size, `κ`, the learning rates and how late the late holder is are not fixed in advance. Each is set by a check and recorded here with its evidence. For example, the training set grows while the validation score still improves with more paths.
 
 ## Open questions
 
