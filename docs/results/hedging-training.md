@@ -218,7 +218,7 @@ Straight-through is the only cheap option that keeps the P&L exact. Its approxim
 
 **Choice.** Three small files, each used by training, testing and the baselines alike:
 - **Risk measures** (`risk.py`): CVaR, the entropic risk and the variance, below.
-- **Costs** (`costs.py`): `transaction_cost(trade, spot, proportional, fixed, kappa)`, with the straight-through fee above.
+- **Costs** (`costs.py`): a proportional rate on the dollars traded plus a fixed fee per trade, the fee straight-through as above.
 - **Settlement** (`settlement.py`): `cash_settlement` pays `K - S` and buys back the short shares at cost. `physical_settlement` pays `K`, receives one share and closes `δ + 1` shares at cost.
 
 **Why.** "Trained on CVaR" and "scored on CVaR" must be the same number, so both steps call the same function. Both settlements give the same P&L before costs and differ only in the cost of closing the position, so the choice is a flag rather than a design fork.
