@@ -62,7 +62,8 @@ below is produced by a command in this repository.
 | LSM Greeks and exercise rule | Done |
 | MLP surrogate for American puts | Done |
 | RL hedging (SAC) | Working, under active development: the results below are a snapshot |
-| Deep Hedging, dividend-paying stocks, fast American-put benchmarks | Planned |
+| Deep Hedging | In progress: the P&L, its building blocks, the baselines and the dataset are built. The network, its training and its evaluation come next |
+| Dividend-paying stocks, fast American-put benchmarks | Planned |
 
 The detailed plan is in the [roadmap](.claude/PLAN.md) and the finished
 workstreams are in the [roadmap archive](.claude/PLAN_ARCHIVE.md). Every problem
@@ -446,11 +447,13 @@ python main.py <command> --help        # list a command's flags
 | `train-hedge-legacy` | Train the legacy SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
 | `test-hedge-legacy` | Evaluate the legacy SAC policy or a baseline (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
 
-The surrogate's dataset has its own entry point, run as a module. It is
-seeded and resumable after an interruption:
+The surrogate's dataset and the Deep Hedging bank of scenarios have their own
+entry points, run as modules. Both are seeded and resumable after an
+interruption:
 
 ```
-python -m optionpricing.ml.surrogate.tree.generate_tree_dataset   # artifacts/data/tree_put_dataset.npz
+python -m optionpricing.ml.surrogate.tree.generate_tree_dataset            # artifacts/data/tree_put_dataset.npz
+python -m optionpricing.ml.hedging.generate_hedge_dataset --split train   # artifacts/data/hedge_train.npz, ~5 min on 6 cores
 ```
 
 Every flag of every command, and of the dataset generators, is in
@@ -485,6 +488,7 @@ optionpricing/          the library, one importable package
   hedging/              Deep Hedging building blocks (risk measures, costs, settlement, scenario simulator, exercise dates, P&L and baselines so far)
   hedging/legacy/       SAC's hedging env, option values, baselines, P&L evaluation
   ml/surrogate/         MLP surrogate pricer (tree/, legacy/)
+  ml/hedging/           Deep Hedging pipeline (the bank of scenarios so far)
   ml/hedging/legacy/    SAC hedging agent
   ml/experiments/       research drivers (ablation runner)
 main.py                 the CLI entry point

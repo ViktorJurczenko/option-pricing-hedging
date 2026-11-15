@@ -59,6 +59,35 @@ class ScenarioBank:
         """Time in years of each step (column) of `spot`, shape `(max(days) + 1,)`."""
         return np.arange(self.spot.shape[1]) / DAYS_PER_YEAR
 
+    def select_contracts(self, start: int, stop: int) -> "ScenarioBank":
+        """The bank of contracts `start` to `stop - 1` and their scenarios, so a job can work on a block of them.
+
+        Work done per contract (a boundary, an LSM rule fitted on a contract's own paths) gives the same result on
+        the block as on the whole bank. `spot` keeps every column, so day `k` is column `k` in both banks.
+
+        Args:
+            start: first contract kept, `0 <= start < stop`.
+            stop: one past the last contract kept, `<= n_contracts`.
+
+        Returns:
+            The smaller `ScenarioBank`, its contracts renumbered from 0.
+
+        Raises:
+            ValueError: if the range is empty or outside the bank's contracts.
+        """
+        if not 0 <= start < stop <= len(self.days):
+            raise ValueError(f"need 0 <= start < stop <= {len(self.days)} contracts, got start={start}, stop={stop}")
+        rows = (self.contract >= start) & (self.contract < stop)
+        return ScenarioBank(
+            spot=self.spot[rows],
+            contract=self.contract[rows] - start,
+            days=self.days[start:stop],
+            sigma=self.sigma[start:stop],
+            risk_free_rate=self.risk_free_rate[start:stop],
+            moneyness=self.moneyness[start:stop],
+            strike=self.strike,
+        )
+
 
 def _check_range(name: str, low_high: tuple[float, float], positive: bool) -> None:
     """Raise ValueError unless `low_high` is an ordered pair of finite values, > 0 if `positive`, else >= 0."""

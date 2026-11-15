@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Dataset |
+| [Hedging rebuild](#hedging-rebuild) | active | Policy and training loop |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -54,8 +54,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Simulator and exercise dates
 - [x] P&L
 - [x] Baselines
-- [ ] Dataset
-  `generate_hedge_dataset.py` and `hedge_dataset.py` save paths, contracts, premiums, surrogate delta and gamma per day, the boundary and `τ`. The metadata (seeds, ranges, surrogate checkpoint, exercise method) is saved too, so train and test can refuse a mismatched bank. Train, validation and test banks use distinct seeds. Maturities differ per path, so paths are padded to the longest one and masked after expiry. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, about 18 minutes for 50,000 paths, once. The file is about 220 MB for 50,000 daily paths in float32.
+- [x] Dataset
 - [ ] Policy and training loop
   `hedge_model.py` and `hedge_training.py`: the band network with the optional boundary input, the objective chosen by flag, `κ` as a setting, and `w` on its own learning rate. Validation checkpointing on held-out paths keeps the untrained (delta) policy as a candidate. Runs are seeded and show a progress bar.
 - [ ] Evaluation

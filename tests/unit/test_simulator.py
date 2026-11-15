@@ -165,3 +165,26 @@ def test_rejects_invalid_arguments(kwargs, message):
 
 def test_a_zero_rate_is_allowed():
     assert simulate_scenarios(3, 1, seed=0, **{**FAMILY, "rate_range": (0.0, 0.0)}).risk_free_rate.tolist() == [0.0] * 3
+
+
+# select_contracts
+
+
+def test_select_contracts_keeps_the_block_and_renumbers_it(bank):
+    block = bank.select_contracts(10, 13)
+    rows = np.flatnonzero((bank.contract >= 10) & (bank.contract < 13))
+    np.testing.assert_array_equal(block.spot, bank.spot[rows])  # every column kept, NaN padding included
+    np.testing.assert_array_equal(block.contract, bank.contract[rows] - 10)
+    for name in ("days", "sigma", "risk_free_rate", "moneyness"):
+        np.testing.assert_array_equal(getattr(block, name), getattr(bank, name)[10:13])
+    assert block.strike == bank.strike
+
+
+def test_select_contracts_takes_the_last_block_up_to_the_end(bank):
+    assert len(bank.select_contracts(499, 500).days) == 1
+
+
+@pytest.mark.parametrize(("start", "stop"), [(3, 3), (-1, 2), (0, 501), (5, 4)])
+def test_select_contracts_rejects_an_empty_or_out_of_range_block(bank, start, stop):
+    with pytest.raises(ValueError, match="need 0 <= start < stop <= 500"):
+        bank.select_contracts(start, stop)

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from optionpricing.hedging.exercise import daily_boundary, exercise_days
+from optionpricing.hedging.exercise import check_method, daily_boundary, exercise_days
 from optionpricing.hedging.simulator import ScenarioBank, simulate_scenarios
 from optionpricing.pricing.american.batch_binomial_tree import exercise_boundary, price_put_batch
 from optionpricing.pricing.european.black_scholes import black_scholes_price
@@ -269,6 +269,26 @@ def test_daily_boundary_is_in_dollars_at_the_banks_strike():
 def test_invalid_arguments_raise(method, kwargs, message):
     with pytest.raises(ValueError, match=message):
         exercise_days(hand_bank([[100, 95, 95, 95, 95]], [4]), method, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("method", "shift", "message"),
+    [
+        ("optimal", None, "method must be one of"),
+        ("late", None, "needs a shift in"),
+        ("late", 0.0, "needs a shift in"),
+        ("late", 1.0, "needs a shift in"),
+        ("never", 0.1, "only used by method 'late'"),
+    ],
+)
+def test_check_method_refuses_what_exercise_days_refuses(method, shift, message):
+    with pytest.raises(ValueError, match=message):
+        check_method(method, shift)
+
+
+@pytest.mark.parametrize(("method", "shift"), [("tree", None), ("lsm", None), ("never", None), ("late", 0.2)])
+def test_check_method_accepts_every_valid_holder(method, shift):
+    check_method(method, shift)  # returns None and raises nothing: there is no value to check
 
 
 def test_daily_boundary_rejects_an_invalid_tree():

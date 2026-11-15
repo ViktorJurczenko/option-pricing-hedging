@@ -1,6 +1,6 @@
 # How the hedging model is designed
 
-This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator, the exercise dates, the P&L and the baselines. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
+This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator, the exercise dates, the P&L, the baselines and the dataset. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy and the dataset checks. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at K = 100, in dollars. Costs use a proportional rate `ε` (1% means 1 cent per dollar traded) and a fixed fee `f` per trade.
 
@@ -263,7 +263,7 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 ## The pipeline
 
 **Choice.** Three steps, as for the tree surrogate:
-1. **Dataset** (`generate_hedge_dataset.py`) simulates the paths, draws one contract per path, and computes the premium, the surrogate's delta and gamma per day, the boundary and `τ`. It saves them with the metadata that produced them (seeds, ranges, surrogate checkpoint, exercise method).
+1. **Dataset** (`generate_hedge_dataset.py`) simulates the paths, draws one contract per path, and computes the premium (the surrogate's price at `t_0`), the surrogate's delta and gamma per day, the boundary and `τ`. It saves them with the metadata that produced them (seeds, ranges, surrogate checkpoint, exercise method).
 2. **Training** (`hedge_training.py`) trains the band network on a dataset.
 3. **Testing** (`hedge_evaluation.py`) scores the network and every baseline (no hedge, surrogate delta, tree delta, fixed bands, the Whalley-Wilmott band) on a test dataset with its own seed.
 
@@ -274,7 +274,33 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 | Boundary and `τ`, from the chosen method | Settlement, risk measure, `α` or `λ` |
 | Metadata | Network size, learning rates, the boundary input |
 
-**Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, about 18 minutes for 50,000 paths, paid once.
+**Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, which takes most of the generation time. It is paid once (see "Dataset checks").
+
+## Dataset checks
+
+**Setting.** Two banks from `generate_hedge_dataset` with the default family and holder (`tree`), the trained `artifacts/checkpoints/put_surrogate.pth`, 1000-step trees for the boundary and one path per contract: a train bank of 2,000 contracts (seed 1) and a validation bank of 8,000 (seed 2). Each is hedged daily at zero cost by `delta_hedge` on the stored surrogate deltas, booked by `hedge_pnl` in float64.
+
+**The premium is the surrogate's price.** The hedger prices with the surrogate, so it also sells the put at the surrogate's price at `t_0`. A pricing error then shows in the P&L, as it would for a desk that quotes from its model. To measure that error, each contract was also priced by a 1000-step BBSR tree:
+
+| Bank | Tree minus surrogate, mean (cents) | Mean absolute gap (cents) | Largest absolute gap (cents) |
+|---|---|---|---|
+| Train, seed 1 | +0.06 | 0.06 | 0.18 |
+| Validation, seed 2 | +0.06 | 0.06 | 0.18 |
+
+So the surrogate sells the put about 0.06 cents below the tree, on premiums from $0.36 to $15.38 (median $6.20, validation bank).
+
+**The bank is fair at zero cost.** With a fair premium and an optimal holder, a delta hedge makes 0 on average. Each bank's mean P&L estimates that average from a finite sample of paths. Its standard error, `std / √n_paths`, is how far the sample mean typically lands from the true average by chance. So the check is whether the mean is within about 2 standard errors of 0. The table books the same paths with both premiums. The tree premium's P&L is the surrogate premium's P&L plus the premium gap of the path's contract.
+
+| Bank | Paths | Exercised early | Delta, surrogate premium: mean P&L ($) | Delta, tree premium: mean P&L ($) | Standard error ($) | Delta: std P&L ($) | No hedge: std P&L ($) |
+|---|---|---|---|---|---|---|---|
+| Train, seed 1 | 2,000 | 46% | +0.018 | +0.019 | 0.009 | 0.38 | 7.23 |
+| Validation, seed 2 | 8,000 | 46% | +0.004 | +0.005 | 0.004 | 0.40 | 7.20 |
+
+- **The premium choice does not matter at this scale.** The two premiums move the mean by 0.06 cents, about a seventh of the smaller standard error.
+- **Both banks pass.** The train bank is 2.1 standard errors from 0 and the validation bank, four times larger, 0.9. The train bank's offset looks like chance.
+- **The surrogate's deltas hedge as well as the tree's.** The delta hedge's spread, $0.40, matches the baseline checks below, which used tree deltas.
+
+**Cost and size.** The validation bank took 50 s on 6 cores and 47 MB. The default 50,000 contracts take about 5 min and 295 MB. The (scenario, day) arrays `spot`, `delta` and `gamma` and the per-contract boundary (one contract per path) are stored in float32.
 
 ## Baseline checks
 

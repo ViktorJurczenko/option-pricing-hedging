@@ -108,3 +108,20 @@ def write_tree_dataset(out_dir, n_rows=128, seed=3, extra=()):
         ]
     )
     return Path(out_dir) / "tree_put_dataset.npz"
+
+
+def write_put_surrogate(path):
+    """A seeded, untrained PutSurrogate (2 x 16 MLP) on the tree generator's domain, saved to `path`, returns the
+    path. Its prices are not accurate: it stands in for a trained checkpoint where only the wiring is tested."""
+    import torch
+
+    from optionpricing.ml.surrogate.tree.generate_tree_dataset import DOMAIN, map_to_domain, sobol_points
+    from optionpricing.ml.surrogate.tree.tree_dataset import FeatureStats, build_features
+    from optionpricing.ml.surrogate.tree.tree_model import MLP
+    from optionpricing.ml.surrogate.tree.tree_pricer import PutSurrogate
+
+    torch.manual_seed(0)
+    p = map_to_domain(sobol_points(256, 4, seed=0))
+    stats = FeatureStats.fit(build_features(p["m"], p["T"], p["r"], p["sigma"]))
+    PutSurrogate(MLP(depth=2, width=16), stats, DOMAIN).save(path)
+    return Path(path)

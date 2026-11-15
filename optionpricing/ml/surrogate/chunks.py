@@ -1,6 +1,7 @@
 """
-Helpers for a chunked, resumable dataset generation, shared by both
-generators (`generate_tree_dataset` and `legacy/generate_lsm_dataset`):
+Helpers for a chunked, resumable dataset generation, shared by the
+generators (`generate_tree_dataset`, `legacy/generate_lsm_dataset` and
+`optionpricing/ml/hedging/generate_hedge_dataset`):
 finished chunks are saved one file each, a `config.json` refuses a resume
 with other settings, and a progress bar follows joblib's completed jobs.
 """
@@ -42,7 +43,7 @@ def chunk_file(chunk_dir: Path, idx: int) -> Path:
 
 
 def n_chunks_for(n_total: int, chunk_size: int) -> int:
-    return -(-n_total // chunk_size)
+    return -(-n_total // chunk_size)  # Double negation so `//` rounds up
 
 
 def prepare_chunk_dir(chunk_dir: Path, config: dict) -> None:

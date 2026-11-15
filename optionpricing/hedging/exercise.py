@@ -69,6 +69,26 @@ def daily_boundary(bank: ScenarioBank, nb_steps: int = 1000, chunk_size: int | N
     return boundary * bank.strike
 
 
+def check_method(method: str, shift: float | None = None) -> None:
+    """Check a holder's settings as `exercise_days` does, so a caller can refuse bad ones before any work starts.
+
+    Args:
+        method: one of `METHODS`.
+        shift: a fraction in (0, 1) for `late`, None for every other method.
+
+    Raises:
+        ValueError: for an unknown `method`, or a `shift` missing or outside (0, 1) with `late` or given with
+            another method.
+    """
+    if method not in METHODS:
+        raise ValueError(f"method must be one of {METHODS}, got {method!r}")
+    if method == "late":
+        if shift is None or not 0 < shift < 1:
+            raise ValueError(f"method 'late' needs a shift in (0, 1), got {shift}")
+    elif shift is not None:
+        raise ValueError(f"shift is only used by method 'late', got shift={shift} with {method!r}")
+
+
 def exercise_days(
     bank: ScenarioBank,
     method: str,
@@ -92,13 +112,7 @@ def exercise_days(
         ValueError: for an unknown `method`, a `shift` missing or outside (0, 1) with `late` or given with
             another method, a `boundary` given with `lsm` or `never`, or a `boundary` of the wrong shape.
     """
-    if method not in METHODS:
-        raise ValueError(f"method must be one of {METHODS}, got {method!r}")
-    if method == "late":
-        if shift is None or not 0 < shift < 1:
-            raise ValueError(f"method 'late' needs a shift in (0, 1), got {shift}")
-    elif shift is not None:
-        raise ValueError(f"shift is only used by method 'late', got shift={shift} with {method!r}")
+    check_method(method, shift)
     if boundary is not None:
         if method not in ("tree", "late"):
             raise ValueError(f"boundary is only used by methods 'tree' and 'late', got {method!r}")
