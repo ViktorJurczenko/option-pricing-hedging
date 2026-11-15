@@ -1,6 +1,6 @@
 # How the hedging model is designed
 
-This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary and the building blocks (risk measures, costs, settlement). So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
+This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator and the exercise dates. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at K = 100, in dollars. Costs use a proportional rate `ε` (1% means 1 cent per dollar traded) and a fixed fee `f` per trade.
 
@@ -65,7 +65,7 @@ This is the no-transaction band network of Imaki et al. (2021).
 
 ## The exercise boundary
 
-**Choice.** The holder exercises the first time `S_t ≤ S*(t)`, with the boundary `S*` from the binomial tree (`exercise_boundary` in `optionpricing/pricing/american/batch_binomial_tree.py`). How `τ` is found stays a choice per dataset: `tree` (optimal), `lsm` (to compare with the legacy results), `never`, or `late` (the boundary shifted down).
+**Choice.** The holder exercises the first time `S_t ≤ S*(t)`, with the boundary `S*` from the binomial tree (`exercise_boundary` in `optionpricing/pricing/american/batch_binomial_tree.py`). How `τ` is found stays a choice per dataset: `tree` (optimal), `lsm` (to compare with the legacy results), `never`, or `late` (the holder exercises at `(1 - shift) S*`, a fraction `shift` below the boundary). The holder checks once a day, day 0 included. A put not exercised early ends at expiry, and settlement pays it only if it is in the money. One tree per contract gives `S*` at its levels, and the day-`k` value is read off by linear interpolation in time (`daily_boundary` in `optionpricing/hedging/exercise.py`). Levels are `days / nb_steps` apart, so at 1000 steps the nearest one is at most 0.18 day from a daily date, for contracts up to a year.
 
 **What the boundary is.** A put pays `K - S`, so exercising it is worth considering only when the stock is low. At every date there is a price `S*(t)` below which exercising now beats waiting. It is a price, in dollars, not a time. It rises toward `K` as expiry nears, because waiting is worth less and less. For the default contract (`T` = 1, `r` = 5%, `σ` = 20%), from a 16,000-step tree:
 
@@ -143,6 +143,17 @@ That is enough, because the tree's exercise threshold lies above the exact bound
 - **Late in the tree the error grows.** The tree's threshold sits above the exact boundary, by an amount that shrinks with the step size. Late in a one-year tree the steps are those of the year, so 3 months left get 250 steps instead of the 1000 a 3-month tree would use. Going to 4000 steps cuts the worst error from $0.21 to $0.08 over the first five times.
 - **The curve wiggles a little.** Neighbouring steps' nodes are offset by one up move, so the curve dips by up to a sixth of the node spacing (about $0.20) from one step to the next, mostly in the last few percent of the maturity.
 - **The reference is itself uncertain** by about $0.03 (the 16,000-step value is 3 cents lower than the 8000-step one with a year left).
+
+**On the daily grid, interpolating costs nothing.** Tree levels rarely fall on whole days, so `daily_boundary` interpolates between them. The alternative is a tree whose steps are a multiple of the contract's days (`days × k`), so every day is a level. That needs one tree call per distinct maturity, since the step count is shared by a call. Both were compared with a day-aligned tree of about 8000 steps, on 200 contracts of the family (92 to 365 days, 148 distinct maturities, seed 0) with 50 paths each. Errors in dollars at `K` = 100:
+
+| Daily boundary | Max error ($) | Mean error ($) | Paths whose `τ` differs from the 8000-step tree's | Time (s) |
+|---|---|---|---|---|
+| Interpolated, 1000 steps | 0.61 | 0.064 | 395 of 10,000 | 1.7 |
+| Day-aligned, about 1000 steps | 0.62 | 0.063 | 376 of 10,000 | 8.0 |
+
+- **The two are equally accurate.** The error comes from the tree's step size, not from the interpolation. Aligning only makes the trees 5 times slower.
+- **The largest errors are in the last days.** Both maxima are with 1 day left, where the boundary rises steeply to the strike. This is the same growth late in the tree as in the table above.
+- **About 4% of paths change `τ`** between 1000 and 8000 steps. More steps is the lever if a check asks for more accuracy, not alignment.
 
 **Why these errors are acceptable.** An error in `S*` matters through the exercise date it gives each path, and through what a wrong date costs.
 - **Most paths get the same exercise date.** The holder checks once a day. A path's date changes only if, on some day, its price falls between the tree's `S*` and the exact one, a band at most $0.45 wide. Most paths never land in it. A path that crosses the boundary in one move lands in it rarely, and is exercised a day earlier or later. Only a path that drifts along just above the boundary for several days can move by more.

@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Simulator and exercise dates |
+| [Hedging rebuild](#hedging-rebuild) | active | P&L |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -51,8 +51,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
   `costs.py`: `transaction_cost(trade, spot, proportional, fixed, kappa)` = `ε |x| S + f 1[x ≠ 0]`, with the fee straight-through (`hard + (soft - soft.detach())`). Tests: hand values, a zero trade costs nothing, the forward value equals the exact fee, and the gradient equals `ε S sign(x) + f sign(x) e^{-|x|/κ} / κ` (0 at `x = 0`).
 - [x] Settlement
   `settlement.py`: `cash_settlement` pays `K - S` and buys back `-δ` shares at cost. `physical_settlement` pays `K`, receives one share and closes `δ + 1` shares at cost. Tests: both agree when costs are zero, physical pays cost on `|δ + 1|` only, and an out-of-the-money expiry just closes the position under both.
-- [ ] Simulator and exercise dates
-  `simulator.py` (done): a seeded bank of scenarios, contracts drawn from the family with `paths_per_contract` GBM paths each. `exercise.py`: `τ` per path from the chosen method (`tree`, `lsm`, `never`, or `late`, the boundary shifted down).
+- [x] Simulator and exercise dates
 - [ ] P&L
   `pnl.py`: the one function of the Goal. Tests against closed forms: no hedge gives `p_0 - Z̃`. The step-by-step bookkeeping and the compact formula agree on a hand-worked path. The financed Black-Scholes delta on a European call gives an error that shrinks like `√Δt` (std ≈ 0.0035 K daily, as in the bug entries).
 - [ ] Baselines
