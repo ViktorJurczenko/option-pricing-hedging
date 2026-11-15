@@ -10,19 +10,7 @@ import optionpricing.ml.hedging.generate_hedge_dataset as gen
 from optionpricing.hedging.baselines import baseline_inputs, delta_hedge
 from optionpricing.hedging.pnl import hedge_pnl
 from optionpricing.ml.hedging.hedge_dataset import SHARED_SETTINGS, HedgeDataset, check_compatible
-from tests.helpers import write_put_surrogate
-
-
-def write_bank(out_dir, surrogate_path, *extra):
-    """A real generate_hedge_dataset bank of 4 contracts x 2 paths of 5 to 12 days, with 50-step trees."""
-    gen.main(
-        [
-            "--n_contracts", "4", "--paths_per_contract", "2", "--days_range", "5", "12", "--tree_steps", "50",
-            "--nb_jobs", "1", "--surrogate", str(surrogate_path), "--output_dir", str(out_dir), *extra,
-        ]
-    )  # fmt: skip
-    split = extra[extra.index("--split") + 1] if "--split" in extra else "train"
-    return out_dir / f"hedge_{split}.npz"
+from tests.helpers import write_hedge_bank, write_put_surrogate
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +18,7 @@ def banks(tmp_path_factory):
     """Paths of a train bank and a validation bank generated with the same settings."""
     out = tmp_path_factory.mktemp("banks")
     surrogate = write_put_surrogate(out / "surrogate.pth")
-    return write_bank(out, surrogate), write_bank(out, surrogate, "--split", "val")
+    return write_hedge_bank(out, surrogate), write_hedge_bank(out, surrogate, "--split", "val")
 
 
 @pytest.fixture(scope="module")

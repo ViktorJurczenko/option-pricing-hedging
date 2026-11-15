@@ -1,6 +1,6 @@
 # How the hedging model is designed
 
-This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator, the exercise dates, the P&L, the baselines and the dataset. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy and the dataset checks. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
+This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator, the exercise dates, the P&L, the baselines, the dataset, and the band network with its training loop. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy, the dataset checks and the first training checks. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at K = 100, in dollars. Costs use a proportional rate `ε` (1% means 1 cent per dollar traded) and a fixed fee `f` per trade.
 
@@ -54,8 +54,10 @@ This is the no-transaction band network of Imaki et al. (2021).
 
 **Why.**
 - **It holds exactly.** Inside the band the position is exactly yesterday's, so no cost is paid. The SAC policy's main failure under costs was not being able to hold still (B-010).
-- **It starts as the delta hedge.** With `a` and `b` initialized very negative, the band has zero width and the clamp returns `Δ_k`. Training starts from a good strategy.
+- **It starts as the delta hedge.** With `a` and `b` initialized very negative, the band has a tiny width and the clamp returns `Δ_k` to within it. Training starts from a good strategy.
 - **The band can change shape.** Wide where gamma is small, narrow near the strike close to expiry, asymmetric if that helps. A fixed band can't.
+
+**How it starts.** The output layer starts with zero weights and a bias of `init_logit` = −5 on both logits. So the untrained band has the same half-width everywhere, `softplus(−5)` = 0.0067 shares. That is the delta hedge to within a few thousandths of a share. The network standardizes its features with the training bank's mean and standard deviation, stored in the network, so a saved network reads raw features on any bank. The untrained network is scored on validation as epoch 0, and training returns the best epoch. So it never returns a network that hedges worse than delta on validation (`optionpricing/ml/hedging/hedge_training.py`).
 
 ## The inputs
 
@@ -252,7 +254,7 @@ A hedging strategy gives one P&L per path, so it is judged by a summary of their
 CVaR_α(L) = min_w { w + E[(L - w)^+] / (1 - α) }
 ```
 
-The minimizing `w` is the VaR. So training lowers this expression over the network and `w` together, with no sort. `w` is one extra trainable number with its own, larger learning rate. In earlier experiments outside this repository (not re-run here), `w` on the network's learning rate lagged far behind the true VaR and the network did no better than delta. The training loop takes the two learning rates separately, so an experiment can check this.
+The minimizing `w` is the VaR. So training lowers this expression over the network and `w` together, with no sort. `w` is one extra trainable number with its own, larger learning rate. In earlier experiments outside this repository (not re-run here), `w` on the network's learning rate lagged far behind the true VaR and the network did no better than delta. The training loop takes the two learning rates separately, so an experiment can check this. `w` starts at the VaR of the untrained network's loss on the first training batch, so it begins near its optimum.
 
 **A fractional tail counts the edge path for its share.** With `n` paths, the tail holds `(1 - α) n` of them, which is often not a whole number. Rounding up to a whole number of paths, as the legacy metric did, makes the reported CVaR differ from the minimum of the training form by up to one path's share. Counting the edge path for the fraction inside the tail makes the two equal at every batch size. When the tail is a whole number of paths, as with 2,000 paths at 95%, both definitions give the plain average of the worst ones.
 
@@ -326,6 +328,32 @@ Each of the 4 contracts' delta-hedge means is also within 2 standard errors of 0
 
 The bands' CVaR is higher than the delta hedge's by 1.96 for Whalley-Wilmott and 2.04 for the fixed band. Their paired bootstrap standard errors are 0.11 and 0.09. Neither band's parameter was tuned here, so these numbers check the machinery, not the best baseline. The tuned baselines are measured on the test bank in the evaluation step.
 
+## Training checks
+
+These are first runs of `train_hedger` to check that the loop learns. They do not set any default.
+
+**It learns under costs, on exact deltas.** The test `tests/integration/test_hedge_training_learns.py` builds banks of European puts of 20 to 40 days, held to expiry, with Black-Scholes premiums, deltas and gammas. A train bank and a validation bank of 1,000 paths each (seeds 1 and 2), a 1% proportional cost, CVaR at 95%, batches of 500, `lr` = 1e-2, 15 epochs. The score is the validation CVaR loss, `−CVaR` in dollars, so lower is better.
+
+| Network | Mean costs ($) | CVaR loss ($) |
+|---|---|---|
+| Untrained (epoch 0, the delta hedge) | 1.94 | 4.20 |
+| Best epoch (13) | 1.22 | 3.04 |
+
+**At the defaults the band opens slowly.** Setting: a train bank of 4,000 contracts (seed 1) and a validation bank of 2,000 (seed 2), from `generate_hedge_dataset` with the default family, the `tree` holder and the trained `artifacts/checkpoints/put_surrogate.pth`. A 1% proportional cost, CVaR at 95%, daily hedging, cash settlement, a 4 × 32 network, batches of 1,000 (4 steps per epoch), 8 epochs, seed 42. One epoch takes about 4 s on the CPU, validation included.
+
+| `lr` | `init_logit` | CVaR loss, epoch 0 ($) | Best CVaR loss ($) | Best epoch | CVaR loss, epoch 8 ($) |
+|---|---|---|---|---|---|
+| 1e-3 | −5 | 8.48 | 8.25 | 8 | 8.25 |
+| 3e-3 | −5 | 8.48 | 5.00 | 7 | 6.17 |
+| 1e-2 | −5 | 8.48 | 4.90 | 4 | 5.64 |
+| 1e-3 | −2 | 5.60 | 5.16 | 8 | 5.16 |
+
+- **The default rate barely moves the band in 32 steps.** At a logit of −5 the slope of `softplus` is 0.0067, and Adam moves a parameter by about one learning rate per step. So at 1e-3 the band widens by thousandths of a share per epoch.
+- **A larger rate opens it within a few epochs, then jitters.** At 1e-2 the loss falls from 8.48 to 4.90 by epoch 4 and rises again after. The validation checkpoint keeps epoch 4.
+- **A wider start is better at once.** At `init_logit` = −2 (half-width 0.13 shares) the untrained band already scores 5.60, but it no longer starts as the delta hedge.
+
+The learning rate, a possible schedule and `init_logit` are left to be set by a check on the full banks (see "Open questions").
+
 ## The defaults
 
 Each default is a flag or a dataset parameter, so an experiment can change it.
@@ -338,8 +366,9 @@ Each default is a flag or a dataset parameter, so an experiment can change it.
 | Risk level | CVaR at `α` = 95% | The level used across the project so far. |
 | Settlement | cash | The most common convention. Physical settlement stays available. |
 
-**Chosen by checks.** Dataset sizes (number of contracts and paths per contract), network size, batch size, `κ`, the learning rates and how late the late holder is are not fixed in advance. Each is set by a check and recorded here with its evidence. For example, the training set grows while the validation score still improves with more paths.
+**Chosen by checks.** Dataset sizes (number of contracts and paths per contract), network size and activation, batch size, `κ`, the learning rates and how late the late holder is are not fixed in advance. Each will be set by a check, and the check recorded here with its evidence. For example, the training set grows while the validation score still improves with more paths.
 
 ## Open questions
 
+- **Learning rate and start of the band.** At `lr` = 1e-3 the band opens too slowly, and at 1e-2 the validation loss jitters after a few epochs ("Training checks"). Whether a higher rate with a decay, or a wider `init_logit`, becomes the default is set by a check on the full banks.
 - **SAC on the new P&L.** Whether SAC is retrained once for one comparison. Decided at the end, once Deep Hedging has results.

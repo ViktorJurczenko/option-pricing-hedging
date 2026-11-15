@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Policy and training loop |
+| [Hedging rebuild](#hedging-rebuild) | active | Evaluation |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -38,7 +38,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - **Exercise between hedge dates.** The holder checks the boundary every day, whatever the hedging grid. If a coarser grid is used, the last position earns until `τ` and settlement happens at `τ`.
 - **Risk level.** CVaR at `α` = 95%.
 - **Settlement.** Cash, the most common convention. Physical stays available as a flag.
-- **Chosen by checks, not fixed in advance.** Dataset sizes, network size, batch size, `κ`, learning rates and how late the late holder is. Each is set by a check, for example more training paths while the validation score still improves with them.
+- **Chosen by checks, not fixed in advance.** Dataset sizes, network size and activation, batch size, `κ`, learning rates and how late the late holder is. Each is set by a check, for example more training paths while the validation score still improves with them.
 - **SAC.** Whether SAC is retrained once on the new P&L is decided at the end, once Deep Hedging has results.
 
 **Next:**
@@ -55,8 +55,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] P&L
 - [x] Baselines
 - [x] Dataset
-- [ ] Policy and training loop
-  `hedge_model.py` and `hedge_training.py`: the band network with the optional boundary input, the objective chosen by flag, `κ` as a setting, and `w` on its own learning rate. Validation checkpointing on held-out paths keeps the untrained (delta) policy as a candidate. Runs are seeded and show a progress bar.
+- [x] Policy and training loop
 - [ ] Evaluation
   `hedge_evaluation.py`: the network and every baseline on the same test bank (common random numbers), scored with the functions of `risk.py`. Costs and settlement can differ from training. The baselines' scores re-measure what delta hedging achieves before any learning and replace the README's invalid SAC-era results.
 - [ ] CLI

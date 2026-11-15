@@ -62,7 +62,7 @@ below is produced by a command in this repository.
 | LSM Greeks and exercise rule | Done |
 | MLP surrogate for American puts | Done |
 | RL hedging (SAC) | Working, under active development: the results below are a snapshot |
-| Deep Hedging | In progress: the P&L, its building blocks, the baselines and the dataset are built. The network, its training and its evaluation come next |
+| Deep Hedging | In progress: the P&L, its building blocks, the baselines, the dataset, the band network and its training loop are built. Its evaluation and CLI come next |
 | Dividend-paying stocks, fast American-put benchmarks | Planned |
 
 The detailed plan is in the [roadmap](.claude/PLAN.md) and the finished
@@ -488,7 +488,7 @@ optionpricing/          the library, one importable package
   hedging/              Deep Hedging building blocks (risk measures, costs, settlement, scenario simulator, exercise dates, P&L and baselines so far)
   hedging/legacy/       SAC's hedging env, option values, baselines, P&L evaluation
   ml/surrogate/         MLP surrogate pricer (tree/, legacy/)
-  ml/hedging/           Deep Hedging pipeline (the bank of scenarios so far)
+  ml/hedging/           Deep Hedging pipeline (the bank of scenarios, the band network and its training so far)
   ml/hedging/legacy/    SAC hedging agent
   ml/experiments/       research drivers (ablation runner)
 main.py                 the CLI entry point

@@ -125,3 +125,18 @@ def write_put_surrogate(path):
     stats = FeatureStats.fit(build_features(p["m"], p["T"], p["r"], p["sigma"]))
     PutSurrogate(MLP(depth=2, width=16), stats, DOMAIN).save(path)
     return Path(path)
+
+
+def write_hedge_bank(out_dir, surrogate_path, *extra):
+    """A real generate_hedge_dataset bank of 4 contracts x 2 paths of 5 to 12 days, with 50-step trees, in `out_dir`.
+    `extra` adds or overrides generator flags (e.g. "--split", "val"). Returns the bank's path."""
+    import optionpricing.ml.hedging.generate_hedge_dataset as gen  # imported here: most test files never need it
+
+    gen.main(
+        [
+            "--n_contracts", "4", "--paths_per_contract", "2", "--days_range", "5", "12", "--tree_steps", "50",
+            "--nb_jobs", "1", "--surrogate", str(surrogate_path), "--output_dir", str(out_dir), *extra,
+        ]
+    )  # fmt: skip
+    split = extra[extra.index("--split") + 1] if "--split" in extra else "train"
+    return Path(out_dir) / f"hedge_{split}.npz"
