@@ -1,6 +1,6 @@
 # How the hedging model is designed
 
-This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator and the exercise dates. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
+This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator, the exercise dates, the P&L and the baselines. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at K = 100, in dollars. Costs use a proportional rate `ε` (1% means 1 cent per dollar traded) and a fixed fee `f` per trade.
 
@@ -275,6 +275,30 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 | Metadata | Network size, learning rates, the boundary input |
 
 **Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, about 18 minutes for 50,000 paths, paid once.
+
+## Baseline checks
+
+**Setting.** The baselines of `optionpricing/hedging/baselines.py` on one bank of American puts, the one of `tests/integration/test_baselines_vs_tree.py`: 4 contracts of 30 to 60 days (`σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1), 500 paths each, seed 7. The holder exercises at the tree's boundary (`tree`), the premium is the tree price (1000 steps), and the deltas and gammas along the paths come from trees of 200 steps. Hedging is daily unless stated. 59% of the paths are exercised early. The CVaR standard errors are from 1,000 paired bootstrap resamples of the paths.
+
+**At zero cost every strategy's mean P&L is about 0.** On risk-neutral paths, with an optimal holder and the fair premium, the premium is the expected discounted payoff and the discounted share gains have mean 0. So a mean far from 0 would mean a bias in the premium, the exercise days or the accounting.
+
+| Strategy | Mean P&L ($) | Standard error ($) | Std P&L ($) |
+|---|---|---|---|
+| No hedge | -0.087 | 0.111 | 4.96 |
+| Delta, daily | +0.006 | 0.009 | 0.40 |
+| Delta, every 4 days | -0.003 | 0.018 | 0.79 |
+
+Each of the 4 contracts' delta-hedge means is also within 2 standard errors of 0. The daily delta hedge leaves 8.1% of the unhedged spread. Rebalancing every 4 days multiplies its error by 1.96, against √4 = 2 for an error that grows like `√Δt`.
+
+**At a 1% proportional cost the bands beat the delta hedge.** Daily delta hedging pays for many small trades that hedge little. Both bands trade back to their nearest edge when the position leaves them (`target="edge"`). The Whalley-Wilmott band is built for the cost it is charged, `ε` = 1%. The CVaR is that of the P&L, so higher is better.
+
+| Strategy | Mean costs ($) | CVaR 95% ($) | Bootstrap SE of CVaR ($) |
+|---|---|---|---|
+| Delta, daily | 3.23 | -5.74 | 0.08 |
+| Whalley-Wilmott, `γ` = 1 | 1.57 | -3.78 | 0.09 |
+| Fixed band, half-width 0.1 | 1.75 | -3.70 | 0.07 |
+
+The bands' CVaR is higher than the delta hedge's by 1.96 for Whalley-Wilmott and 2.04 for the fixed band. Their paired bootstrap standard errors are 0.11 and 0.09. Neither band's parameter was tuned here, so these numbers check the machinery, not the best baseline. The tuned baselines are measured on the test bank in the evaluation step.
 
 ## The defaults
 
