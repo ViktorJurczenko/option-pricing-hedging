@@ -30,7 +30,8 @@ itself.
    - Check `ListAgents` first. If `review-agent` is already running,
      `SendMessage` it.
    - Otherwise spawn it fresh with the `Agent` tool
-     (`subagent_type: "review-agent"`). Since it also starts with zero
+     (`subagent_type: "review-agent"`, without `model`: it pins its own and
+     runs the deep review, consulting `review-advisor` itself). Since it also starts with zero
      context, give it a self-contained prompt: the full list of implementation
      files and test files (paths), a one-paragraph description of the
      behavior added, the exact test commands you ran on the final diff with

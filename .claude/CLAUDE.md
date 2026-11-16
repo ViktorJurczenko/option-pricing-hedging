@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for agents working in this repository. Module-level detail lives in `docs/architecture.md`; read the part you need there before changing a module.
+Guidance for agents working in this repository. `docs/architecture.md` maps every file to its role, and each module's docstrings give its API. Read both for the part you change.
 
 ## The project
 
@@ -14,7 +14,7 @@ Everything runs through `python main.py <command>` from the project root. Each c
 - `train-ml` / `test-ml`: train and evaluate the put surrogate. Its dataset comes from `python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`.
 - `train-hedge-legacy` / `test-hedge-legacy`: train and evaluate the legacy SAC hedging policy. The plain names are reserved for the Deep Hedging commands.
 
-Layout: the library is the `optionpricing/` package (`core/`, `pricing/european/`, `pricing/american/`, `hedging/`, `ml/surrogate/`, `ml/hedging/`, `ml/experiments/`; the SAC stack is in `hedging/legacy/` and `ml/hedging/legacy/`; `pip install -e .` makes it importable from anywhere). `scripts/` holds the CLI commands, `tests/` the suite, `docs/` the architecture reference and results. Generated outputs (datasets, checkpoints, logs, runs) go to `artifacts/`, personal notes are in `notes/`; both are gitignored.
+Layout: the library is the `optionpricing/` package (`core/`, `pricing/european/`, `pricing/american/`, `hedging/`, `ml/surrogate/`, `ml/hedging/`, `ml/experiments/`; the SAC stack is in `hedging/legacy/` and `ml/hedging/legacy/`; `pip install -e .` makes it importable from anywhere). `scripts/` holds the CLI commands, `tests/` the suite, `docs/` the architecture map and results. Generated outputs (datasets, checkpoints, logs, runs) go to `artifacts/`, personal notes are in `notes/`; both are gitignored.
 
 ## How to work here
 
@@ -35,15 +35,19 @@ Layout: the library is the `optionpricing/` package (`core/`, `pricing/european/
   1. new or changed behaviour has tests (see Tests);
   2. `python -m pytest tests/` is green;
   3. the living docs are updated;
-  4. `review-agent` has reviewed the change and its verdict has been relayed to the user. Its suggestions are proposed, not applied, until the user says go.
+  4. the right reviewer (see "Skills and agents") has reviewed the change and its verdict has been relayed to the user. Its suggestions are proposed, not applied, until the user says go.
 
 ## Skills and agents
 
 - `write-tests` skill: whenever you write or change tests.
-- `optionpricing-docs` skill: whenever you write or change a doc, a docstring, a BUGS.md or PLAN.md entry, or a results write-up.
-- `review-agent` (loads the `review-changes` skill): dispatch it on every change before committing, with a self-contained description of what changed (point it at `git diff`) and the exact test commands you ran on the final diff with their results (e.g. `python -m pytest tests/unit` -> 674 passed). It reuses those instead of rerunning them, and runs only what they don't cover; say so explicitly when no code changed and no run is needed.
+- `write-docs` skill: whenever you write or change a doc, a docstring or comment, a BUGS.md or PLAN.md entry, or a results write-up. It routes to one guide per kind of doc, in the user's style. Its guides give defaults with their reasons, not absolute rules.
+- Reviews (both load the `review-changes` skill). Dispatch one on every change before committing:
+  - **Deep**, `review-agent` (Sonnet, consults the Opus `review-advisor` itself): any change to code logic under `optionpricing/` or `scripts/`.
+  - **Quick**, `quick-review-agent` (Haiku): docs-only or test-only changes, and follow-up fixes after a deep review. Tell it what the deep review already approved. If it answers NEEDS DEEP REVIEW, dispatch `review-agent`.
+  - The user can override the choice either way.
+  - Give the reviewer a self-contained description of what changed (point it at `git diff`) and the exact test commands you ran on the final diff with their results (e.g. `python -m pytest tests/unit` -> 674 passed). It reuses those instead of rerunning them, and runs only what they don't cover. Say so explicitly when no code changed and no run is needed.
 - `test-agent`: only when the user asks for it.
-- Both agents pin their model in their frontmatter. Never pass `model` when dispatching them.
+- Every agent pins its model in its frontmatter. Never pass `model` when dispatching one.
 - `.claude/rules/` holds path-scoped rules (e.g. progress bars for long loops) that apply automatically on matching files.
 
 ## Hooks
@@ -82,6 +86,6 @@ python -m pytest tests/              # everything
 
 ## Where to read more
 
-- `docs/architecture.md`: every module, the command reference, the test layout, and design notes such as the softplus reparameterization pattern for ML targets.
+- `docs/architecture.md`: the map of every file and its role, the commands, the test layout, and the design note on targets that subtract an analytic part (softplus).
 - `README.md`: usage and measured results.
 - `.claude/BUGS.md`: why things are the way they are, incident by incident.

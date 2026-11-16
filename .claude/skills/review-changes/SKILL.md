@@ -1,147 +1,76 @@
 ---
 name: review-changes
-description: Use when reviewing a diff, PR, or set of changes in this repo against the project's review checklist (naming, type hints, documentation, code smells, test quality, diff scope, error handling, contributor headers). Produces a per-point OK/ISSUE report and refuses to approve anything it cannot actually verify. Trigger on "review this", "review my changes", "review the PR", "code review".
+description: Use when reviewing a diff, PR, or set of changes in this repo. It has two modes. Deep mode hunts for bugs and runs the full checklist (correctness, numerics, naming, type hints, documentation, code smells, test quality, diff scope, error handling, commit attribution), consulting an advisor agent on uncertain findings. Quick mode checks docs, style, scope and reported tests for docs-only, test-only or follow-up changes. Both produce a per-point OK/ISSUE report and refuse to approve anything they cannot verify. Trigger on "review this", "review my changes", "review the PR", "code review".
 ---
 
 # Reviewing changes in this repo
 
-Companion to the `write-tests` skill (which covers how tests get written);
-this one covers how changes get reviewed, including the tests written under
-it.
+Companion to the `write-tests` skill (how tests get written) and the `write-docs` skill (how docs get written). This one covers how changes get reviewed.
 
-## Ground rules for the reviewer
+## Two modes
 
-- **Assume no prior context.** You may be run by an agent with no memory of
-  any conversation that led to this change. Don't rely on a description of
-  what the diff does from anyone else — read the actual diff, read enough of
-  the surrounding file(s) to judge naming/idiom consistency, and read
-  `.claude/CLAUDE.md` plus any relevant file under `.claude/rules/` for the
-  conventions this repo actually holds itself to. Verify claims against what
-  the code does, not against what a commit message or PR description says it
-  does.
-- **Refuse to approve what you cannot review.** If a checklist point needs
-  something you don't have — you can't execute the test suite, a file is
-  binary/generated and unreadable, the diff is too large to read in full, you
-  have no way to confirm CI status — say so explicitly for that point instead
-  of assuming it's fine. "Cannot verify — did not run the tests" is a
-  required, valid answer when true and no run was reported to you (see the
-  next rule); do not mark something OK on faith.
-- **Don't rerun a test run the dispatcher already reported.** The one
-  exception to "verify it yourself": when the prompt gives the exact test
-  commands run on the current diff and their results (e.g.
-  `python -m pytest tests/unit` -> 674 passed), use them and do not rerun
-  that suite; it costs minutes and repeats a check already done. Say in
-  point 6 that the result is the dispatcher's. Check the report against
-  `git status` and `git diff`: a file the report doesn't account for, or
-  one changed after the run, is not covered. Only test results may be
-  reused this way, never a description of the diff. Run tests yourself only for
-  what the report does not cover: a suite it does not mention (e.g.
-  integration when CLI wiring changed), files changed after the reported
-  run, or a specific test you have a concrete reason to doubt (it looks
-  skipped, deselected or unable to fail). Run just those, not the whole
-  suite. With no test results in the prompt, run the suites the change
-  needs, as before. Reading the tests to judge their quality is never
-  skipped.
-- **Report format:** go through the checklist below in order, one point at a
-  time, each marked **OK** or **ISSUE**. Every ISSUE needs a one-line reason
-  and a `file:line` pointer. Anything you could not check gets **CANNOT
-  VERIFY** with a one-line reason why, not a guessed OK. End with a
-  **Suggestions** section (see below), then an overall verdict: **APPROVE**,
-  **REQUEST CHANGES**, or **CANNOT REVIEW** (if too much of the checklist
-  came back CANNOT VERIFY to form a real judgment).
+| Mode | Agent | When | Checklist |
+|---|---|---|---|
+| **Deep** | `review-agent` (Sonnet), consults `review-advisor` (Opus) | any change to code logic under `optionpricing/` or `scripts/`, or when the user asks | "Deep checklist" below |
+| **Quick** | `quick-review-agent` (Haiku), no advisor | docs-only or test-only changes, and follow-up fixes after a deep review | "Quick checklist" below |
 
-## Checklist
+The dispatcher's prompt names the mode. The rule that picks one is in `.claude/CLAUDE.md`. Without a stated mode, the agent's own mode applies.
 
-1. **Self-explanatory variable/function names.**
-   A reader shouldn't need to open the surrounding function to guess what a
-   name holds. Domain-standard short names already used consistently in this
-   project (`S0`, `K`, `r`, `T`, `sigma`, `lsm`, …) are fine — they're
-   established pricing notation, not unclear abbreviations. Flag genuinely
-   opaque ones instead: `tmp`, `data2`, `res`, single-letter names outside a
-   tight loop/comprehension scope. Also flag a new name that contradicts how
-   the same concept is already named elsewhere in the module.
+**A quick review escalates instead of guessing.** If it finds a change to code logic, or a likely bug it cannot judge, it marks the point **ESCALATE** with a one-line reason and returns the verdict **NEEDS DEEP REVIEW**. Judging logic it was not built to check would give false confidence.
 
-2. **Type hints where they remove real ambiguity.**
-   Not required on every parameter — this repo is inconsistently typed today,
-   so don't demand a blanket retrofit. Required wherever a new/changed
-   signature's meaning isn't obvious from the name and default alone (e.g. is
-   this argument a `list` or an `np.ndarray`? An `int` step count or a
-   `float` year fraction?). Check signatures the diff actually touches, not
-   the whole file.
+## Ground rules (both modes)
 
-3. **Documentation present and useful.**
-   This project's convention (`CLAUDE.md`, "Conventions"): every module and
-   public function/class has a docstring — prose on what and why, then
-   `Args:`/`Returns:`/`Raises:` when it takes arguments. Check above all
-   that it says what a caller could reasonably get wrong without being told:
-   required call order (e.g. `predict_payoff()` before
-   `calculate_option_price()`), units, array shapes, non-obvious return
-   values, side effects. Comments explain why, not what; a measured number
-   cites where it was measured (a `.claude/BUGS.md` entry or a tracked doc,
-   never the gitignored `REMINDER.md`).
+- **Assume no prior context.** You may be run by an agent with no memory of the conversation behind the change. Read the actual diff, enough of the surrounding files to judge consistency, and `.claude/CLAUDE.md` plus any matching file under `.claude/rules/`. Verify claims against the code, not against a commit message or the dispatcher's description.
+- **Refuse to approve what you cannot review.** If a point needs something you don't have (you can't run the suite, a file is binary, the diff is too large to read in full), mark it **CANNOT VERIFY** with the reason. Never mark it OK on faith.
+- **Don't rerun a test run the dispatcher already reported.** When the prompt gives the exact test commands run on the current diff and their results (e.g. `python -m pytest tests/unit` -> 674 passed), use them and say the result is the dispatcher's. Check the report against `git status` and `git diff`. A file the report doesn't account for, or one changed after the run, is not covered. Only test results may be reused this way, never a description of the diff. Run tests yourself only for what the report does not cover: a suite it doesn't mention (integration when CLI wiring changed), files changed after the run, or a test you have a concrete reason to doubt (skipped, deselected, unable to fail). With no reported results, run the suites the change needs. Reading tests to judge their quality is never skipped.
+- **Report format.** Go through the mode's checklist in order, each point **OK**, **ISSUE** or **CANNOT VERIFY** (quick mode also **ESCALATE**). Every ISSUE has a one-line reason and a `file:line` pointer. End with **Suggestions**, then the verdict: **APPROVE**, **REQUEST CHANGES**, **CANNOT REVIEW** (too much came back CANNOT VERIFY), or, in quick mode, **NEEDS DEEP REVIEW**.
 
-4. **No code smells.**
-   Duplicated logic that should be a shared helper — but weigh this against
-   the project's own anti-overengineering stance ("three similar lines is
-   better than a premature abstraction"); don't flag duplication that's only
-   two or three simple lines. Also check for: deep/needless nesting, magic
-   numbers with no stated reason (an already-established constant like
-   `beta_frac=0.06` is fine since it's explained where it's defined; a new
-   unexplained one isn't), bare/silent `except`, mutable default arguments,
-   dead code, and functions doing more than one clearly separable thing.
+## Deep checklist
 
-5. **Data used is relevant.**
-   Test fixtures and example inputs should be representative of the actual
-   domain being exercised (sane `S0`/`K`/`σ`/`T` ranges, not arbitrary values
-   disconnected from what's being tested), and no larger than needed to
-   exercise the behavior (don't load/generate a large dataset when a small
-   one proves the same point). Hardcoded expected values should trace to a
-   principled source — a closed-form formula, a known convergence bound — not
-   be copy-pasted from whatever one run happened to output.
+Read every changed file in full before starting. Points 1 and 2 are the bug hunt, which is why this mode exists. Spend most of the effort there.
 
-6. **Tests actually test something, and pass.**
-   Tests must assert real behavior, not just a count, a non-null check, or
-   "no exception was raised" when there's a meaningful return value or state
-   change to check instead. For pass/fail, use the test results the
-   dispatcher reported for this diff (say so: "reported by the dispatcher:
-   ...") and run only what they do not cover (see "Don't rerun a test run
-   the dispatcher already reported" above); with no reported results, run
-   the suites the change needs and report pass/fail with a summary. If you
-   cannot execute a needed run, mark this **CANNOT VERIFY** rather than
-   assuming green. For the full standard this repo holds
-   new tests to (unit-first, real coverage, test doubles for any network I/O,
-   regression tests for fixed bugs), see `.claude/skills/write-tests/SKILL.md`
-   — use it as the bar when judging whether tests in this diff meet it.
+1. **Correctness.** Does the code compute what it claims? Check it against an independent reference: a closed form, a finer tree, a finite difference, a hand-computed small case. Trace one concrete input through the changed code. Look for off-by-one errors in time grids (`n_steps` against `n_steps + 1` points), sign errors (short against long, put against call), a wrong axis or broadcast, discounting applied twice or not at all, and train/test leakage (a rule fitted on the paths it is scored on).
 
-7. **Diff is bounded and reviewable.**
-   A small, single-purpose change shouldn't touch unrelated files or modules.
-   If the diff spans multiple unrelated areas, flag it and recommend it be
-   split rather than trying to force a single judgment over all of it.
+2. **Numerics, shapes and units.** Division by zero or `log(0)` at domain edges (`T → 0`, `σ → 0`, `m → 0`), NaN or inf propagation, float precision near a tolerance, dtype or device mismatches in torch, units mixed up (per unit of strike against dollars, years against days, `gamma` against `K · gamma`).
 
-8. **Error handling and edge cases are covered.**
-   New code should handle its stated failure modes explicitly, matching this
-   project's existing pattern (raising `ValueError`/`AttributeError` rather
-   than silently falling back — see `CLAUDE.md`'s "Validate arguments
-   eagerly with `ValueError` ... never with silent fallbacks"). Edge cases
-   relevant to the change (empty input, boundary values, zero/negative inputs where meaningful) should be
-   exercised by a test, not just handled in the implementation and left
-   unverified.
+3. **Self-explanatory names.** A reader shouldn't need to open the surrounding function to guess what a name holds. Domain-standard short names already used consistently (`S0`, `K`, `r`, `T`, `sigma`, `lsm`) are fine. Flag opaque ones (`tmp`, `data2`, `res`, single letters outside a tight loop), and a new name that contradicts how the module already names the same concept.
 
-9. **Contributors are acknowledged in the commit, not the file.**
-   This project tracks attribution through the commit message, not a
-   per-file header — check the commit(s) this diff belongs to, not the
-   changed files themselves. A commit should follow the standard conventions
-   (clear imperative subject, body explaining what/why when the subject
-   isn't enough) and carry a `Co-Authored-By:` trailer whenever the change
-   had more than one contributor (e.g. a human author plus Claude). If you
-   can't see the commit (only a working-tree diff, no commit yet made),
-   mark this **CANNOT VERIFY** rather than guessing, and note it should be
-   checked once the change is actually committed.
+4. **Type hints where they remove real ambiguity.** Not on every parameter, since the repo is inconsistently typed. Required where a new or changed signature's meaning isn't obvious from the name and default (a `list` or an `np.ndarray`? an `int` step count or a `float` year fraction?). Check only signatures the diff touches.
+
+5. **Documentation present and useful.** Every module and public function or class has a docstring that follows `.claude/skills/write-docs/guides/code-docs.md`: a short summary, then typed `Args:`/`Returns:`/`Raises:`. Check above all that it says what a caller could get wrong: call order (`predict_payoff()` before `calculate_option_price()`), units, shapes, special return values, side effects. Comments explain why. A measured number cites a `.claude/BUGS.md` entry or a tracked doc, never the gitignored `notes/REMINDER.md`.
+
+6. **No code smells.** Duplicated logic that should be a shared helper, weighed against the project's anti-overengineering stance (three similar simple lines beat a premature abstraction). Also: needless nesting, unexplained magic numbers (an established, explained constant is fine), bare or silent `except`, mutable default arguments, dead code, a function doing several separable things.
+
+7. **Tests actually test something, and pass.** Tests assert real behaviour, not a count, a non-null check or "no exception" when there is a value to check. Numeric tests compare against an independent reference with a tolerance explained in a comment. Every random component is seeded. Ask of each test "what breaks if it is deleted?", and try one mental mutation of the code (flip a comparison, change a constant) to see whether a test would catch it. Fixtures use sane domain values (`S0`, `K`, `σ`, `T`) and no more data than needed. Expected values trace to a principled source, not to one run's output. For pass/fail, use the reported results or run what they don't cover. The full bar is `.claude/skills/write-tests/SKILL.md`.
+
+8. **Error handling and edge cases.** New code handles its stated failure modes explicitly, raising `ValueError` eagerly rather than falling back silently (`.claude/CLAUDE.md`, "Conventions"). Edge cases that matter for the change (empty input, boundaries, zero or negative values) are exercised by a test, not only handled in the code.
+
+9. **Diff is bounded.** A single-purpose change doesn't touch unrelated files. A diff spanning unrelated areas is flagged with a recommendation to split it.
+
+10. **Living docs agree with the code.** `.claude/PLAN.md` steps are ticked, a bug found has its `.claude/BUGS.md` entry, and README.md or `docs/` claims touched by the change still hold.
+
+11. **Commit attribution.** Attribution lives in the commit message, not in file headers. A commit follows `.claude/CLAUDE.md`'s Git rules and carries a `Co-Authored-By:` trailer when it had more than one contributor. With only a working-tree diff and no commit yet, mark this **CANNOT VERIFY** and say it should be checked at commit time.
+
+### Consulting the advisor (deep mode)
+
+Before writing the report, consult `review-advisor` (Agent tool, `subagent_type: "review-advisor"`) on:
+- every ISSUE you are not sure of;
+- every finding that would block approval;
+- your draft verdict.
+
+It starts with no context, so its prompt must stand alone: the files and line ranges concerned (or "see `git diff`"), each finding with its evidence, and the draft verdict. It answers **CONFIRM**, **REJECT** or **ADJUST** per finding, with a reason. Fold its answers in, and note them in the report ("advisor: confirmed", "advisor: rejected, because ..."). Where you still disagree with it, keep your own judgment and give both views. A review with nothing uncertain and no blocking finding still sends the draft verdict, in one short message.
+
+If the advisor cannot be spawned, say so at the top of the report and continue alone.
+
+## Quick checklist
+
+1. **Scope.** The diff is what the dispatcher says: docs, tests, or a small follow-up. A change to code logic beyond a follow-up fix is **ESCALATE**.
+2. **Doc accuracy.** For each changed Markdown file, run `python .claude/skills/write-docs/scripts/check_doc_claims.py <file>` and report what it finds. Spot-check names, defaults and numbers in the changed lines against the code or `--help`.
+3. **Style.** Changed docs follow `.claude/skills/write-docs/guides/style.md` and the guide for their kind. The guides give defaults, so flag a departure only when the passage reads worse for it.
+4. **Tests.** Reported results cover the current diff (same rule as above). Changed or added tests assert real behaviour, are seeded and explain their tolerances.
+5. **Follow-up fixes.** When the prompt lists the findings of an earlier deep review, each one the follow-up claims to fix is actually fixed, and nothing else changed.
+6. **Living docs.** PLAN.md, BUGS.md and README.md agree with the change.
 
 ## Suggestions
 
-Always close with a **Suggestions** section, separate from the OK/ISSUE
-checklist: naming that could be clearer without being wrong, a simplification
-that isn't required but would help, a test case worth adding that isn't
-strictly required by the checklist above. These don't block approval on their
-own.
+Close with **Suggestions**, separate from the checklist: a clearer name, an optional simplification, a test case worth adding. They don't block approval. The dispatcher proposes them to the user, who decides.
