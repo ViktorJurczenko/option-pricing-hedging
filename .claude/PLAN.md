@@ -58,17 +58,19 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Policy and training loop
 - [x] Evaluation
 - [ ] First evaluation run
-  `evaluate_hedgers` on a full test bank at zero and 1% cost, baselines only. The scores re-measure what delta hedging achieves before any learning and replace the README's invalid SAC-era results. The baselines use the surrogate delta stored in the bank, with no tree delta hedge in this run ([`docs/results/hedging-training.md`, The pipeline](../docs/results/hedging-training.md#the-pipeline)).
+  `evaluate_hedgers` at zero and 1% cost, baselines only, on a test bank of 20,000 contracts (seed 3) with the bands tuned on a validation bank of 10,000 (seed 2), one path per contract. The scores re-measure what delta hedging achieves before any learning and replace the README's invalid SAC-era results. The baselines use the surrogate delta stored in the bank, with no tree delta hedge in this run ([`docs/results/hedging-training.md`, The pipeline](../docs/results/hedging-training.md#the-pipeline)).
 - [ ] CLI
   `train-hedge` and `test-hedge` rebuilt on the new stack.
 - [ ] Experiments
   Each against the right baseline, over 4 seeds:
   - costs (0.1%, 1%, 1% + fixed fee) against delta and the best band, with a few values of `κ` for the fixed fee;
-  - one policy over the contract family against per-contract bands;
+  - one policy over the contract family against the bands tuned on the whole family;
   - the boundary input on and off, with optimal and late holders;
   - CVaR training with `w` on its own learning rate and on the network's, to check that `w` needs its own;
   - volatility misspecification (realized σ ≠ the hedger's σ) and stochastic volatility, where delta is no longer optimal; Explain this one first
   - if time allows, SAC retrained once on the new P&L, for one comparison.
+- [ ] Per-bucket evaluation (optional)
+  Group the test paths by maturity, volatility and moneyness (e.g. 3 × 3 × 2 buckets) and score each bucket, so a family score cannot hide a weak region. Tune the bands per bucket on the validation bank, as a baseline that knows the region ([`docs/results/hedging-training.md`, Limits and open questions](../docs/results/hedging-training.md#limits-and-open-questions)).
 
 
 ## Backlog
