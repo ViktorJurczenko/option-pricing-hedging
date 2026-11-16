@@ -21,7 +21,11 @@ This page records the design choices for the Deep Hedging rebuild of the America
 | Holder checks the boundary daily | only on hedge dates | the holder does not follow the hedger's schedule | The defaults |
 | CVaR at 95%, cash settlement | other levels, physical settlement | the project's level so far, and the most common convention | The defaults |
 
-## Deep Hedging instead of SAC
+## Design
+
+Each subsection gives a choice, what it implies, and why.
+
+### Deep Hedging instead of SAC
 
 **Choice.** The hedger is a neural network trained by Deep Hedging (Buehler, Gonon, Teichmann and Wood, 2019). A risk measure of the terminal P&L, computed over a batch of simulated paths, is minimized directly by gradient descent. SAC and `HedgingEnv` move to legacy packages, reachable as `train-hedge-legacy` and `test-hedge-legacy`.
 
@@ -29,7 +33,7 @@ This page records the design choices for the Deep Hedging rebuild of the America
 
 **What it implies.** No labels are needed: training lowers a score of the batch, not an error against a target. The loss is a property of the whole batch (CVaR is the average of the worst 5% of paths), so batches must be large, about 4096 paths.
 
-## One P&L function
+### One P&L function
 
 **Choice.** One differentiable torch function books the P&L in today's dollars:
 
@@ -41,7 +45,7 @@ PL = p_0 + Σ_k δ_k (S̃_{k+1} - S̃_k) - Σ_k c̃_k - Z̃
 
 **Why.** The current env gets two terms wrong. It pays the gain over `[t_k, t_{k+1}]` to the position chosen at `t_{k-1}` (B-037). It also has no premium and no cash account (B-038). The lag survived because the accounting existed twice, in `HedgingEnv.step` and in `rollout_pnl`, and the copy kept the bug. With one function, a baseline and the network can't be booked differently.
 
-## The band network
+### The band network
 
 **Choice.** The network outputs two numbers per day, turned into a band around the surrogate delta `Δ_k`:
 
@@ -59,13 +63,13 @@ This is the no-transaction band network of Imaki et al. (2021).
 
 **How it starts.** The output layer starts with zero weights and a bias of `init_logit` = −5 on both logits. So the untrained band has the same half-width everywhere, `softplus(−5)` = 0.0067 shares. That is the delta hedge to within a few thousandths of a share. The network standardizes its features with the training bank's mean and standard deviation, stored in the network, so a saved network reads raw features on any bank. The untrained network is scored on validation as epoch 0, and training returns the best epoch. So it never returns a network that hedges worse than delta on validation (`optionpricing/ml/hedging/hedge_training.py`).
 
-## The inputs
+### The inputs
 
 **Choice.** At day `k` the network sees `ln(S_k/K)`, `T - t_k`, `σ`, `r`, the surrogate's `Δ_k` and `Γ_k`, and its own previous position `δ_{k-1}`. An optional 8th input, the distance to the exercise boundary `ln(S_k / S*(T - t_k))`, is switched on by a flag.
 
 **Why.** Everything except `δ_{k-1}` depends only on the path, so it is computed once in the dataset step. `δ_{k-1}` is needed because under costs the best trade depends on the current position. The boundary input is optional so that an experiment can train with and without it, against an optimal holder and a late one, and measure whether the network learns from it.
 
-## The exercise boundary
+### The exercise boundary
 
 **Choice.** The holder exercises the first time `S_t ≤ S*(t)`, with the boundary `S*` from the binomial tree (`exercise_boundary` in `optionpricing/pricing/american/batch_binomial_tree.py`). How `τ` is found stays a choice per dataset: `tree` (optimal), `lsm` (to compare with the legacy results), `never`, or `late` (the holder exercises at `(1 - shift) S*`, a fraction `shift` below the boundary). The holder checks once a day, day 0 included. A put not exercised early ends at expiry, and settlement pays it only if it is in the money. One tree per contract gives `S*` at its levels, and the day-`k` value is read off by linear interpolation in time (`daily_boundary` in `optionpricing/hedging/exercise.py`). Levels are `days / nb_steps` apart, so at 1000 steps the nearest one is at most 0.18 day from a daily date, for contracts up to a year.
 
@@ -165,9 +169,9 @@ That is enough, because the tree's exercise threshold lies above the exact bound
 
 **Why not LSM.** The current env fits LSM's exercise rule on the same paths it then tests on.
 
-## The fixed fee: straight-through
+### The fixed fee: straight-through
 
-### The problem
+#### The problem
 
 A trade of `x` shares at price `S` costs
 
@@ -177,7 +181,7 @@ c(x, S) = ε |x| S + f · 1[x ≠ 0]
 
 `loss.backward()` needs the derivative of every step between the weights and the loss, including `∂c/∂x`. The proportional part gives `ε S sign(x)`, a real signal toward smaller trades. The fixed part gives nothing. `1[x ≠ 0]` is flat everywhere except at 0, where its derivative is a Dirac delta. On a computer that is 0 for every path, and PyTorch treats the comparison `x != 0` as a constant anyway. The network would see the fee in the P&L but get no gradient from it, so it would learn as if the fee didn't exist.
 
-### The choice
+#### The choice
 
 The forward pass charges the exact fee. The backward pass uses the slope of a smooth look-alike `s(x) = 1 - e^{-|x|/κ}`:
 
@@ -194,7 +198,7 @@ In the forward pass `soft - soft.detach()` is exactly 0, so `indicator` equals `
 d(indicator)/dx = ds/dx = sign(x) / κ × e^(−|x|/κ)
 ```
 
-### What the gradient says
+#### What the gradient says
 
 With a fixed fee `f` = 0.05 dollars and `κ` = 0.01 shares:
 
@@ -209,7 +213,7 @@ The table lists purchases (`x > 0`). A sale of the same size has the same gradie
 
 For scale, the proportional cost at `ε` = 1% and `S` = 100 has a gradient of 1 dollar per share. The fee pushes hardest on tiny trades, which are the ones a fixed fee makes wasteful.
 
-### Why straight-through
+#### Why straight-through
 
 | Option | P&L used in training | Gradient from the fee | Why not chosen |
 |---|---|---|---|
@@ -221,13 +225,13 @@ For scale, the proportional cost at `ε` = 1% and `S` = 100 has a gradient of 1 
 
 Straight-through is the only cheap option that keeps the P&L exact. Its approximation is confined to the direction of improvement.
 
-### What it implies
+#### What it implies
 
 - **The gradient is biased.** It is the slope of `s`, not of the true expected fee. Its direction is right (a smaller trade is closer to no trade), but its size depends on `κ`. A small `κ` gives strong signals only for very small trades, and a large `κ` pushes on bigger trades too. `κ` is a training setting, tried over a few values.
 - **It widens the band through trading days only.** On a day the network trades, the clamp puts `δ_k` on a band edge, and "shrink `x_k`" moves that edge toward yesterday's position, which widens the band. Once the trade is exactly 0, the fee and its gradient disappear. Holding days give no fee gradient, which is fine, because no fee was paid.
 - **The reported numbers stay honest.** The P&L, the loss value, validation checkpointing and testing all charge the exact fee. A poor `κ` can make training less effective. It can't make the results look better than they are.
 
-## The building blocks
+### The building blocks
 
 **Choice.** Three small files, each used by training, testing and the baselines alike:
 - **Risk measures** (`risk.py`): CVaR, the entropic risk and the variance, below.
@@ -236,7 +240,7 @@ Straight-through is the only cheap option that keeps the P&L exact. Its approxim
 
 **Why.** "Trained on CVaR" and "scored on CVaR" must be the same number, so both steps call the same function. Both settlements give the same P&L before costs and differ only in the cost of closing the position, so the choice is a flag rather than a design fork. Deep in the money a put hedge holds about −1 share. Delivery then closes almost nothing, while cash settlement buys back about one share. So under costs, physical settlement is cheaper exactly on the paths that are exercised.
 
-### The risk measures
+#### The risk measures
 
 A hedging strategy gives one P&L per path, so it is judged by a summary of their distribution. Write `L = -PL` for the loss. The measures below are losses to minimize, except CVaR as reported, which stays on the P&L scale like every CVaR in the project's results (higher is better).
 
@@ -262,7 +266,7 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 
 **The variance is a reference.** It is the quadratic hedging criterion of the textbooks, and its square root is what the earlier results called the hedging error. It is not the default because it penalizes gains.
 
-## The pipeline
+### The pipeline
 
 **Choice.** Three steps, as for the tree surrogate:
 1. **Dataset** (`generate_hedge_dataset.py`) simulates the paths, draws one contract per path, and computes the premium (the surrogate's price at `t_0`), the surrogate's delta and gamma per day, the boundary and `τ`. It saves them with the metadata that produced them (seeds, ranges, surrogate checkpoint, exercise method).
@@ -278,7 +282,25 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 
 **Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, which takes most of the generation time. It is paid once (see "Dataset checks").
 
-## Dataset checks
+### The defaults
+
+Each default is a flag or a dataset parameter, so an experiment can change it.
+
+| Setting | Default | Why |
+|---|---|---|
+| Contract family | `T` 3 months to 1 year, `σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1, each drawn uniformly | Narrow enough to train quickly, wide enough that the surrogate is needed. Widened once training works, by generating a new dataset. `T` is a whole number of days, so every path lives on the same daily grid and expires exactly on a grid date. |
+| Rebalancing | daily | Realistic, and comparable with the earlier SAC results (also daily). The dataset is stored daily, so a coarser grid is a subset of its dates. |
+| Exercise between hedge dates | the holder checks the boundary every day | The holder does not follow the hedger's schedule. On a coarser grid, the last position earns until `τ` and settlement happens at `τ`. |
+| Risk level | CVaR at `α` = 95% | The level used across the project so far. |
+| Settlement | cash | The most common convention. Physical settlement stays available. |
+
+**Chosen by checks.** Dataset sizes (number of contracts and paths per contract), network size and activation, batch size, `κ`, the learning rates and how late the late holder is are not fixed in advance. Each will be set by a check, and the check recorded here with its evidence. For example, the training set grows while the validation score still improves with more paths.
+
+## Results
+
+The checks that pin each built part, with their measurements.
+
+### Dataset checks
 
 **Setting.** Two banks from `generate_hedge_dataset` with the default family and holder (`tree`), the trained `artifacts/checkpoints/put_surrogate.pth`, 1000-step trees for the boundary and one path per contract: a train bank of 2,000 contracts (seed 1) and a validation bank of 8,000 (seed 2). Each is hedged daily at zero cost by `delta_hedge` on the stored surrogate deltas, booked by `hedge_pnl` in float64.
 
@@ -304,7 +326,7 @@ So the surrogate sells the put about 0.06 cents below the tree, on premiums from
 
 **Cost and size.** The validation bank took 50 s on 6 cores and 47 MB. The default 50,000 contracts take about 5 min and 295 MB. The (scenario, day) arrays `spot`, `delta` and `gamma` and the per-contract boundary (one contract per path) are stored in float32.
 
-## Baseline checks
+### Baseline checks
 
 **Setting.** The baselines of `optionpricing/hedging/baselines.py` on one bank of American puts, the one of `tests/integration/test_baselines_vs_tree.py`: 4 contracts of 30 to 60 days (`σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1), 500 paths each, seed 7. The holder exercises at the tree's boundary (`tree`), the premium is the tree price (1000 steps), and the deltas and gammas along the paths come from trees of 200 steps. Hedging is daily unless stated. 59% of the paths are exercised early. The CVaR standard errors are from 1,000 paired bootstrap resamples of the paths.
 
@@ -328,7 +350,7 @@ Each of the 4 contracts' delta-hedge means is also within 2 standard errors of 0
 
 The bands' CVaR is higher than the delta hedge's by 1.96 for Whalley-Wilmott and 2.04 for the fixed band. Their paired bootstrap standard errors are 0.11 and 0.09. Neither band's parameter was tuned here, so these numbers check the machinery, not the best baseline. The tuned baselines are measured on the test bank in the evaluation step.
 
-## Training checks
+### Training checks
 
 These are first runs of `train_hedger` to check that the loop learns. They do not set any default.
 
@@ -354,21 +376,7 @@ These are first runs of `train_hedger` to check that the loop learns. They do no
 
 The learning rate, a possible schedule and `init_logit` are left to be set by a check on the full banks (see "Open questions").
 
-## The defaults
-
-Each default is a flag or a dataset parameter, so an experiment can change it.
-
-| Setting | Default | Why |
-|---|---|---|
-| Contract family | `T` 3 months to 1 year, `σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1, each drawn uniformly | Narrow enough to train quickly, wide enough that the surrogate is needed. Widened once training works, by generating a new dataset. `T` is a whole number of days, so every path lives on the same daily grid and expires exactly on a grid date. |
-| Rebalancing | daily | Realistic, and comparable with the earlier SAC results (also daily). The dataset is stored daily, so a coarser grid is a subset of its dates. |
-| Exercise between hedge dates | the holder checks the boundary every day | The holder does not follow the hedger's schedule. On a coarser grid, the last position earns until `τ` and settlement happens at `τ`. |
-| Risk level | CVaR at `α` = 95% | The level used across the project so far. |
-| Settlement | cash | The most common convention. Physical settlement stays available. |
-
-**Chosen by checks.** Dataset sizes (number of contracts and paths per contract), network size and activation, batch size, `κ`, the learning rates and how late the late holder is are not fixed in advance. Each will be set by a check, and the check recorded here with its evidence. For example, the training set grows while the validation score still improves with more paths.
-
-## Open questions
+## Limits and open questions
 
 - **Learning rate and start of the band.** At `lr` = 1e-3 the band opens too slowly, and at 1e-2 the validation loss jitters after a few epochs ("Training checks"). Whether a higher rate with a decay, or a wider `init_logit`, becomes the default is set by a check on the full banks.
 - **SAC on the new P&L.** Whether SAC is retrained once for one comparison. Decided at the end, once Deep Hedging has results.

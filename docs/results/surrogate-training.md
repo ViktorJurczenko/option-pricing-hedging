@@ -2,8 +2,6 @@
 
 This page explains how the American-put surrogate's final configuration was found: what was tested, which choice won, and why. Every choice was measured, most of them over several training seeds. The results were measured 2026-10-22 to 2026-11-10 and are **not re-verified** since. The commands that produce them are at the end.
 
-**Units.** Price errors are in **10⁻⁴ $ at K = 100**, a hundredth of a cent: 7.9 means $0.00079. Delta errors are in **10⁻⁵**. Implied-vol errors are in **basis points** (bp) of volatility. "± x" is the sample standard deviation over seeds.
-
 ## The decisions at a glance
 
 | Decision | Tested against | Deciding evidence | Section |
@@ -21,7 +19,11 @@ This page explains how the American-put surrogate's final configuration was foun
 | Width 128 | 256 | 256 within 0.6 seed sd on every error, at 2.6× the training time | Width |
 | Ship seed 43 | retraining | the width runs already are the final configuration, and 43 is the median seed | The chosen model |
 
-## How a model is scored
+## Setup
+
+**Units.** Price errors are in **10⁻⁴ $ at K = 100**, a hundredth of a cent: 7.9 means $0.00079. Delta errors are in **10⁻⁵**. Implied-vol errors are in **basis points** (bp) of volatility. "± x" is the sample standard deviation over seeds.
+
+### How a model is scored
 
 Every model is scored on a factorial grid of 2342 puts: 27 values of `z` × 6 of `σ` × 8 maturities from 1 week to 5 years × `r` in {2%, 6%}. The reference price is a 4000-step BBSR tree, not the 1000-step teacher. So a score measures distance to the true price, not how well the network copies its teacher's own errors. This is `evaluate_grid` in `optionpricing/ml/surrogate/tree/tree_evaluation.py`, which `test-ml` and the ablation runner both print.
 
@@ -53,7 +55,11 @@ It puts errors on options of very different prices on one scale. The same $0.000
 
 **The 2 sd rule.** A run's result depends on its seed (initialization, batch order, data split). So each configuration is trained on several seeds. A difference between two configurations counts as real only if it exceeds about 2 seed standard deviations. The rule uses the larger of the two configurations' standard deviations, so a configuration with widely spread results cannot win on its lucky seeds.
 
-## Choice of teacher: BBSR at 1000 steps
+## Results and decisions
+
+Each subsection gives the protocol, the table, and the decision it led to.
+
+### Choice of teacher: BBSR at 1000 steps
 
 Protocol: 120 seeded random puts over the dataset's domain, plus 21 in a hard corner (`m` 0.95-1.05, `T` = 0.25, `σ` = 0.05). The reference is BBSR at 20000 steps. Errors at 1000 steps:
 
@@ -68,11 +74,11 @@ Protocol: 120 seeded random puts over the dataset's domain, plus 21 in a hard co
 - **2000 steps** halve the worst error at 3.5× the cost, which the network's own error does not justify. At 1000 steps a put takes 2.7 ms, so the teacher does not limit the dataset size.
 - The tree's labels can dip slightly below Black-Scholes (by up to 2.7 in these units), which matters for the softplus output.
 
-## Sampling: z instead of moneyness
+### Sampling: z instead of moneyness
 
 Sampling the moneyness `m` log-uniformly on (0.4, 1.6) puts 66% of the puts in the money, and 44% of all rows would be exercised today, with a price known in closed form. The generator samples `z = ln(m) / (σ√T)`, the distance to the strike in standard deviations, instead (`map_to_domain` in `optionpricing/ml/surrogate/tree/generate_tree_dataset.py`).
 
-## Training length: 400 epochs
+### Training length: 400 epochs
 
 Protocol: the configuration of the time (`lambda_delta` 1, linear output), seed 42, one run each.
 
@@ -98,7 +104,7 @@ Half the data with the same steps is as good. Twice the steps cuts the error nea
 
 **800 epochs went too far.** Its error near the money was 19, against 12 at 400 epochs. Past 400 epochs the delta error kept falling (−28%) while the price error rose (+38%), and the loss, which sums both, picked that trade. So training runs 400 epochs.
 
-## Seeded ablations: the loss, the output and the activation
+### Seeded ablations: the loss, the output and the activation
 
 Each variant changes one setting of the configuration of the time (`lambda_delta` 1, linear output, SiLU, no L-BFGS finish, no shape penalty). The combined variant joins the two winners. Protocol: 2^19 rows, 400 epochs, seeds 42-44, 4 runs at a time. Three seeds give only a rough sd, and several gaps below are within 1-2 sd. These runs trained before the output-initialization fix below.
 
@@ -120,7 +126,7 @@ Each variant changes one setting of the configuration of the time (`lambda_delta
 - **The L-BFGS finish and the shape penalty stay off.** The finish gains less than 1 sd for 5 more minutes. The penalty is worse on price everywhere at 2.6× the training time.
 - **Combined, the gains add up**: the price of `lambda_delta` 0.3, the violations of softplus and the lowest IV error. Its worst point depended on the seed (from 163 to 620), which the output-initialization fix later removed.
 
-## Dataset ablations: every exercised row, one model from 1 week to 5 years
+### Dataset ablations: every exercised row, one model from 1 week to 5 years
 
 Both variants train the combined configuration on a regenerated dataset of 2^19 rows, so only the data differs. Seeds 42-44, before the output-initialization fix.
 
@@ -142,7 +148,7 @@ The narrower model wins on every seed near the money. Part of that may come from
 
 The error elsewhere does not fall, and the worst point, among the exercised puts on every seed, gets worse. Every exercised row stays.
 
-## Output initialization: start at the mean premium
+### Output initialization: start at the mean premium
 
 **The problem.** At width 256, every seed's softplus output stopped learning in its first epoch (`.claude/BUGS.md`, "Width-256 softplus surrogate stopped learning in its first epoch"). The cause is where the network starts. Before training, its output weights are small, so it predicts nearly one constant `c` for every input. For a constant, the premium term of the loss is
 
@@ -187,7 +193,7 @@ And over the first 2 epochs (656 steps, seeds 42 / 43, constant learning rate 1e
 
 The seeded and dataset ablations above trained before this fix. Their numbers are valid as measured but do not reproduce from the current code. The width ablation and the chosen model below use the fix.
 
-## Width: 256 units do not beat 128
+### Width: 256 units do not beat 128
 
 Protocol: the combined configuration at width 128 (50561 weights) or 256 (199425), with the fix, 2^19 rows, 400 epochs, seeds 42-46, 4 runs at a time.
 
@@ -217,7 +223,7 @@ Per seed:
 
 The IV error falls by 4 seed sd. The worst point stops depending on the seed: before the fix, seed 42's was an exercised put at 620. With it, every seed's worst point is a put near the money beyond 3 months, at 126-217. The slight rise in violations is about 1 sd.
 
-## The chosen model
+### The chosen model
 
 The final configuration is `lambda_delta` 0.3 with a softplus output at width 128, now `TrainConfig`'s default. It was not retrained. The 5 width-128 runs above already are this configuration, trained by the same `train_surrogate` call as `train-ml`. The shipped checkpoint, `artifacts/checkpoints/put_surrogate.pth`, is seed 43, the median seed on IV error. The median rather than the best seed keeps its numbers typical of the configuration. `test-ml --seed 43` reproduces its report except for the timing.
 
@@ -242,18 +248,7 @@ The maturity rows are the puts not exercised today.
 
 **Speed.** On an idle machine, the shipped model prices the grid in one call at 6-9 µs per option, against 3.1-3.2 ms for the 1000-step teacher tree: 360-510× faster. One option per call takes 2.1-2.3 ms, no faster than the tree, because the autograd passes for delta and gamma dominate. The gain needs batches.
 
-**A known weak spot: rates near zero.** The grid's rates (2% and 6%) never reach the domain's low edge. On the test split, grouped by `r` (seeds 42-44, before the fix, not re-measured):
-
-| `r` | Rows | Mean error | Worst error | Share above 1 cent |
-|---|---|---|---|---|
-| below 0.2% | ~2600 | 15-20 | 960-1110 | 3.0-4.7% |
-| 0.2-0.5% | ~3900 | 5-7 | 140-180 | 0.2-0.4% |
-| 0.5-2% | ~19600 | 4-5 | 140-170 | 0.02-0.04% |
-| 2-8% | ~78700 | 4-6 | 380-440 | 0.12-0.16% |
-
-The largest errors are long-dated, deep in-the-money puts at `r` below 0.05%. The cause is unknown. It is accepted as a known limitation, since rates are not expected back near zero soon.
-
-## Training cost by network width
+### Training cost by network width
 
 One training step on a batch of 1024 rows, 2 threads, in one process:
 
@@ -265,6 +260,28 @@ One training step on a batch of 1024 rows, 2 threads, in one process:
 | depth 6, width 128 | 83585 | 18.7 | ~37 min |
 
 The width ablation's real runs, 4 at a time, took 29 ± 3 min at width 128 and 76 ± 8 min at width 256, the 2.6× ratio this table predicts.
+
+## Limits
+
+### Rates near zero
+
+The grid's rates (2% and 6%) never reach the domain's low edge. On the test split, grouped by `r` (seeds 42-44, before the fix, not re-measured):
+
+| `r` | Rows | Mean error | Worst error | Share above 1 cent |
+|---|---|---|---|---|
+| below 0.2% | ~2600 | 15-20 | 960-1110 | 3.0-4.7% |
+| 0.2-0.5% | ~3900 | 5-7 | 140-180 | 0.2-0.4% |
+| 0.5-2% | ~19600 | 4-5 | 140-170 | 0.02-0.04% |
+| 2-8% | ~78700 | 4-6 | 380-440 | 0.12-0.16% |
+
+The largest errors are long-dated, deep in-the-money puts at `r` below 0.05%. The cause is unknown. It is accepted as a known limitation, since rates are not expected back near zero soon.
+
+### Other limits
+
+- **The seeded and dataset ablations trained before the output-initialization fix.** Their numbers are valid as measured, but do not reproduce from the current code.
+- **400 epochs were chosen at width 128.** A longer schedule could favour width 256, which was not tested.
+- **The 3-month grid comparison was not re-measured after the fix**, so the worst-point gap beyond 3 months is likely smaller than the 2.7× above.
+- **Three seeds give only a rough sd**, so several gaps in the seeded ablations are within 1-2 sd.
 
 ## Reproducing the runs
 

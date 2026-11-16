@@ -11,21 +11,12 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Doc and review skills](#doc-and-review-skills) | active | Review and commit, then archive |
 | [Hedging rebuild](#hedging-rebuild) | active | Evaluation |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
 
 ## Active
-
-### Doc and review skills
-
-**Goal:** make the doc skill carry my own style rather than the style of agent-written docs, and give reviews a cost that fits the change. The doc skill becomes `write-docs`: one router `SKILL.md` and one guide per kind of doc (style, project md, code docs, theory notes, logs), built from my answers to a style questionnaire. The guides give defaults with their reason, not absolute rules. Reviews split into a deep, bug-finding review (`review-agent` on Sonnet, consulting an Opus `review-advisor`) and a quick doc and consistency review (`quick-review-agent` on Haiku). Claude Code's native advisor is one session-wide setting, so the advisor is a subagent.
-- [x] Split the doc skill into guides
-- [x] Deep and quick review modes
-- [x] Redesign `docs/architecture.md`
-- [x] Results index and paper-style results
 
 ### Hedging rebuild
 

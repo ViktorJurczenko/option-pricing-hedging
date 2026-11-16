@@ -11,6 +11,14 @@ Entry format:
 **Links:** commits `abc1234`..., BUGS entries, docs/results, README section.
 ```
 
+## Doc and review skills (2026-11-15 -> 2026-11-16, done)
+- Replaced `optionpricing-docs` by `write-docs`: a router and one guide per kind of doc (style, project md, code docs, theory notes, logs), built from the user's answers to a style questionnaire, with defaults rather than absolute rules.
+- `check_doc_claims.py` checks relative links and their `#Lx-Ly` line ranges.
+- Split reviews into deep (`review-agent`, Sonnet, consulting the Opus `review-advisor`) and quick (`quick-review-agent`, Haiku), with the rule in CLAUDE.md.
+- Redesigned `docs/architecture.md` as a map, added `docs/RESULTS.md` and rewrote the results docs as setup, results, discussion and limits.
+**Outcome:** docs follow the user's style by default, and a review's cost matches the change.
+**Links:** commits `9ed04d4`, `f995711`, `9bba1be` and the results commit, `docs/RESULTS.md`.
+
 ## Surrogate ablations and final model (2026-10-22 -> 2026-11-10, done)
 - Rebuilt the MLP surrogate on a binomial-tree teacher (BBSR, 1000 steps) with z-sampled Sobol data (2^19 rows), an early-exercise-premium target, a SiLU MLP with delta in the loss, `PutSurrogate`'s routing and payoff floor, and `test-ml`'s evaluation against an independent 4000-step tree; a learning curve set 400 epochs.
 - Seeded ablations (`run_ablations`): delta weight, output, activation, L-BFGS, shape penalty (3 seeds), their combination, the dataset (`T` range, exercised rows) and width 256 (5 seeds).

@@ -83,6 +83,8 @@ found along the way, with its root cause and fix, is in the
 
 Unless stated otherwise, numbers come from the commands shown with their
 default parameters (`S0 = K = 100`, `r = 5%`, `T = 1 year`, `σ = 20%`).
+Every result is also indexed on one page in [`docs/RESULTS.md`](docs/RESULTS.md),
+with links to the full analysis of each topic.
 
 ### Pricing models agree with each other
 
@@ -456,8 +458,9 @@ python -m optionpricing.ml.surrogate.tree.generate_tree_dataset            # art
 python -m optionpricing.ml.hedging.generate_hedge_dataset --split train   # artifacts/data/hedge_train.npz, ~5 min on 6 cores
 ```
 
-Every flag of every command, and of the dataset generators, is in
-[`docs/architecture.md`, "Command reference"](docs/architecture.md#command-reference).
+Every flag of every command, and of the dataset generators, is in its
+`--help`. [`docs/architecture.md`, "Commands"](docs/architecture.md#commands)
+maps each command to its script.
 
 ## Testing
 
@@ -494,7 +497,7 @@ optionpricing/          the library, one importable package
 main.py                 the CLI entry point
 scripts/                one module per main.py command
 tests/                  unit/, integration/, mutation/
-docs/                   architecture.md (module reference), results/
+docs/                   architecture.md (code map), RESULTS.md (results index), results/
 artifacts/              generated datasets, checkpoints, logs, runs (gitignored, except the trained surrogate)
 ```
 
@@ -502,8 +505,8 @@ Pricers are grouped by option class, everything learned lives in
 `optionpricing/ml/`, and the hedging problem the learners train in lives in
 `optionpricing/hedging/`. The SAC agent and its environment are in `legacy/`
 subpackages, while the hedger is rebuilt as Deep Hedging. Dependencies point one way: `core` <- `pricing` <-
-`hedging` <- `ml`. Every module's API and invariants are in
-[`docs/architecture.md`](docs/architecture.md).
+`hedging` <- `ml`. [`docs/architecture.md`](docs/architecture.md) gives
+each file's role, and each module's docstrings give its API.
 
 ## How it was built
 
