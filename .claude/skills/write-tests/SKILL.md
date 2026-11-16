@@ -33,8 +33,8 @@ because it inflates confidence for free. Concretely:
   principled relationship exists to check against instead.
 - Seed anything stochastic (RNG, path simulation, weight init, data
   shuffling) so a failure is reproducible and not a coin flip. If you're
-  unsure how, mirror how `docs/architecture.md`'s "Softplus reparameterization"
-  section and this repo's training scripts already do it (`torch.manual_seed`,
+  unsure how, mirror how this repo's training code
+  (`optionpricing/ml/surrogate/tree/tree_training.py`) already does it (`torch.manual_seed`,
   `torch.Generator().manual_seed(seed)`, `np.random.default_rng(seed)`).
 - If you can mutate the logic slightly (flip a comparison, change a constant)
   and no test fails, that's a real gap — treat it the same as a coverage gap
