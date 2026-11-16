@@ -66,7 +66,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
   - one policy over the contract family against per-contract bands;
   - the boundary input on and off, with optimal and late holders;
   - CVaR training with `w` on its own learning rate and on the network's, to check that `w` needs its own;
-  - volatility misspecification (realized σ ≠ the hedger's σ) and stochastic volatility, where delta is no longer optimal;
+  - volatility misspecification (realized σ ≠ the hedger's σ) and stochastic volatility, where delta is no longer optimal; Explain this one first
   - if time allows, SAC retrained once on the new P&L, for one comparison.
 
 
