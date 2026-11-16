@@ -282,6 +282,13 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 
 **Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, which takes most of the generation time. It is paid once (see [Dataset checks](#dataset-checks)).
 
+**Which delta the evaluation's baselines use.** In the evaluation, every baseline built on delta uses the surrogate's, the one stored in the bank. The tree delta hedge appears only in [Baseline checks](#baseline-checks), on a small bank. The numbers below are approximate: they size the effects, they are not measurements of this choice.
+- **It is the hedger's model.** The band network is centred on the surrogate delta, and the premium is the surrogate's price. With the same delta, a baseline differs from the network only by what the network learned.
+- **Its error is far below what the P&L can show.** Against a 4000-step tree, the surrogate's delta is off by about 8.9 × 10⁻⁵ shares on average, and by about 13 × 10⁻⁵ near the money ([surrogate-training.md](surrogate-training.md#the-chosen-model)). That is roughly 6 times the error of its 1000-step teacher, which was measured on other puts and against a 20000-step tree ([surrogate-training.md](surrogate-training.md#choice-of-teacher-bbsr-at-1000-steps)). A one-day move is about `σ √(1/365)` of the price, 1.05% at 20% volatility, so about $1.05 for a $100 stock. An error of 10⁻⁴ shares then costs about $0.0001 a day. The daily hedge's own std P&L is about $0.40 ([Dataset checks](#dataset-checks)).
+- **Tree deltas along every path are costly.** The existing banks have a mean exercise day of about 192, so a 10,000-path bank needs about 1.9 million tree prices. If the deltas come from 1000-step trees, at the measured 3 ms per price, that is roughly 1.6 hours, before any batching. The 200-step trees of [Baseline checks](#baseline-checks) would cost less.
+
+What the surrogate's error costs a hedge can still be measured once, on a small bank, if a later result needs it.
+
 ### How the pieces fit
 
 **Choice.** Each idea of the pipeline is one type or one function, and training and testing share them. The diagram reads top to bottom: the settings and the inputs, the two entry points, the booking of a hedge, and the reports.
@@ -452,5 +459,4 @@ The learning rate, a possible schedule and `init_logit` are left to be set by a 
 ## Limits and open questions
 
 - **Learning rate and start of the band.** At `lr` = 1e-3 the band opens too slowly, and at 1e-2 the validation loss jitters after a few epochs ([Training checks](#training-checks)). Whether a higher rate with a decay, or a wider `init_logit`, becomes the default is set by a check on the full banks.
-- **The tree delta hedge.** The bank stores only the surrogate's delta and gamma, so the test has no tree delta hedge yet. Adding it means tree Greeks at every (path, day) of the test bank, either stored by the generator or computed at test time. Whether it is worth that cost is decided before the first evaluation run.
 - **SAC on the new P&L.** Whether SAC is retrained once for one comparison. Decided at the end, once Deep Hedging has results.

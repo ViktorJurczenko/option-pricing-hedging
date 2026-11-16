@@ -58,7 +58,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Policy and training loop
 - [x] Evaluation
 - [ ] First evaluation run
-  `evaluate_hedgers` on a full test bank at zero and 1% cost, baselines only. The scores re-measure what delta hedging achieves before any learning and replace the README's invalid SAC-era results. Decide with the user first whether the tree delta hedge is one of the baselines: the bank stores only the surrogate's Greeks.
+  `evaluate_hedgers` on a full test bank at zero and 1% cost, baselines only. The scores re-measure what delta hedging achieves before any learning and replace the README's invalid SAC-era results. The baselines use the surrogate delta stored in the bank, with no tree delta hedge in this run ([`docs/results/hedging-training.md`, The pipeline](../docs/results/hedging-training.md#the-pipeline)).
 - [ ] CLI
   `train-hedge` and `test-hedge` rebuilt on the new stack.
 - [ ] Experiments
