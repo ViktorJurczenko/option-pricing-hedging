@@ -1,12 +1,13 @@
 """Tests for optionpricing.hedging.pnl: the terminal P&L of a hedged short put."""
 
 import math
+from dataclasses import asdict
 
 import numpy as np
 import pytest
 import torch
 
-from optionpricing.hedging.pnl import hedge_pnl
+from optionpricing.hedging.pnl import HedgeOutcome, HedgeSettings, hedge_pnl
 from optionpricing.hedging.settlement import cash_settlement, physical_settlement
 from optionpricing.hedging.simulator import DAYS_PER_YEAR, simulate_scenarios
 from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_price
@@ -259,3 +260,50 @@ def test_invalid_input_raises(change, message):
 def test_policy_returning_the_wrong_shape_raises():
     with pytest.raises(ValueError, match=r"policy must return a tensor of shape \(6,\)"):
         hedge_pnl(lambda x, p: x, **random_paths(seed=10))
+
+
+# HedgeSettings
+
+
+def test_hedge_settings_book_a_hedge_as_the_same_keywords_do():
+    # The field names are hedge_pnl's keywords, so asdict(settings) must reach every one of them: a renamed field
+    # would raise, and a field passed to the wrong keyword would change the P&L.
+    args = random_paths()
+    settings = HedgeSettings(rebalance_every=2, settlement="physical", **COSTS)
+    explicit = hedge_pnl(linear_policy, **args, rebalance_every=2, settlement="physical", **COSTS)
+    from_settings = hedge_pnl(linear_policy, **args, **asdict(settings))
+    torch.testing.assert_close(from_settings.pnl, explicit.pnl, rtol=0, atol=0)
+    torch.testing.assert_close(from_settings.costs, explicit.costs, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"settlement": "swap"}, "settlement must be one of"),
+        ({"rebalance_every": 0}, "rebalance_every must be an integer >= 1"),
+        ({"rebalance_every": 2.5}, "rebalance_every must be an integer >= 1"),
+        ({"rebalance_every": True}, "rebalance_every must be an integer >= 1"),
+        ({"proportional": -0.01}, "proportional must be finite and >= 0"),
+        ({"fixed": 0.05}, "kappa is needed"),
+        ({"fixed": 0.05, "kappa": 0.0}, "kappa must be positive"),
+    ],
+)
+def test_hedge_settings_reject_invalid_values(overrides, match):
+    with pytest.raises(ValueError, match=match):
+        HedgeSettings(**overrides)
+
+
+# HedgeOutcome.trades
+
+
+def test_trades_count_the_dates_where_the_position_changed():
+    # Scenario 0 trades in, holds, then trades: 2. Scenario 1 never leaves 0 shares: 0. Scenario 2 trades on its
+    # first date, then repeats its position after its tau: 1.
+    positions = torch.tensor([[-0.5, -0.5, -0.3], [0.0, 0.0, 0.0], [-0.2, -0.2, -0.2]], dtype=torch.float64)
+    outcome = HedgeOutcome(pnl=torch.zeros(3), costs=torch.zeros(3), positions=positions)
+    assert outcome.trades.tolist() == [2, 0, 1]
+
+
+def test_trades_of_a_hedge_with_no_date_are_zero():
+    outcome = HedgeOutcome(pnl=torch.zeros(2), costs=torch.zeros(2), positions=torch.zeros((2, 0)))
+    assert outcome.trades.tolist() == [0, 0]

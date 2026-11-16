@@ -7,15 +7,22 @@ independent. `check_compatible` enforces both, from the settings each bank store
 Maturities differ per scenario, so every (scenario, day) array is padded to the longest one and is NaN past each
 scenario's expiry (`spot`) or from its `τ` on (`delta`, `gamma`). `hedge_pnl` never reads those days, so the
 padding needs no explicit mask.
+
+Training and testing hedge a bank the same way: a `Hedger` (a policy and the features it reads) is booked by
+`hedge_pnl` on a batch of scenarios (`hedge_batch`), or on the whole bank in batches (`hedge_bank`).
 """
 
 import math
 import os
+from collections.abc import Callable
+from dataclasses import asdict
+from typing import NamedTuple
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from optionpricing.hedging.pnl import HedgeOutcome, HedgeSettings, Policy, hedge_pnl
 from optionpricing.ml.hedging.generate_hedge_dataset import DEFAULT_RANGES, FORMAT
 
 # The settings two banks used together must share. Everything that changes what a path means is here: the
@@ -135,3 +142,84 @@ class HedgeDataset(Dataset):
             "sigma": self.sigma[contract],
             "rate": self.rate[contract],
         }
+
+
+# Features: a batch of `HedgeDataset` items and the bank's strike in, a policy's `inputs` tensor out.
+Features = Callable[[dict[str, torch.Tensor], float], torch.Tensor]
+
+
+class Hedger(NamedTuple):
+    """A policy and the features it reads, so policies with different inputs hedge the same bank.
+
+    Attributes:
+        policy: a `pnl.Policy`, `policy(inputs, position) -> position`.
+        features: builds the policy's `inputs` from a batch of the bank. The network's are `hedge_inputs`
+            (`network_hedger` in `hedge_model.py`), the baselines' `bank_baseline_inputs` in `hedge_evaluation.py`.
+    """
+
+    policy: Policy
+    features: Features
+
+
+def hedge_batch(hedger: Hedger, dataset: HedgeDataset, idx, settings: HedgeSettings) -> HedgeOutcome:
+    """Hedge the scenarios `idx` of `dataset` with `hedger`, booked by `hedge_pnl` at `settings`.
+
+    The P&L keeps its autograd graph, so a training step can backpropagate through it.
+
+    Args:
+        hedger: the policy and its features.
+        dataset: the bank.
+        idx: the scenarios, an index tensor or list.
+        settings: how the hedge is booked.
+
+    Returns:
+        The batch's `HedgeOutcome`, scenarios in the order of `idx`.
+    """
+    batch = dataset[idx]
+    return hedge_pnl(
+        hedger.policy,
+        hedger.features(batch, dataset.strike),
+        batch["spot"],
+        batch["tau"],
+        batch["premium"],
+        dataset.strike,
+        batch["rate"],
+        **asdict(settings),
+    )
+
+
+@torch.no_grad()
+def hedge_bank(hedger: Hedger, dataset: HedgeDataset, settings: HedgeSettings, batch_size: int) -> HedgeOutcome:
+    """Hedge every scenario of `dataset` with `hedger`, `batch_size` scenarios at a time, without a graph.
+
+    Batches end at different hedge dates, so each batch's `positions` is padded to the bank's number of hedge
+    dates with each scenario's last position (0 for a scenario with no hedge date). That is the position it
+    holds after its `τ` anyway, so `trades` is unchanged. The positions take `8 x scenarios x dates` bytes:
+    about 150 MB for 50,000 daily paths of up to a year.
+
+    Args:
+        hedger: the policy and its features.
+        dataset: the bank.
+        settings: how the hedge is booked.
+        batch_size: scenarios hedged at a time, >= 1. It only affects speed and memory.
+
+    Returns:
+        The bank's `HedgeOutcome`, scenarios in the bank's order.
+
+    Raises:
+        ValueError: if `batch_size` < 1 or the bank has no scenario.
+    """
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+    if len(dataset) == 0:
+        raise ValueError("the bank has no scenario to hedge")
+    n_dates = -(-int(dataset.tau.max()) // settings.rebalance_every)  # dates 0, m, 2m, ... before the last τ
+    pnl, costs, positions = [], [], []
+    for start in range(0, len(dataset), batch_size):
+        outcome = hedge_batch(hedger, dataset, torch.arange(start, min(start + batch_size, len(dataset))), settings)
+        held = outcome.positions
+        last = held[:, -1:] if held.shape[1] else torch.zeros((len(held), 1), dtype=held.dtype)
+        positions.append(torch.cat([held, last.expand(-1, n_dates - held.shape[1])], dim=1))
+        pnl.append(outcome.pnl)
+        costs.append(outcome.costs)
+    return HedgeOutcome(pnl=torch.cat(pnl), costs=torch.cat(costs), positions=torch.cat(positions))

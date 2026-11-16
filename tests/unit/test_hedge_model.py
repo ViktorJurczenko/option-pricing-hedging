@@ -223,3 +223,19 @@ def test_band_rejects_inputs_with_the_wrong_number_of_features():
     model = make_network(n_features=7)  # built with the boundary input
     with pytest.raises(ValueError, match=r"\(nb_scenarios, 7\)"):
         model(one_date(), torch.zeros(5, dtype=torch.float64))
+
+
+# network_hedger
+
+
+def test_network_hedger_reads_the_features_the_network_was_built_for():
+    batch = make_batch()
+    with_boundary = hm.BandNetwork(torch.zeros(7), torch.ones(7))
+    hedger = hm.network_hedger(with_boundary, boundary_input=True)
+    torch.testing.assert_close(hedger.features(batch, STRIKE), hm.hedge_inputs(batch, STRIKE, boundary_input=True))
+    assert hedger.policy is with_boundary
+
+
+def test_network_hedger_refuses_features_the_network_does_not_read():
+    with pytest.raises(ValueError, match="reads 6 features"):
+        hm.network_hedger(hm.BandNetwork(torch.zeros(6), torch.ones(6)), boundary_input=True)

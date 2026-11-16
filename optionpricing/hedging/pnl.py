@@ -34,6 +34,14 @@ SETTLEMENTS = {"cash": cash_settlement, "physical": physical_settlement}
 Policy = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 
+def _check_rebalance_every(rebalance_every) -> int:
+    """Return `rebalance_every` as an int, or raise ValueError unless it is an integer >= 1."""
+    # bool is an Integral too, but True as a number of days is a mistake
+    if isinstance(rebalance_every, bool) or not isinstance(rebalance_every, numbers.Integral) or rebalance_every < 1:
+        raise ValueError(f"rebalance_every must be an integer >= 1, got {rebalance_every!r}")
+    return int(rebalance_every)
+
+
 @dataclass(frozen=True)
 class HedgeOutcome:
     """What one batch of hedged scenarios ended with, all in dollars of `t_0`.
@@ -49,6 +57,54 @@ class HedgeOutcome:
     pnl: torch.Tensor
     costs: torch.Tensor
     positions: torch.Tensor
+
+    @property
+    def trades(self) -> torch.Tensor:
+        """Number of hedge dates on which each scenario's position changed, shape `(nb_scenarios,)`, int64.
+
+        Positions start at 0 before the first date and repeat after `τ`, so a change between columns is a trade.
+        The settlement's closing trade is not counted. A band that holds its position trades on fewer dates than
+        the delta hedge, which is what a fixed fee charges for.
+        """
+        held = torch.nn.functional.pad(self.positions, (1, 0))
+        return (held.diff(dim=1) != 0).sum(dim=1)
+
+
+@dataclass(frozen=True)
+class HedgeSettings:
+    """How a hedge is booked: the settings of `hedge_pnl` other than the policy and the scenarios.
+
+    Training and testing each hold one, so a policy can be tested at other settings than it was trained at, as
+    `dataclasses.replace(settings, proportional=0.001)`. The field names are `hedge_pnl`'s keyword names, so
+    `hedge_pnl(..., **dataclasses.asdict(settings))` books a hedge with them.
+
+    Attributes:
+        rebalance_every: days between hedge dates, an integer >= 1 (a numpy integer works too). 1 is daily.
+        settlement: `"cash"` or `"physical"`, see `settlement.py`.
+        proportional: cost rate on the dollars traded, >= 0.
+        fixed: fee per trade, in dollars, >= 0.
+        kappa: width of the fee's straight-through gradient, > 0. Required when `fixed > 0`. It shapes the
+            gradient only, so it changes no P&L.
+
+    Raises:
+        ValueError: for an unknown settlement, `rebalance_every` not an integer >= 1, a negative or non-finite
+            cost, an invalid `kappa`, or `fixed > 0` without `kappa`.
+    """
+
+    rebalance_every: int = 1  # daily, the project's default (docs/results/hedging-training.md, "The defaults")
+    settlement: str = "cash"
+    proportional: float = 0.0
+    fixed: float = 0.0
+    kappa: float | None = None
+
+    def __post_init__(self):
+        if self.settlement not in SETTLEMENTS:
+            raise ValueError(f"settlement must be one of {tuple(SETTLEMENTS)}, got {self.settlement!r}")
+        _check_rebalance_every(self.rebalance_every)
+        # transaction_cost checks the rates and kappa; a zero trade exercises the checks without a gradient
+        transaction_cost(0.0, 1.0, self.proportional, self.fixed, self.kappa)
+        if self.fixed > 0 and self.kappa is None:
+            raise ValueError("kappa is needed when fixed > 0: it shapes the fee's gradient")
 
 
 def _as_float(x, dtype=None) -> torch.Tensor:
@@ -109,10 +165,7 @@ def hedge_pnl(
     """
     if settlement not in SETTLEMENTS:
         raise ValueError(f"settlement must be one of {tuple(SETTLEMENTS)}, got {settlement!r}")
-    # bool is an Integral too, but True as a number of days is a mistake
-    if isinstance(rebalance_every, bool) or not isinstance(rebalance_every, numbers.Integral) or rebalance_every < 1:
-        raise ValueError(f"rebalance_every must be an integer >= 1, got {rebalance_every!r}")
-    rebalance_every = int(rebalance_every)
+    rebalance_every = _check_rebalance_every(rebalance_every)
     spot = _as_float(spot)
     dtype, device = spot.dtype, spot.device
     if spot.ndim != 2 or spot.shape[0] == 0:

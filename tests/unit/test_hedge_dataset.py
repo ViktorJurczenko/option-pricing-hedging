@@ -8,8 +8,15 @@ import torch
 
 import optionpricing.ml.hedging.generate_hedge_dataset as gen
 from optionpricing.hedging.baselines import baseline_inputs, delta_hedge
-from optionpricing.hedging.pnl import hedge_pnl
-from optionpricing.ml.hedging.hedge_dataset import SHARED_SETTINGS, HedgeDataset, check_compatible
+from optionpricing.hedging.pnl import HedgeSettings, hedge_pnl
+from optionpricing.ml.hedging.hedge_dataset import (
+    SHARED_SETTINGS,
+    HedgeDataset,
+    Hedger,
+    check_compatible,
+    hedge_bank,
+    hedge_batch,
+)
 from tests.helpers import write_hedge_bank, write_put_surrogate
 
 
@@ -114,3 +121,67 @@ def test_a_bank_with_another_shared_setting_is_refused_naming_it(train, key, val
 def test_every_shared_setting_is_stored_in_a_bank(train):
     # a setting compared but never stored would raise KeyError instead of comparing
     assert set(SHARED_SETTINGS) <= set(train.settings)
+
+
+# hedge_batch and hedge_bank
+
+
+def baseline_features(batch, strike):
+    return baseline_inputs(batch["spot"], batch["delta"], batch["gamma"], batch["time_left"], batch["rate"][:, None])
+
+
+DELTA = Hedger(delta_hedge, baseline_features)
+
+
+def test_hedge_bank_in_batches_books_what_one_batch_books(train):
+    # The reference hedges all 8 scenarios at once; hedge_bank hedges 3 at a time. Batches end on different
+    # dates, so their positions are padded, which must change no P&L, cost or position, nor the order.
+    settings = HedgeSettings(proportional=0.01)
+    whole = hedge_batch(DELTA, train, torch.arange(len(train)), settings)
+    batched = hedge_bank(DELTA, train, settings, batch_size=3)
+    torch.testing.assert_close(batched.pnl, whole.pnl, rtol=0, atol=0)
+    torch.testing.assert_close(batched.costs, whole.costs, rtol=0, atol=0)
+    torch.testing.assert_close(batched.positions, whole.positions, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("rebalance_every", [1, 3])
+def test_the_delta_hedge_trades_on_every_hedge_date(train, rebalance_every):
+    # Hedge dates are days 0, m, 2m, ... before tau, so there are ceil(tau / m) of them. The surrogate delta moves
+    # every day and is never 0 before tau, so each date is a trade, and padding adds none.
+    outcome = hedge_bank(DELTA, train, HedgeSettings(rebalance_every=rebalance_every), batch_size=3)
+    expected = torch.div(train.tau + rebalance_every - 1, rebalance_every, rounding_mode="floor")
+    assert torch.equal(outcome.trades, expected)
+
+
+def test_a_scenario_with_no_hedge_date_pads_with_zero_shares(banks, tmp_path):
+    # A batch whose only scenario is exercised at once has no position column; padding it must give 0 shares,
+    # the position it holds, not a value borrowed from another scenario.
+    raw = dict(np.load(banks[0]))
+    raw["tau"][0] = 0
+    path = tmp_path / "hedge_train.npz"
+    np.savez(path, **raw)
+    outcome = hedge_bank(DELTA, HedgeDataset(path), HedgeSettings(), batch_size=1)
+    assert torch.all(outcome.positions[0] == 0) and outcome.trades[0] == 0
+
+
+def test_hedge_batch_keeps_the_graph_and_hedge_bank_drops_it(train):
+    scale = torch.tensor(1.0, requires_grad=True)
+    hedger = Hedger(lambda inputs, position: scale * delta_hedge(inputs, position), baseline_features)
+    assert hedge_batch(hedger, train, torch.arange(4), HedgeSettings()).pnl.requires_grad
+    assert not hedge_bank(hedger, train, HedgeSettings(), batch_size=4).pnl.requires_grad
+
+
+def test_hedge_bank_refuses_an_empty_batch(train):
+    with pytest.raises(ValueError, match="batch_size must be >= 1"):
+        hedge_bank(DELTA, train, HedgeSettings(), batch_size=0)
+
+
+def test_hedge_bank_refuses_an_empty_bank(banks, tmp_path):
+    # With no scenario there is no last exercise day to size the positions from, and no P&L to report.
+    raw = dict(np.load(banks[0]))
+    for name in ("spot", "delta", "gamma", "tau", "contract"):
+        raw[name] = raw[name][:0]
+    path = tmp_path / "hedge_train.npz"
+    np.savez(path, **raw)
+    with pytest.raises(ValueError, match="no scenario to hedge"):
+        hedge_bank(DELTA, HedgeDataset(path), HedgeSettings(), batch_size=4)

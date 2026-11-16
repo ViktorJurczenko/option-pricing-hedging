@@ -8,30 +8,40 @@ of every path, so the objective is the metric the hedger is judged on, with no c
 The objectives:
 - `cvar`: the Rockafellar-Uryasev form `cvar_loss(pnl, w, alpha)`, minimized over the network and the threshold
   `w` together. `w` has its own learning rate, so an experiment can check that it needs one.
-- `entropic`: `entropic(pnl, lam)`.
-- `variance`: `variance(pnl)`.
+- `entropic` and `variance`: `RiskMeasure.loss` directly.
 
-After every epoch the network is scored on a validation bank by the same risk measure, computed exactly (for
-CVaR, `-cvar(pnl, alpha)`, not the training form with the current `w`). The best epoch is kept. The untrained
+After every epoch the network hedges the validation bank (`hedge_bank`) and is scored by the same risk measure,
+computed exactly (`RiskMeasure.loss`: for CVaR, `-cvar(pnl, alpha)`, not the training form with the current `w`). The best epoch is kept. The untrained
 network, the delta hedge to within its initial band, is scored first as epoch 0, so training never returns a
 network that hedges worse than delta on validation.
 """
 
 import math
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import NamedTuple
 
 import torch
 from tqdm import tqdm
 
-from optionpricing.hedging.costs import transaction_cost
-from optionpricing.hedging.pnl import SETTLEMENTS, HedgeOutcome, hedge_pnl
-from optionpricing.hedging.risk import cvar, cvar_loss, entropic, variance
-from optionpricing.ml.hedging.hedge_dataset import HedgeDataset
-from optionpricing.ml.hedging.hedge_model import ACTIVATIONS, BandNetwork, fit_feature_stats, hedge_inputs
+from optionpricing.hedging.pnl import HedgeSettings
+from optionpricing.hedging.risk import RiskMeasure, cvar_loss
+from optionpricing.ml.hedging.hedge_dataset import HedgeDataset, hedge_bank, hedge_batch
+from optionpricing.ml.hedging.hedge_model import ACTIVATIONS, BandNetwork, fit_feature_stats, network_hedger
 
-OBJECTIVES = ("cvar", "entropic", "variance")
+# The defaults of `HedgeTrainConfig`. The network size, activation and learning rates are starting points, each to
+# be set by a check on the full banks.
+DEPTH = 4
+WIDTH = 32  # 4 x 32, the network size of Imaki et al.'s band network
+INIT_LOGIT = -5.0  # untrained half-width softplus(-5) = 0.0067 shares
+ACTIVATION = "silu"  # any key of ACTIVATIONS trains the band
+EPOCHS = 50
+# ~200 paths in a 95% tail (docs/results/hedging-training.md, "Deep Hedging instead of SAC")
+BATCH_SIZE = 4096
+LR = 1e-3  # Adam's standard start
+# 10x the network's: w lives in dollars and must track the batch's VaR as the policy changes
+W_LR = 1e-2
+SEED = 42  # the repo's usual seed
 
 
 @dataclass(frozen=True)
@@ -40,64 +50,50 @@ class HedgeTrainConfig:
 
     Network: `depth`, `width`, `init_logit`, `activation` (`BandNetwork`'s arguments) and `boundary_input` (the
     distance to the exercise boundary as an 8th input).
-    Objective: `objective` (one of `OBJECTIVES`), `alpha` (CVaR level), `lam` (entropic risk aversion, in
-    1/dollars).
-    Hedging: `rebalance_every`, `settlement`, `proportional`, `fixed`, `kappa`, as in `hedge_pnl`. `kappa` is
-    needed when `fixed > 0`: it shapes the fee's straight-through gradient.
+    `hedging`: how the training hedges are booked (`HedgeSettings`), the same type the test's `EvalConfig` holds.
+    `risk`: the objective (`RiskMeasure`), which is also the validation score.
     Optimization: `epochs` (full passes over the training bank), `batch_size` (scenarios per step; CVaR is a
     property of the batch's tail, so batches are large), `lr` (the network's Adam rate) and `w_lr` (the CVaR
     threshold's).
     `seed`: seeds the weights' initialization and the batch order.
 
     Raises:
-        ValueError: for an unknown objective, settlement or activation, `alpha` outside (0, 1), a non-positive size, count,
-            learning rate or `lam`, a negative cost, or `fixed > 0` without `kappa`.
+        ValueError: for an unknown activation, or a non-positive size, count or learning rate. `HedgeSettings` and
+            `RiskMeasure` check their own fields.
     """
 
-    depth: int = 4
-    width: int = 32  # 4 x 32, the network size of Imaki et al.'s band network; set by a check later
-    init_logit: float = -5.0  # untrained half-width softplus(-5) = 0.0067 shares
-    activation: str = "silu"  # any key of ACTIVATIONS trains the band; set by a check later
+    depth: int = DEPTH
+    width: int = WIDTH
+    init_logit: float = INIT_LOGIT
+    activation: str = ACTIVATION
     boundary_input: bool = False
-    objective: str = "cvar"
-    alpha: float = 0.95  # the project's CVaR level (docs/results/hedging-training.md, "The defaults")
-    lam: float = 1.0
-    rebalance_every: int = 1  # daily
-    settlement: str = "cash"
-    proportional: float = 0.0
-    fixed: float = 0.0
-    kappa: float | None = None
-    epochs: int = 50
-    batch_size: int = 4096  # ~200 paths in a 95% tail (docs/results/hedging-training.md, "Deep Hedging")
-    lr: float = 1e-3  # Adam's standard start
-    # 10x the network's: w lives in dollars and must track the batch's VaR as the policy changes
-    w_lr: float = 1e-2
-    seed: int = 42  # the repo's usual seed
+    hedging: HedgeSettings = field(default_factory=HedgeSettings)
+    risk: RiskMeasure = field(default_factory=RiskMeasure)
+    epochs: int = EPOCHS
+    batch_size: int = BATCH_SIZE
+    lr: float = LR
+    w_lr: float = W_LR
+    seed: int = SEED
 
     def __post_init__(self):
-        if self.objective not in OBJECTIVES:
-            raise ValueError(f"objective must be one of {OBJECTIVES}, got {self.objective!r}")
         if self.activation not in ACTIVATIONS:
             raise ValueError(f"activation must be one of {tuple(ACTIVATIONS)}, got {self.activation!r}")
-        if self.settlement not in SETTLEMENTS:
-            raise ValueError(f"settlement must be one of {tuple(SETTLEMENTS)}, got {self.settlement!r}")
-        if not 0 < self.alpha < 1:
-            raise ValueError(f"alpha must be in (0, 1), got {self.alpha}")
-        for name in ("depth", "width", "rebalance_every", "epochs", "batch_size"):
+        for name in ("depth", "width", "epochs", "batch_size"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be >= 1, got {getattr(self, name)}")
-        for name in ("lam", "lr", "w_lr"):
+        for name in ("lr", "w_lr"):
             value = getattr(self, name)
             if not (value > 0 and math.isfinite(value)):
                 raise ValueError(f"{name} must be positive and finite, got {value}")
-        # transaction_cost checks the rates and kappa; a zero trade exercises the checks without a gradient
-        transaction_cost(0.0, 1.0, self.proportional, self.fixed, self.kappa)
-        if self.fixed > 0 and self.kappa is None:
-            raise ValueError("kappa is needed when fixed > 0: it shapes the fee's gradient")
+
+    @classmethod
+    def from_dict(cls, values: dict) -> "HedgeTrainConfig":
+        """Rebuild a config from `dataclasses.asdict(config)`, as a checkpoint stores it."""
+        return cls(**{**values, "hedging": HedgeSettings(**values["hedging"]), "risk": RiskMeasure(**values["risk"])})
 
 
-class TrainResult(NamedTuple):
-    """What `train_hedger` returns.
+class TrainReport(NamedTuple):
+    """What `train_hedging_model` returns.
 
     Attributes:
         model: the best network on validation, on the CPU.
@@ -113,60 +109,23 @@ class TrainResult(NamedTuple):
     best_epoch: int
 
 
-def risk_score(pnl: torch.Tensor, config: HedgeTrainConfig) -> torch.Tensor:
-    """The risk of a P&L sample under the config's objective, as a loss (lower is better), computed exactly.
-
-    For CVaR this is `-cvar(pnl, alpha)`, the minimum of the training form over `w`, so it does not depend on the
-    current threshold.
-    """
-    if config.objective == "cvar":
-        return -cvar(pnl, config.alpha)
-    if config.objective == "entropic":
-        return entropic(pnl, config.lam)
-    return variance(pnl)
-
-
-def _hedge(model: BandNetwork, dataset: HedgeDataset, idx: torch.Tensor, config: HedgeTrainConfig) -> HedgeOutcome:
-    """Hedge the scenarios `idx` of `dataset` with `model` and return their `HedgeOutcome`."""
-    batch = dataset[idx]
-    return hedge_pnl(
-        model,
-        hedge_inputs(batch, dataset.strike, config.boundary_input),
-        batch["spot"],
-        batch["tau"],
-        batch["premium"],
-        dataset.strike,
-        batch["rate"],
-        rebalance_every=config.rebalance_every,
-        settlement=config.settlement,
-        proportional=config.proportional,
-        fixed=config.fixed,
-        kappa=config.kappa,
-    )
-
-
 @torch.no_grad()
-def evaluate(model: BandNetwork, dataset: HedgeDataset, config: HedgeTrainConfig) -> dict[str, float]:
-    """Score `model` on every scenario of `dataset`, in batches of `config.batch_size`.
-
-    Returns:
-        `{"score": risk_score of all P&Ls, "mean_pnl": ..., "mean_costs": ...}`, in dollars.
-    """
-    pnl, costs = [], []
-    for start in range(0, len(dataset), config.batch_size):
-        outcome = _hedge(model, dataset, torch.arange(start, min(start + config.batch_size, len(dataset))), config)
-        pnl.append(outcome.pnl)
-        costs.append(outcome.costs)
-    pnl, costs = torch.cat(pnl), torch.cat(costs)
-    return {"score": float(risk_score(pnl, config)), "mean_pnl": float(pnl.mean()), "mean_costs": float(costs.mean())}
+def _validate(model: BandNetwork, dataset: HedgeDataset, config: HedgeTrainConfig) -> dict[str, float]:
+    """Score `model` on every scenario of `dataset`: `{"score": the exact risk, "mean_pnl", "mean_costs"}`."""
+    outcome = hedge_bank(network_hedger(model, config.boundary_input), dataset, config.hedging, config.batch_size)
+    return {
+        "score": float(config.risk.loss(outcome.pnl)),
+        "mean_pnl": float(outcome.pnl.mean()),
+        "mean_costs": float(outcome.costs.mean()),
+    }
 
 
-def train_hedger(
+def train_hedging_model(
     train_path: str | os.PathLike,
     valid_path: str | os.PathLike,
     config: HedgeTrainConfig = HedgeTrainConfig(),  # noqa: B008 (frozen dataclass, immutable)
     checkpoint_path: str | os.PathLike | None = None,
-) -> TrainResult:
+) -> TrainReport:
     """Train a band network on a training bank, keeping the epoch that scores best on a validation bank.
 
     The banks come from `generate_hedge_dataset` with the same settings and distinct seeds (`check_compatible`).
@@ -178,11 +137,12 @@ def train_hedger(
         train_path: the training bank.
         valid_path: the validation bank.
         config: the run's settings.
-        checkpoint_path: where to save the best network (`BandNetwork.save`, with the config and the training
-            bank's settings as extras), each time it improves. None saves nothing.
+        checkpoint_path: where to save the best network (`BandNetwork.save`, with the config as `asdict` and the
+            training bank's settings as extras), each time it improves. None saves nothing. The config is rebuilt
+            with `HedgeTrainConfig.from_dict`.
 
     Returns:
-        The `TrainResult`.
+        The `TrainReport`.
 
     Raises:
         ValueError: if a bank is not a hedge bank, the banks do not belong together, or the validation score is
@@ -194,14 +154,15 @@ def train_hedger(
     torch.manual_seed(config.seed)  # the weights' initialization
     model = BandNetwork(mean, std, config.depth, config.width, config.init_logit, config.activation)
     batch_order = torch.Generator().manual_seed(config.seed)
+    hedger = network_hedger(model, config.boundary_input)
 
     w = None
     groups = [{"params": model.parameters(), "lr": config.lr}]
-    if config.objective == "cvar":
+    if config.risk.name == "cvar":
         first = torch.randperm(len(train_data), generator=torch.Generator().manual_seed(config.seed))
         with torch.no_grad():
-            loss = -_hedge(model, train_data, first[: config.batch_size], config).pnl
-        w = torch.nn.Parameter(torch.quantile(loss.to(torch.float64), config.alpha).to(loss.dtype))
+            loss = -hedge_batch(hedger, train_data, first[: config.batch_size], config.hedging).pnl
+        w = torch.nn.Parameter(torch.quantile(loss.to(torch.float64), config.risk.alpha).to(loss.dtype))
         groups.append({"params": [w], "lr": config.w_lr})
     optimizer = torch.optim.Adam(groups)
 
@@ -210,7 +171,7 @@ def train_hedger(
             model.save(checkpoint_path, config=asdict(config), bank_settings=train_data.settings)
 
     def record(epoch, train_loss):
-        metrics = evaluate(model, valid_data, config)
+        metrics = _validate(model, valid_data, config)
         history.append(
             {
                 "epoch": epoch,
@@ -235,10 +196,9 @@ def train_hedger(
         order = torch.randperm(len(train_data), generator=batch_order)
         total, steps = 0.0, 0
         for step in range(steps_per_epoch):
-            pnl = _hedge(
-                model, train_data, order[step * config.batch_size : (step + 1) * config.batch_size], config
-            ).pnl
-            loss = cvar_loss(pnl, w, config.alpha) if w is not None else risk_score(pnl, config)
+            idx = order[step * config.batch_size : (step + 1) * config.batch_size]
+            pnl = hedge_batch(hedger, train_data, idx, config.hedging).pnl
+            loss = cvar_loss(pnl, w, config.risk.alpha) if w is not None else config.risk.loss(pnl)
             if not pnl.requires_grad:  # no hedge date in this batch: the network played no part
                 continue
             optimizer.zero_grad()
@@ -256,4 +216,4 @@ def train_hedger(
     if not math.isfinite(best_score):
         raise ValueError("the validation score was never finite: training diverged (try a lower lr)")
     model.load_state_dict(best_state)
-    return TrainResult(model, history, best_epoch)
+    return TrainReport(model, history, best_epoch)

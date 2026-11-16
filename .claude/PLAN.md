@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Evaluation |
+| [Hedging rebuild](#hedging-rebuild) | active | First evaluation run |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -56,8 +56,9 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Baselines
 - [x] Dataset
 - [x] Policy and training loop
-- [ ] Evaluation
-  `hedge_evaluation.py`: the network and every baseline on the same test bank (common random numbers), scored with the functions of `risk.py`. Costs and settlement can differ from training. The baselines' scores re-measure what delta hedging achieves before any learning and replace the README's invalid SAC-era results.
+- [x] Evaluation
+- [ ] First evaluation run
+  `evaluate_hedgers` on a full test bank at zero and 1% cost, baselines only. The scores re-measure what delta hedging achieves before any learning and replace the README's invalid SAC-era results. Decide with the user first whether the tree delta hedge is one of the baselines: the bank stores only the surrogate's Greeks.
 - [ ] CLI
   `train-hedge` and `test-hedge` rebuilt on the new stack.
 - [ ] Experiments

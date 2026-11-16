@@ -1,6 +1,6 @@
 # How the hedging model is designed
 
-This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in `.claude/PLAN.md` ("Hedging rebuild") and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator, the exercise dates, the P&L, the baselines, the dataset, and the band network with its training loop. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy, the dataset checks and the first training checks. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
+This page records the design choices for the Deep Hedging rebuild of the American-put hedger: what was chosen, what it implies, and why. The work is planned in [`.claude/PLAN.md`, Hedging rebuild](../../.claude/PLAN.md#hedging-rebuild) and **not built yet**, except the exercise boundary, the building blocks (risk measures, costs, settlement), the scenario simulator, the exercise dates, the P&L, the baselines, the dataset, the band network with its training loop, and the evaluation. So each section gives the reasoning behind a choice, not a measured result, apart from the boundary's accuracy, the dataset checks and the first training checks. Experiments will add their results here as they are run, in the style of `docs/results/surrogate-training.md`.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at K = 100, in dollars. Costs use a proportional rate `ε` (1% means 1 cent per dollar traded) and a fixed fee `f` per trade.
 
@@ -41,7 +41,7 @@ Each subsection gives a choice, what it implies, and why.
 PL = p_0 + Σ_k δ_k (S̃_{k+1} - S̃_k) - Σ_k c̃_k - Z̃
 ```
 
-`p_0` is the premium received at `t_0`. `S̃_k = e^{-r t_k} S_k` is the discounted price, so cash earns `r`. `δ_k` is chosen at `t_k` and earns over `[t_k, t_{k+1}]`. `c̃_k` is the discounted cost of the trade at `t_k`, including the opening trade. `Z̃` is the discounted settlement at exercise or expiry: the payoff owed to the holder plus the cost of closing the share position. The function takes any policy with one interface (inputs in, position out). The network, every baseline, training and testing all call it.
+`p_0` is the premium received at `t_0`. `S̃_k = e^{-r t_k} S_k` is the discounted price, so cash earns `r`. `δ_k` is chosen at `t_k` and earns over `[t_k, t_{k+1}]`. `c̃_k` is the discounted cost of the trade at `t_k`, including the opening trade. `Z̃` is the discounted settlement at exercise or expiry: the payoff owed to the holder plus the cost of closing the share position. The function takes any policy with one interface (inputs in, position out). The network, every baseline, training and testing all call it, through `hedge_batch` and `hedge_bank` ([How the pieces fit](#how-the-pieces-fit)).
 
 **Why.** The current env gets two terms wrong. It pays the gain over `[t_k, t_{k+1}]` to the position chosen at `t_{k-1}` (B-037). It also has no premium and no cash account (B-038). The lag survived because the accounting existed twice, in `HedgingEnv.step` and in `rollout_pnl`, and the copy kept the bug. With one function, a baseline and the network can't be booked differently.
 
@@ -271,7 +271,7 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 **Choice.** Three steps, as for the tree surrogate:
 1. **Dataset** (`generate_hedge_dataset.py`) simulates the paths, draws one contract per path, and computes the premium (the surrogate's price at `t_0`), the surrogate's delta and gamma per day, the boundary and `τ`. It saves them with the metadata that produced them (seeds, ranges, surrogate checkpoint, exercise method).
 2. **Training** (`hedge_training.py`) trains the band network on a dataset.
-3. **Testing** (`hedge_evaluation.py`) scores the network and every baseline (no hedge, surrogate delta, tree delta, fixed bands, the Whalley-Wilmott band) on a test dataset with its own seed.
+3. **Testing** (`hedge_evaluation.py`) scores the network and every baseline (no hedge, surrogate delta, a fixed band, the Whalley-Wilmott band) on a test dataset with its own seed. Every hedger is booked on the same paths, so their differences come from the hedging and not from the draw of paths. The two bands are tuned on a validation dataset, on the risk measure the network is trained on, at the costs they are tested at. So each is the best of its family for that test.
 
 | Fixed when the dataset is generated | Chosen at train or test time |
 |---|---|
@@ -280,7 +280,80 @@ The minimizing `w` is the VaR. So training lowers this expression over the netwo
 | Boundary and `τ`, from the chosen method | Settlement, risk measure, `α` or `λ` |
 | Metadata | Network size, learning rates, the boundary input |
 
-**Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, which takes most of the generation time. It is paid once (see "Dataset checks").
+**Why.** Every choice can be changed at its own step without redoing the others. One dataset serves many experiments, and a policy can be tested at costs it wasn't trained on. Computing the surrogate features once matters: 50,000 paths × 365 days is about 18 million surrogate queries. The last week before expiry is outside the surrogate's domain (`T` ≥ 1 week) and goes to its tree route, which takes most of the generation time. It is paid once (see [Dataset checks](#dataset-checks)).
+
+### How the pieces fit
+
+**Choice.** Each idea of the pipeline is one type or one function, and training and testing share them. The diagram reads top to bottom: the settings and the inputs, the two entry points, the booking of a hedge, and the reports.
+
+```mermaid
+flowchart TB
+    subgraph settings["Settings"]
+        TC["HedgeTrainConfig<br/>network and optimizer fields"]
+        EC["EvalConfig<br/>band grids and band target"]
+        HS["HedgeSettings<br/>rebalancing, settlement, costs"]
+        RM["RiskMeasure<br/>CVaR, entropic or variance, with alpha and lam"]
+        TC -- holds --> HS
+        TC -- holds --> RM
+        EC -- holds --> HS
+        EC -- holds --> RM
+    end
+
+    subgraph inputs["Inputs"]
+        BANK[("HedgeDataset<br/>paths, tau, premium, surrogate Greeks")]
+        NET["BandNetwork with hedge_inputs<br/>(network_hedger)"]
+        BASE["no_hedge, delta_hedge, band_hedge, whalley_wilmott<br/>with bank_baseline_inputs (baseline_hedger)"]
+        H["Hedger<br/>policy + the features it reads"]
+        NET --> H
+        BASE --> H
+    end
+
+    TRAIN["train_hedging_model<br/>Adam steps on cvar_loss or RiskMeasure.loss"]
+    EVAL["evaluate_hedgers<br/>bands tuned on validation, every hedger scored on test"]
+    TC -. configures .-> TRAIN
+    EC -. configures .-> EVAL
+    BANK --> TRAIN
+    BANK --> EVAL
+    H --> TRAIN
+    H --> EVAL
+    TRAIN -. checkpoint .-> EVAL
+
+    HK["hedge_bank<br/>whole bank in batches, no graph"]
+    HB["hedge_batch<br/>one batch, keeps the graph"]
+    PNL["hedge_pnl<br/>the one P&L function"]
+    OUT["HedgeOutcome<br/>pnl, costs, positions, trades"]
+    LOSS["RiskMeasure.loss<br/>exact risk, lower is better"]
+    TRAIN -- validation --> HK
+    EVAL -- tuning and test --> HK
+    TRAIN -- training steps --> HB
+    HK -- each batch --> HB
+    HB --> PNL
+    HS -. booked at .-> PNL
+    PNL --> OUT
+    OUT -- pnl --> LOSS
+    RM -. names .-> LOSS
+
+    subgraph reports["Reports"]
+        TR["TrainReport<br/>best network and history"]
+        ER["EvalReport<br/>metrics, P&L per path, tuning scores"]
+    end
+    LOSS -- picks the best epoch --> TR
+    OUT -- summarize, metrics and P&L per path --> ER
+    LOSS -- tuning scores --> ER
+```
+
+How to read it, top to bottom:
+- **Settings.** `HedgeSettings` says how a hedge is booked: rebalancing, settlement and costs. Its fields are the keyword names of `hedge_pnl`, so it is passed as `**asdict(settings)`. `RiskMeasure` says how a P&L sample is judged. Both are frozen dataclasses that check their own fields.
+- **A hedger.** A policy only sees an `inputs` tensor, and the network and the baselines read different features. A `Hedger` pairs a policy with the function that builds its inputs from the bank, so any hedger can be booked on any bank.
+- **Booking.** `hedge_batch` hedges a list of scenarios and keeps the autograd graph, for a training step. `hedge_bank` runs `hedge_batch` over the whole bank in batches without a graph, for validation and test. Batches end on different days, so it pads each batch's positions with each path's last position, which is the position it holds after `τ` anyway. Both go through `hedge_pnl`, the only place the accounting lives ([One P&L function](#one-pl-function)).
+- **The outcome.** `HedgeOutcome` holds each path's P&L, costs and positions. The number of trades is derived from the positions (`trades`), so it is never stored twice.
+- **Judging.** `RiskMeasure.loss` is the exact risk, `-CVaR` for CVaR. Training reports it on validation after every epoch and testing tunes the bands on it, so "trained on CVaR" and "tuned on CVaR" are the same number. Only the training steps use the Rockafellar-Uryasev form `cvar_loss` ([The risk measures](#the-risk-measures)).
+- **The entry points.** `train_hedging_model` steps on training batches and validates on the whole validation bank after every epoch. It saves the best network with its config. `evaluate_hedgers` loads that checkpoint, tunes the bands on a validation bank and scores every hedger on the test bank.
+- **The reports.** `train_hedging_model` returns a `TrainReport` (the best network and its history), `evaluate_hedgers` an `EvalReport` (the metrics, each hedger's P&L per path, the tuning scores).
+
+**Why the configs share pieces but stay two.** A training run and a test have different fields of their own. Training has the network size, the learning rates and the epochs, and testing has the bands' grids. They agree on the two things that make a comparison fair: how a hedge is booked and how a P&L is judged. Holding the same `HedgeSettings` and `RiskMeasure` types makes those checks exist once. It also makes "the same as training, at another cost" one line: `EvalConfig(hedging=replace(train.hedging, proportional=0.001), risk=train.risk)`.
+
+**Why two booking functions.** A training step needs the graph to backpropagate through every hedge date. Validation and test hedge thousands of paths and need no gradient, so `hedge_bank` drops the graph and the memory it holds. Both call the same `hedge_batch`, so a validation P&L is exactly what a training step would book on the same paths.
 
 ### The defaults
 
@@ -352,7 +425,7 @@ The bands' CVaR is higher than the delta hedge's by 1.96 for Whalley-Wilmott and
 
 ### Training checks
 
-These are first runs of `train_hedger` to check that the loop learns. They do not set any default.
+These are first runs of `train_hedging_model` to check that the loop learns. They do not set any default.
 
 **It learns under costs, on exact deltas.** The test `tests/integration/test_hedge_training_learns.py` builds banks of European puts of 20 to 40 days, held to expiry, with Black-Scholes premiums, deltas and gammas. A train bank and a validation bank of 1,000 paths each (seeds 1 and 2), a 1% proportional cost, CVaR at 95%, batches of 500, `lr` = 1e-2, 15 epochs. The score is the validation CVaR loss, `−CVaR` in dollars, so lower is better.
 
@@ -374,9 +447,10 @@ These are first runs of `train_hedger` to check that the loop learns. They do no
 - **A larger rate opens it within a few epochs, then jitters.** At 1e-2 the loss falls from 8.48 to 4.90 by epoch 4 and rises again after. The validation checkpoint keeps epoch 4.
 - **A wider start is better at once.** At `init_logit` = −2 (half-width 0.13 shares) the untrained band already scores 5.60, but it no longer starts as the delta hedge.
 
-The learning rate, a possible schedule and `init_logit` are left to be set by a check on the full banks (see "Open questions").
+The learning rate, a possible schedule and `init_logit` are left to be set by a check on the full banks (see [Limits and open questions](#limits-and-open-questions)).
 
 ## Limits and open questions
 
-- **Learning rate and start of the band.** At `lr` = 1e-3 the band opens too slowly, and at 1e-2 the validation loss jitters after a few epochs ("Training checks"). Whether a higher rate with a decay, or a wider `init_logit`, becomes the default is set by a check on the full banks.
+- **Learning rate and start of the band.** At `lr` = 1e-3 the band opens too slowly, and at 1e-2 the validation loss jitters after a few epochs ([Training checks](#training-checks)). Whether a higher rate with a decay, or a wider `init_logit`, becomes the default is set by a check on the full banks.
+- **The tree delta hedge.** The bank stores only the surrogate's delta and gamma, so the test has no tree delta hedge yet. Adding it means tree Greeks at every (path, day) of the test bank, either stored by the generator or computed at test time. Whether it is worth that cost is decided before the first evaluation run.
 - **SAC on the new P&L.** Whether SAC is retrained once for one comparison. Decided at the end, once Deep Hedging has results.

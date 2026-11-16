@@ -1,20 +1,28 @@
 """Tests for optionpricing.ml.hedging.hedge_training: the Deep Hedging training loop and its validation checkpoint."""
 
 import math
+from dataclasses import asdict
 
 import numpy as np
 import pytest
 import torch
 
-from optionpricing.hedging.risk import cvar, entropic, variance
-from optionpricing.ml.hedging.hedge_dataset import HedgeDataset
-from optionpricing.ml.hedging.hedge_model import BandNetwork
-from optionpricing.ml.hedging.hedge_training import HedgeTrainConfig, evaluate, risk_score, train_hedger
+from optionpricing.hedging.pnl import HedgeSettings
+from optionpricing.hedging.risk import RiskMeasure
+from optionpricing.ml.hedging.hedge_dataset import HedgeDataset, hedge_bank
+from optionpricing.ml.hedging.hedge_model import BandNetwork, network_hedger
+from optionpricing.ml.hedging.hedge_training import HedgeTrainConfig, train_hedging_model
 from tests.helpers import write_hedge_bank, write_put_surrogate
 
 # Small and quick: 8 scenarios of 5 to 12 days, 4 per batch so an epoch has 2 steps. A 1% cost makes the band
 # matter, so training has something to change.
-QUICK = dict(depth=1, width=8, epochs=3, batch_size=4, proportional=0.01, lr=1e-2)
+QUICK = dict(depth=1, width=8, epochs=3, batch_size=4, lr=1e-2)
+
+
+def config(proportional=0.01, objective="cvar", **overrides):
+    return HedgeTrainConfig(
+        **{**QUICK, **overrides}, hedging=HedgeSettings(proportional=proportional), risk=RiskMeasure(objective)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -26,7 +34,13 @@ def banks(tmp_path_factory):
 
 
 def train(banks, checkpoint_path=None, **overrides):
-    return train_hedger(*banks, HedgeTrainConfig(**{**QUICK, **overrides}), checkpoint_path)
+    return train_hedging_model(*banks, config(**overrides), checkpoint_path)
+
+
+def valid_score(model, dataset, cfg):
+    """The validation risk of `model`, booked independently of the training loop's own validation."""
+    outcome = hedge_bank(network_hedger(model, cfg.boundary_input), dataset, cfg.hedging, cfg.batch_size)
+    return float(cfg.risk.loss(outcome.pnl))
 
 
 # training
@@ -41,16 +55,16 @@ def test_a_run_is_reproduced_from_its_seed(banks):
 
 def test_epoch_zero_scores_the_untrained_network_and_the_best_epoch_is_returned(banks):
     result = train(banks)
-    config = HedgeTrainConfig(**QUICK)
+    cfg = config()
     valid = HedgeDataset(banks[1])
-    torch.manual_seed(config.seed)  # the initialization train_hedger draws
-    weights = BandNetwork(result.model.mean, result.model.std, config.depth, config.width, config.init_logit)
+    torch.manual_seed(cfg.seed)  # the initialization train_hedging_model draws
+    weights = BandNetwork(result.model.mean, result.model.std, cfg.depth, cfg.width, cfg.init_logit)
     assert result.history[0]["epoch"] == 0 and math.isnan(result.history[0]["train_loss"])
-    assert result.history[0]["valid_score"] == pytest.approx(evaluate(weights, valid, config)["score"])
+    assert result.history[0]["valid_score"] == pytest.approx(valid_score(weights, valid, cfg))
     scores = [h["valid_score"] for h in result.history]
-    assert len(scores) == config.epochs + 1
+    assert len(scores) == cfg.epochs + 1
     assert result.best_epoch == int(np.argmin(scores))
-    assert evaluate(result.model, valid, config)["score"] == pytest.approx(min(scores))
+    assert valid_score(result.model, valid, cfg) == pytest.approx(min(scores))
 
 
 def test_training_lowers_the_objective_at_a_cost(banks):
@@ -103,10 +117,10 @@ def test_the_boundary_input_adds_a_feature(banks):
 def test_the_checkpoint_holds_the_best_network_its_config_and_the_training_banks_settings(banks, tmp_path):
     result = train(banks, checkpoint_path=tmp_path / "policy.pth")
     loaded, extra = BandNetwork.load(tmp_path / "policy.pth")
-    config = HedgeTrainConfig(**QUICK)
+    cfg = config()
     valid = HedgeDataset(banks[1])
-    assert evaluate(loaded, valid, config)["score"] == pytest.approx(result.history[result.best_epoch]["valid_score"])
-    assert HedgeTrainConfig(**extra["config"]) == config
+    assert valid_score(loaded, valid, cfg) == pytest.approx(result.history[result.best_epoch]["valid_score"])
+    assert HedgeTrainConfig.from_dict(extra["config"]) == cfg
     stored, settings = extra["bank_settings"], HedgeDataset(banks[0]).settings
     assert math.isnan(stored.pop("shift")) and math.isnan(settings.pop("shift"))  # no shift is stored as NaN
     assert stored == settings
@@ -119,7 +133,7 @@ def test_a_batch_with_no_hedge_date_is_skipped(banks, tmp_path):
     raw["tau"][0] = 0
     path = tmp_path / "hedge_train.npz"
     np.savez(path, **raw)
-    result = train_hedger(path, banks[1], HedgeTrainConfig(**{**QUICK, "batch_size": 1, "epochs": 1}))
+    result = train_hedging_model(path, banks[1], config(batch_size=1, epochs=1))
     assert math.isfinite(result.history[1]["train_loss"])
 
 
@@ -131,23 +145,22 @@ def test_a_validation_score_that_is_never_finite_is_refused(banks, tmp_path):
     path = tmp_path / "hedge_val.npz"
     np.savez(path, **raw)
     with pytest.raises(ValueError, match="never finite"):
-        train_hedger(banks[0], path, HedgeTrainConfig(**{**QUICK, "epochs": 1}))
+        train_hedging_model(banks[0], path, config(epochs=1))
 
 
 def test_training_refuses_banks_that_share_their_paths(banks):
     with pytest.raises(ValueError, match="share their paths"):
-        train_hedger(banks[0], banks[0], HedgeTrainConfig(**QUICK))
+        train_hedging_model(banks[0], banks[0], config())
 
 
-# risk_score
+# HedgeTrainConfig.from_dict
 
 
-def test_risk_score_is_the_configs_risk_measure_as_a_loss():
-    pnl = torch.tensor([-3.0, -1.0, 0.5, 1.0, 2.0], dtype=torch.float64)
-    assert risk_score(pnl, HedgeTrainConfig(objective="cvar", alpha=0.6)) == -cvar(pnl, 0.6)  # worst 2: +2.0
-    assert risk_score(pnl, HedgeTrainConfig(objective="entropic", lam=0.5)) == entropic(pnl, 0.5)
-    assert risk_score(pnl, HedgeTrainConfig(objective="variance")) == variance(pnl)
-    assert risk_score(pnl, HedgeTrainConfig(objective="cvar", alpha=0.6)).item() == pytest.approx(2.0)
+def test_from_dict_rebuilds_a_config_with_its_nested_settings():
+    cfg = HedgeTrainConfig(
+        hedging=HedgeSettings(rebalance_every=2, fixed=0.05, kappa=0.01), risk=RiskMeasure("entropic", lam=0.5)
+    )
+    assert HedgeTrainConfig.from_dict(asdict(cfg)) == cfg
 
 
 # HedgeTrainConfig
@@ -156,20 +169,12 @@ def test_risk_score_is_the_configs_risk_measure_as_a_loss():
 @pytest.mark.parametrize(
     ("overrides", "match"),
     [
-        ({"objective": "mean"}, "objective must be one of"),
-        ({"settlement": "swap"}, "settlement must be one of"),
         ({"activation": "sigmoid"}, "activation must be one of"),
-        ({"alpha": 1.0}, "alpha must be in"),
-        ({"alpha": 0.0}, "alpha must be in"),
         ({"batch_size": 0}, "batch_size must be >= 1"),
         ({"epochs": 0}, "epochs must be >= 1"),
-        ({"rebalance_every": 0}, "rebalance_every must be >= 1"),
+        ({"depth": 0}, "depth must be >= 1"),
         ({"lr": 0.0}, "lr must be positive"),
         ({"w_lr": math.nan}, "w_lr must be positive"),
-        ({"lam": -1.0}, "lam must be positive"),
-        ({"proportional": -0.01}, "proportional must be finite and >= 0"),
-        ({"fixed": 0.05}, "kappa is needed"),
-        ({"fixed": 0.05, "kappa": 0.0}, "kappa must be positive"),
     ],
 )
 def test_config_rejects_invalid_settings(overrides, match):

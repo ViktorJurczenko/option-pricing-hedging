@@ -8,11 +8,18 @@ policy.
 Signs: `cvar` is on the P&L scale, the metric the project reports (higher is better, usually negative). The
 training objectives `cvar_loss`, `entropic` and `variance` are losses (lower is better). They are linked by
 `min_w cvar_loss(pnl, w, alpha) == -cvar(pnl, alpha)`.
+
+`RiskMeasure` names one of these measures with its level. Training and testing each hold one, and its `loss` is
+the exact risk both report, so a hedger is tuned on the measure it is trained on.
 """
 
 import math
+from dataclasses import dataclass
 
 import torch
+
+# The risk measures a hedger can be trained and tuned on, the `name` of a `RiskMeasure`.
+RISK_MEASURES = ("cvar", "entropic", "variance")
 
 
 def _as_pnl(pnl) -> torch.Tensor:
@@ -128,3 +135,43 @@ def variance(pnl) -> torch.Tensor:
     """
     pnl = _as_pnl(pnl)
     return torch.var(pnl, correction=0)
+
+
+@dataclass(frozen=True)
+class RiskMeasure:
+    """The risk measure a hedger is trained or tuned on, with its level, as one value training and testing share.
+
+    Attributes:
+        name: one of `RISK_MEASURES`.
+        alpha: CVaR level in (0, 1), read by `"cvar"`.
+        lam: entropic risk aversion, > 0, in 1/dollars, read by `"entropic"`.
+
+    Raises:
+        ValueError: for an unknown name, `alpha` outside (0, 1), or `lam` not positive and finite.
+    """
+
+    name: str = "cvar"
+    alpha: float = 0.95  # the project's CVaR level (docs/results/hedging-training.md, "The defaults")
+    lam: float = 1.0
+
+    def __post_init__(self):
+        if self.name not in RISK_MEASURES:
+            raise ValueError(f"name must be one of {RISK_MEASURES}, got {self.name!r}")
+        _check_alpha(self.alpha)
+        if not (self.lam > 0 and math.isfinite(self.lam)):
+            raise ValueError(f"lam must be positive and finite, got {self.lam}")
+
+    def loss(self, pnl) -> torch.Tensor:
+        """The risk of a P&L sample as a loss (lower is better), computed exactly, differentiable in `pnl`.
+
+        For CVaR this is `-cvar(pnl, alpha)`, the minimum of `cvar_loss` over `w`, so it does not depend on a
+        training threshold.
+
+        Raises:
+            ValueError: if `pnl` is empty or not 1-D.
+        """
+        if self.name == "cvar":
+            return -cvar(pnl, self.alpha)
+        if self.name == "entropic":
+            return entropic(pnl, self.lam)
+        return variance(pnl)

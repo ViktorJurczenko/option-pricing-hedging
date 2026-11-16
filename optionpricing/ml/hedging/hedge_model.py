@@ -18,16 +18,13 @@ saved network prices raw features on any bank.
 import math
 import os
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from optionpricing.ml.hedging.hedge_dataset import HedgeDataset, Hedger
 from optionpricing.ml.surrogate.tree.tree_model import ACTIVATIONS
-
-if TYPE_CHECKING:  # for the annotation only: the network does not need the dataset module at run time
-    from optionpricing.ml.hedging.hedge_dataset import HedgeDataset
 
 # The rows of the `inputs` tensor the network reads, in this order. Units:
 # - log_moneyness: ln(S_k / K).
@@ -84,7 +81,7 @@ def hedge_inputs(batch: dict[str, torch.Tensor], strike: float, boundary_input: 
 
 
 def fit_feature_stats(
-    dataset: "HedgeDataset", boundary_input: bool = False, chunk_size: int = 4096
+    dataset: HedgeDataset, boundary_input: bool = False, chunk_size: int = 4096
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Mean and standard deviation of each feature over the hedge dates of a bank, to standardize the inputs.
 
@@ -245,3 +242,24 @@ class BandNetwork(nn.Module):
         model = cls(torch.zeros(n), torch.ones(n), **checkpoint["hparams"])
         model.load_state_dict(checkpoint["state_dict"])
         return model, checkpoint["extra"]
+
+
+def network_hedger(model: BandNetwork, boundary_input: bool = False) -> Hedger:
+    """The band network with its own features (`hedge_inputs`), the boundary distance included if it reads it.
+
+    Args:
+        model: the network.
+        boundary_input: whether the network was trained with the boundary distance, as its training config says.
+
+    Returns:
+        The `Hedger`, for `hedge_batch` and `hedge_bank`.
+
+    Raises:
+        ValueError: if `boundary_input` does not match the network's number of features.
+    """
+    expected = len(feature_names(boundary_input))
+    if model.n_features != expected:
+        raise ValueError(
+            f"the network reads {model.n_features} features, but boundary_input={boundary_input} gives {expected}"
+        )
+    return Hedger(model, lambda batch, strike: hedge_inputs(batch, strike, boundary_input))

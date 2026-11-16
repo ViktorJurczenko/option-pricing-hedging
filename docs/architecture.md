@@ -59,10 +59,10 @@ The Deep Hedging building blocks. Each one is a file, and training, evaluation a
 |---|---|---|
 | [simulator.py](../optionpricing/hedging/simulator.py) | `ScenarioBank`, seeded put contracts and their daily price paths | [hedging-training.md](results/hedging-training.md) |
 | [exercise.py](../optionpricing/hedging/exercise.py) | the day each holder exercises: optimal (tree), late, LSM or never | [hedging-training.md](results/hedging-training.md) |
-| [pnl.py](../optionpricing/hedging/pnl.py) | the terminal P&L of a hedged short put, the one place the accounting lives | |
+| [pnl.py](../optionpricing/hedging/pnl.py) | the terminal P&L of a hedged short put, the one place the accounting lives, with `HedgeSettings` (how a hedge is booked) and `HedgeOutcome` | [hedging-training.md](results/hedging-training.md) |
 | [costs.py](../optionpricing/hedging/costs.py) | proportional and fixed transaction costs | |
 | [settlement.py](../optionpricing/hedging/settlement.py) | settlement at exercise or expiry, in cash or by delivery | |
-| [risk.py](../optionpricing/hedging/risk.py) | risk measures of the P&L, shared by training and evaluation | |
+| [risk.py](../optionpricing/hedging/risk.py) | risk measures of the P&L, and `RiskMeasure`, the one training and testing are judged on | |
 | [baselines.py](../optionpricing/hedging/baselines.py) | baseline policies with the network's interface | |
 
 ## hedging/legacy/
@@ -94,9 +94,10 @@ The environment of the SAC hedger. Its P&L has two known bugs (`.claude/BUGS.md`
 | File | Role | Explained in |
 |---|---|---|
 | [generate_hedge_dataset.py](../optionpricing/ml/hedging/generate_hedge_dataset.py) | the bank of hedging scenarios: paths, exercise days, surrogate Greeks | [hedging-training.md](results/hedging-training.md) |
-| [hedge_dataset.py](../optionpricing/ml/hedging/hedge_dataset.py) | loads a bank, and refuses banks that don't belong together | |
+| [hedge_dataset.py](../optionpricing/ml/hedging/hedge_dataset.py) | loads a bank, refuses banks that don't belong together, and hedges it (`Hedger`, `hedge_batch`, `hedge_bank`) | [hedging-training.md](results/hedging-training.md) |
 | [hedge_model.py](../optionpricing/ml/hedging/hedge_model.py) | the no-transaction band network around the surrogate delta | |
 | [hedge_training.py](../optionpricing/ml/hedging/hedge_training.py) | Deep Hedging training: minimize a risk measure of the P&L | |
+| [hedge_evaluation.py](../optionpricing/ml/hedging/hedge_evaluation.py) | the network and every baseline scored on one test bank, the bands tuned on validation | [hedging-training.md](results/hedging-training.md) |
 | [legacy/](../optionpricing/ml/hedging/legacy) | the SAC agent: policy, critics, replay buffer, training loop | [hedging-rl.md](results/hedging-rl.md) |
 
 ## ml/experiments/

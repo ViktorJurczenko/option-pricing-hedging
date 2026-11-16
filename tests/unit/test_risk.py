@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from optionpricing.hedging.risk import cvar, cvar_loss, entropic, variance
+from optionpricing.hedging.risk import RiskMeasure, cvar, cvar_loss, entropic, variance
 
 # 20 hand-made outcomes, worst first. At alpha = 90% the tail is the two worst, so the CVaR is -3.4.
 OUTCOMES = [-4.2, -2.6, -1.7, -1.3, -1.0, -0.8, -0.6, -0.4, -0.3, -0.2]
@@ -226,3 +226,35 @@ def test_rejects_alpha_outside_the_open_unit_interval(risk, alpha):
     args = (outcomes(), alpha) if risk is cvar else (outcomes(), 0.0, alpha)
     with pytest.raises(ValueError, match="alpha must be in"):
         risk(*args)
+
+
+# RiskMeasure
+
+
+def test_risk_measure_loss_is_the_named_measure_as_a_loss():
+    pnl = torch.tensor([-3.0, -1.0, 0.5, 1.0, 2.0], dtype=torch.float64)
+    assert RiskMeasure("cvar", alpha=0.6).loss(pnl) == -cvar(pnl, 0.6)
+    assert RiskMeasure("cvar", alpha=0.6).loss(pnl).item() == pytest.approx(2.0)  # the worst 2 average -2.0
+    assert RiskMeasure("entropic", lam=0.5).loss(pnl) == entropic(pnl, 0.5)
+    assert RiskMeasure("variance").loss(pnl) == variance(pnl)
+
+
+def test_risk_measure_loss_keeps_the_graph():
+    pnl = outcomes(requires_grad=True)
+    RiskMeasure("cvar", alpha=0.9).loss(pnl).backward()
+    assert pnl.grad.abs().sum() > 0
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"name": "mean"}, "name must be one of"),
+        ({"alpha": 1.0}, "alpha must be in"),
+        ({"alpha": 0.0}, "alpha must be in"),
+        ({"lam": 0.0}, "lam must be positive"),
+        ({"lam": math.inf}, "lam must be positive"),
+    ],
+)
+def test_risk_measure_rejects_invalid_values(overrides, match):
+    with pytest.raises(ValueError, match=match):
+        RiskMeasure(**overrides)

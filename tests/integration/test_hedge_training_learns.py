@@ -9,7 +9,8 @@ a trained surrogate checkpoint.
 import numpy as np
 import pytest
 
-from optionpricing.ml.hedging.hedge_training import HedgeTrainConfig, train_hedger
+from optionpricing.hedging.pnl import HedgeSettings
+from optionpricing.ml.hedging.hedge_training import HedgeTrainConfig, train_hedging_model
 from optionpricing.pricing.european.black_scholes import black_scholes_delta, black_scholes_gamma, black_scholes_price
 from tests.helpers import write_hedge_bank, write_put_surrogate
 
@@ -48,8 +49,8 @@ def banks(tmp_path_factory):
 
 
 def test_the_band_network_beats_the_delta_hedge_at_a_one_percent_cost(banks):
-    config = HedgeTrainConfig(epochs=15, batch_size=500, proportional=0.01, lr=1e-2)
-    result = train_hedger(*banks, config)
+    config = HedgeTrainConfig(epochs=15, batch_size=500, lr=1e-2, hedging=HedgeSettings(proportional=0.01))
+    result = train_hedging_model(*banks, config)
     delta, trained = result.history[0], result.history[result.best_epoch]
     # Measured on these banks: costs 1.94 -> 1.22 dollars and CVaR loss 4.20 -> 3.04 dollars, best at epoch 13
     # (docs/results/hedging-training.md, "Training checks"). The thresholds keep most of that gain as margin, so
