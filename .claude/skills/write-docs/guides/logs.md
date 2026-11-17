@@ -17,7 +17,7 @@ This guide adds only what makes an entry good to read.
 
 ## BUGS.md entries
 
-- **The title states the symptom** in a short sentence: "Early stopping cut longer cosine schedules short". Other docs cite entries by title, so a title never changes.
+- **The title states the symptom** in a short sentence: "Early stopping cut longer cosine schedules short". Other docs cite entries by id (`guides/style.md`), so an id is never changed or reused.
 - **The symptom carries numbers** and the command or test that showed them. "The LSM delta left the valid range up to 91.6% of the time just before maturity" beats "delta was unstable".
 - **The root cause explains the mechanism**, so a reader could have predicted the symptom from it.
 - **Impact says which earlier results are invalid.** It is the part a later reader needs most.

@@ -93,7 +93,7 @@ _EXERCISE_TOL = 1e-12
 - **A short header per logical block** of a long function: `# Backward induction, one level at a time.` It lets a reader skim the function's structure.
 - **The why on anything a reader would question:** a guard, a tolerance, a non-obvious formula, a workaround.
 - **Not a narration of what the next line does.** `# increment i` adds nothing.
-- **A measured number cites where it was measured:** a `.claude/BUGS.md` entry title or a tracked doc, never the gitignored `notes/REMINDER.md`.
+- **A measured number cites where it was measured:** a `.claude/BUGS.md` entry by its id, as (.claude/BUGS.md, B-031), or a tracked doc, never the gitignored `notes/REMINDER.md`.
 
 ```python
     # The bank's daily grid, shared by every contract. These are the days the boundary is wanted on.

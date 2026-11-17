@@ -38,7 +38,7 @@ These chapters write math in Unicode code blocks. New and rewritten chapters use
 
 | What | Where | What to imitate |
 |---|---|---|
-| Bug entry | `.claude/BUGS.md`, "B-031 Early stopping cut longer cosine schedules short" | Symptom with numbers, mechanism, impact, fix with its test |
+| Bug entry | [B-031](../../../BUGS.md#b-031-early-stopping-cut-longer-cosine-schedules-short) in `.claude/BUGS.md` | Symptom with numbers, mechanism, impact, fix with its test |
 | Plan entry | `.claude/PLAN.md`, "Hedging rebuild" | A Goal paragraph with the problem and the approach |
 
 ## Explanations in general

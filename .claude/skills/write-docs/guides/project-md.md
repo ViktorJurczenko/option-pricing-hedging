@@ -62,7 +62,7 @@ Details: [surrogate-training.md](docs/results/surrogate-training.md).
 
 ### Past bugs in the README
 
-The README describes the current state. A past bug appears only when it was major, tricky to find or fix, and shows good debugging. Even then, frame it as a finding ("LSM Greeks repaired near expiry"), keep it to a sentence or two plus a number, and link the BUGS.md entry for the story. Routine fixes stay in `.claude/BUGS.md`.
+The README describes the current state. A past bug appears only when it was major, tricky to find or fix, and shows good debugging. Even then, frame it as a finding ("LSM Greeks repaired near expiry"), keep it to a sentence or two plus a number, and link the BUGS.md entry by its id for the story, as [B-031](../../../../.claude/BUGS.md#b-031-early-stopping-cut-longer-cosine-schedules-short) (`guides/style.md`). Routine fixes stay in `.claude/BUGS.md`.
 
 ### Status
 

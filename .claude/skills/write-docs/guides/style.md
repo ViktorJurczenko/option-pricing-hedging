@@ -74,7 +74,8 @@ From the author's rules (`notes/course/CRITIQUE.md` §2):
 - A result's heading states the finding: "Pricing models agree with each other", rather than "Pricing results".
 - Code names in backticks: `` `price_put_batch` ``, `` `PutSurrogate` ``.
 - CLI commands are kebab-case (`train-ml`), flags snake_case (`--option_type`).
-- Cross-doc references are links to the section, not quoted titles: [`.claude/BUGS.md`, B-037](../../../../.claude/BUGS.md#b-037-hedgingenv-applies-each-hedge-one-step-late). A BUGS.md entry is linked at its heading, so the reader jumps to the story.
+- Cross-doc references are links to the section, not quoted titles: [`docs/results/hedging-results.md`, First evaluation](../../../../docs/results/hedging-results.md#first-evaluation).
+- **A bug is cited by its id, linked to its BUGS.md heading:** [B-037](../../../../.claude/BUGS.md#b-037-hedgingenv-applies-each-hedge-one-step-late). The label is the id alone, never the entry's title. The id is short, so the sentence stays readable, and the link takes the reader to the full story. When the sentence needs the bug's gist, say it in your own words next to the link: "it booked each hedge one day late ([B-037](...))". Code comments can't link, so they follow `guides/code-docs.md`.
 - A link's path is relative to the citing file, so from `docs/results/` it starts with `../../.claude/`. GitHub's anchor is the heading in lowercase, with spaces turned into hyphens and other punctuation dropped, so P&L becomes pl.
 
 ## Style checklist
