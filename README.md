@@ -6,7 +6,7 @@ closed-form Black-Scholes to binomial trees and Longstaff-Schwartz
 Monte-Carlo, then to a neural network that prices American puts in
 microseconds, and a Deep Hedging network that will learn to hedge an
 American put under trading costs. The hedging pipeline and its baselines
-are built and measured. The network is not trained yet.
+are built and measured. The network is not trained on the full banks yet.
 
 It is a personal research project, and my first in quantitative finance.
 
@@ -31,7 +31,7 @@ below gives the command, or the function call, that produces it.
   American puts at a 1% trading cost, a tuned Whalley-Wilmott band raises
   the 95% CVaR of the hedger's P&L from -$10.42 for daily delta hedging to
   -$4.61. These are the baselines the Deep Hedging network must beat. The
-  network is not trained yet.
+  network is not trained on the full banks yet.
 - **A neural pricer for American puts.** An MLP trained on binomial-tree
   prices gives price, delta and gamma in 6-9 µs per option in batches,
   360-510× faster than the tree it learned from. Its mean error is $0.0004
@@ -51,7 +51,8 @@ below gives the command, or the function call, that produces it.
 | Pathwise derivative estimates | The LSM delta regression | Broadie & Glasserman (1996), *Management Science* |
 | Soft Actor-Critic (SAC) | The legacy RL hedging agent | Haarnoja et al. (2018), *ICML* |
 | No-trade band hedging (Whalley-Wilmott, and a fixed band) | The hedging baselines under costs, tuned on validation paths | Whalley & Wilmott (1997), *Mathematical Finance* |
-| Deep Hedging | The hedger being built, a network trained through the P&L (not trained yet) | Buehler et al. (2019), *Quantitative Finance* |
+| Deep Hedging | The hedger being built, a network trained through the P&L (not trained on the full banks yet) | Buehler et al. (2019), *Quantitative Finance* |
+| No-transaction band network | The Deep Hedging policy's output, a band around delta | Imaki et al. (2021), *arXiv:2103.01775* |
 
 ## Project status
 
@@ -61,7 +62,7 @@ below gives the command, or the function call, that produces it.
 | LSM Greeks and exercise rule | Done |
 | MLP surrogate for American puts | Done |
 | RL hedging (SAC) | Legacy: the first hedger, kept for one later comparison with Deep Hedging |
-| Deep Hedging | In progress: the pipeline is built and the baselines are measured. The network is not trained yet. The CLI and the training runs come next |
+| Deep Hedging | In progress: the pipeline is built and the baselines are measured. The network is not trained on the full banks yet. The CLI and the training runs come next |
 | Dividend-paying stocks, fast American-put benchmarks | Planned |
 
 The detailed plan is in the [roadmap](.claude/PLAN.md) and the finished
@@ -76,7 +77,7 @@ found along the way, with its root cause and fix, is in the
 | **European pricing** | Closed-form Black-Scholes and Monte-Carlo simulation, cross-checked against each other. |
 | **American pricing** | A Cox-Ross-Rubinstein binomial tree, a vectorized batch tree (CRR, BBS, BBSR), and Longstaff-Schwartz least-squares Monte-Carlo with simple or Laguerre polynomial bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
 | **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. The Deep Hedging pipeline reads its premiums, deltas and gammas. |
-| **Deep Hedging** | One differentiable P&L for the short American put (cash account, proportional and fixed costs, exercise at the tree's boundary), the baselines (no hedge, delta, a fixed band, Whalley-Wilmott) and a no-transaction band network trained on a risk measure of that P&L. The network is not trained yet. |
+| **Deep Hedging** | One differentiable P&L for the short American put (cash account, proportional and fixed costs, exercise at the tree's boundary), the baselines (no hedge, delta, a fixed band, Whalley-Wilmott) and a no-transaction band network trained on a risk measure of that P&L. The network is not trained on the full banks yet. |
 | **Legacy RL hedging** | The earlier Soft Actor-Critic agent and its Gym-style environment, kept in `legacy/` subpackages. |
 
 ## Results
@@ -322,7 +323,32 @@ This surrogate replaced a first version trained on Longstaff-Schwartz
 prices, whose write-up is in
 [`docs/results/legacy-surrogate.md`](docs/results/legacy-surrogate.md).
 
-### Under 1% costs, no-trade bands cut delta hedging's tail loss by more than half
+### Deep Hedging: a hedger trained through its P&L
+
+The hedger sells an American put and trades the stock to offset it. Under
+trading costs, the textbook delta hedge is no longer the best it can do:
+rebalancing every day costs more than the risk it removes. Deep Hedging
+(Buehler et al. 2019) learns the hedge by simulation. A network chooses the
+position on every day of many simulated paths. The P&L of each path is a
+known formula, so training minimizes a risk measure of the final P&L
+directly, by backpropagating through whole paths. There is no reward
+shaping, so the training objective is the metric the hedge is judged on.
+
+| Piece | What it does |
+|---|---|
+| P&L | One differentiable function books every hedge: the premium received at the sale, a cash account at the risk-free rate, the gains of the shares held, the cost of every trade and the payoff at exercise. Training, testing and every baseline go through it. |
+| Exercise | The holder exercises on the first day the stock is at or below the early-exercise boundary of a binomial tree. |
+| Pricing model | The MLP surrogate above gives the premium, delta and gamma of a different contract on every path, in microseconds. |
+| Policy | A no-transaction band network (Imaki et al. 2021). From the log-moneyness, the time left, `σ`, `r`, the surrogate's delta and gamma, and the position it holds, it outputs a band around that delta. The position is held while it stays inside the band and moved to the band's edge when it leaves. The untrained network starts as the delta hedge. |
+| Objective | The 95% CVaR of the final P&L, or the entropic risk or the variance. |
+
+**Status.** The pipeline is built: the bank of simulated paths, the
+network, its training loop and the evaluation. **The network is not
+trained on the full banks yet.** The first measured results are the
+baselines it will be compared with, below. Its own results will be added
+here.
+
+#### Under 1% costs, no-trade bands cut delta hedging's tail loss by more than half
 
 The hedger sells an American put at the surrogate's price and trades the
 stock daily until the holder exercises or the put expires. The holder
@@ -331,9 +357,6 @@ boundary of a binomial tree. The P&L books the premium, a cash account at
 the risk-free rate, the cost of every trade and the payoff. It is
 discounted to the sale date, in dollars at K = 100. The 95% CVaR is the
 mean P&L of the worst 5% of paths, so higher is better.
-
-**The Deep Hedging network is not trained yet.** These tables measure the
-baselines it will be compared with, and its results will be added here.
 
 ```
 python -m optionpricing.ml.hedging.generate_hedge_dataset --split val --n_contracts 10000 --output_dir artifacts/data/eval1    # ~2 min on 6 cores
