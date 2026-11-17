@@ -60,6 +60,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Evaluation
 - [x] First evaluation run
 - [x] CLI
+- [x] Keep the PC awake during long runs
 - [ ] Experiments
   Each against the right baseline, over 4 seeds:
   - costs (0.1%, 1%, 1% + fixed fee) against delta and the best band, with a few values of `κ` for the fixed fee;

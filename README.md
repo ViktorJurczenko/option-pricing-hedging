@@ -458,6 +458,12 @@ python -m optionpricing.ml.surrogate.tree.generate_tree_dataset            # art
 python -m optionpricing.ml.hedging.generate_hedge_dataset --split train   # artifacts/data/hedge_train.npz, ~5 min on 6 cores
 ```
 
+Every `main.py` command and the hedging bank generator hold Windows awake
+while they run, so an overnight run is not suspended. The display stays on,
+because on a Modern Standby PC the screen turning off suspends the run
+([B-032](.claude/BUGS.md#b-032-overnight-ablation-run-suspended-by-modern-standby)).
+Dim it rather than turn it off.
+
 Every flag of every command, and of the dataset generators, is in its
 `--help`. [`docs/architecture.md`, "Commands"](docs/architecture.md#commands)
 maps each command to its script.
@@ -485,7 +491,7 @@ every command.
 
 ```
 optionpricing/          the library, one importable package
-  core/                 GBM simulator, pricer base class, generic metrics
+  core/                 GBM simulator, pricer base class, generic metrics, keep-awake
   pricing/european/     Black-Scholes, Monte-Carlo
   pricing/american/     binomial trees, Longstaff-Schwartz, basis functions
   hedging/              Deep Hedging building blocks (risk measures, costs, settlement, scenario simulator, exercise dates, P&L and baselines so far)

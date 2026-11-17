@@ -30,6 +30,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
+from optionpricing.core.keep_awake import keep_awake
 from optionpricing.hedging.exercise import METHODS, check_method, daily_boundary, exercise_days
 from optionpricing.hedging.simulator import DAYS_PER_YEAR, ScenarioBank, simulate_scenarios
 from optionpricing.ml.surrogate.chunks import chunk_file, n_chunks_for, prepare_chunk_dir, save_chunk, tqdm_joblib
@@ -280,9 +281,11 @@ def main(argv=None):
     # JSON has no NaN in its standard, so the config stores the shift as given
     prepare_chunk_dir(chunk_dir, {**settings, "shift": args.shift, "chunk_size": args.chunk_size, **ranges})
 
-    generate_hedge_chunks(
-        bank, chunk_dir, args.chunk_size, args.surrogate, args.exercise, args.shift, args.tree_steps, args.nb_jobs
-    )
+    # held while the blocks are labelled, the long part: on this PC the screen turning off suspends the run
+    with keep_awake():
+        generate_hedge_chunks(
+            bank, chunk_dir, args.chunk_size, args.surrogate, args.exercise, args.shift, args.tree_steps, args.nb_jobs
+        )
     labels = load_hedge_chunks(chunk_dir, n_chunks_for(args.n_contracts, args.chunk_size))
 
     path = output_dir / f"hedge_{args.split}.npz"

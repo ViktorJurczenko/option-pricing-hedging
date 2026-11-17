@@ -82,8 +82,8 @@ def test_post_edit_runs_an_edited_unit_test_file_itself():
 
 
 def test_post_edit_finds_no_test_for_a_module_without_one():
-    # main.py has no tests/unit/test_main.py; an integration test is not run either
-    assert post_edit.matching_tests(Path("main.py")) == []
+    # core/base.py has no tests/unit/test_base.py; an integration test is not run either
+    assert post_edit.matching_tests(Path("optionpricing", "core", "base.py")) == []
     assert post_edit.matching_tests(Path("tests", "integration", "test_cli_smoke.py")) == []
 
 
@@ -390,7 +390,9 @@ def test_post_edit_reports_what_ruff_cannot_fix(monkeypatch, capsys):
         return type("R", (), {"returncode": int(unfixable), "stdout": "F821 undefined name", "stderr": ""})()
 
     monkeypatch.setattr(post_edit, "run", fake_run)
-    feed(monkeypatch, {"tool_input": {"file_path": str(ROOT / "main.py")}})  # main.py has no unit test file
+    feed(
+        monkeypatch, {"tool_input": {"file_path": str(ROOT / "optionpricing" / "core" / "base.py")}}
+    )  # no unit test file
     assert post_edit.main() == 2
     err = capsys.readouterr().err
     assert "could not fix" in err and "F821" in err

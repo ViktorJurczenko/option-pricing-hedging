@@ -28,7 +28,6 @@ import json
 import math
 import os
 import statistics
-import sys
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -38,6 +37,7 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
+from optionpricing.core.keep_awake import keep_awake
 from optionpricing.ml.surrogate.tree.generate_tree_dataset import COLUMNS, domain_from
 from optionpricing.ml.surrogate.tree.tree_training import TrainConfig
 from optionpricing.pricing.american.batch_binomial_tree import METHODS
@@ -340,38 +340,6 @@ def summarize(results: dict) -> str:
         cells += [_mean_sd([float(f(m)) for m in runs], spec) for _, f, spec in SUMMARY_COLUMNS]
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
-
-
-# SetThreadExecutionState flags (winbase.h): keep the setting until changed,
-# keep the system running, keep the display on
-ES_CONTINUOUS, ES_SYSTEM_REQUIRED, ES_DISPLAY_REQUIRED = 0x80000000, 0x00000001, 0x00000002
-
-
-def _set_execution_state(flags: int) -> None:
-    """The Win32 call, apart so tests can replace it."""
-    import ctypes
-
-    ctypes.windll.kernel32.SetThreadExecutionState(flags)
-
-
-@contextlib.contextmanager
-def keep_awake():
-    """
-    Keeps Windows from suspending the run while inside, and releases it
-    after (also on an error or Ctrl-C). On a Modern Standby PC (S0 low
-    power idle) turning the screen off is standby, which "sleep: never"
-    does not prevent: a first overnight run got ~30 min of compute in 9 h
-    (.claude/BUGS.md, B-032). So the display is held on too: dim it rather than turn it
-    off. Does nothing on other systems.
-    """
-    if sys.platform != "win32":
-        yield
-        return
-    _set_execution_state(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
-    try:
-        yield
-    finally:
-        _set_execution_state(ES_CONTINUOUS)  # back to the normal power settings
 
 
 def run_jobs(jobs: list, args, grid: dict) -> list:

@@ -1,5 +1,6 @@
 """Tests for optionpricing.ml.hedging.generate_hedge_dataset: the bank of hedging scenarios and its generator."""
 
+import contextlib
 import hashlib
 
 import numpy as np
@@ -222,3 +223,28 @@ def test_generate_hedge_chunks_resumes_by_redoing_only_the_missing_block(
     resumed = gen.load_hedge_chunks(tmp_path, 3)
     for col in CHUNK_COLUMNS:
         np.testing.assert_array_equal(resumed[col], full[col])
+
+
+def test_main_labels_the_blocks_inside_keep_awake(tmp_path, surrogate_path, monkeypatch):
+    # an overnight bank must not be suspended when the screen turns off (.claude/BUGS.md, B-032)
+    events = []
+
+    @contextlib.contextmanager
+    def recording_keep_awake():
+        events.append("hold")
+        try:
+            yield
+        finally:
+            events.append("release")
+
+    real_generate = gen.generate_hedge_chunks
+
+    def recording_generate(*args, **kwargs):
+        events.append("generate")
+        return real_generate(*args, **kwargs)
+
+    monkeypatch.setattr(gen, "keep_awake", recording_keep_awake)
+    monkeypatch.setattr(gen, "generate_hedge_chunks", recording_generate)
+    gen.main(tiny_args(tmp_path, surrogate_path))
+    assert events == ["hold", "generate", "release"]
+    assert (tmp_path / "hedge_train.npz").is_file()

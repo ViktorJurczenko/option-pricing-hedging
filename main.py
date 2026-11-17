@@ -1,5 +1,6 @@
 import argparse
 
+from optionpricing.core.keep_awake import keep_awake
 from scripts import price, test_hedge, test_hedge_legacy, test_ml, train_hedge, train_hedge_legacy, train_ml
 
 COMMANDS = {
@@ -33,10 +34,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main():
+def main(argv=None):
+    """Parse the command line and run the chosen command, with the PC held awake until it ends.
+
+    A training or a test can run overnight, and on this PC the screen turning off suspends it (`keep_awake`).
+
+    Args:
+        argv: the arguments after `main.py`. None reads them from the command line.
+    """
     parser = build_parser()
-    args = parser.parse_args()
-    COMMANDS[args.command].run(args)
+    args = parser.parse_args(argv)
+    with keep_awake():
+        COMMANDS[args.command].run(args)
 
 
 if __name__ == "__main__":

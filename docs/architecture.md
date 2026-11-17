@@ -4,7 +4,7 @@ This page is the map of the code: the packages, what each file is for, and where
 
 ```
 optionpricing/          the library, one importable package (pip install -e .)
-  core/                 GBM simulator, pricer base class, generic metrics
+  core/                 GBM simulator, pricer base class, generic metrics, keep-awake
   pricing/european/     Black-Scholes, Monte-Carlo
   pricing/american/     binomial trees, Longstaff-Schwartz, basis functions
   hedging/              Deep Hedging building blocks (rebuild in progress)
@@ -32,6 +32,7 @@ The pieces every pricer shares.
 | [gbm.py](../optionpricing/core/gbm.py) | `GBM`, risk-neutral price paths for one contract or many, time last | |
 | [base.py](../optionpricing/core/base.py) | `OptionPricing`, the base class of the stateful pricers | |
 | [metrics.py](../optionpricing/core/metrics.py) | generic regression metrics, used by the legacy surrogate | |
+| [keep_awake.py](../optionpricing/core/keep_awake.py) | `keep_awake`, holds Windows and the display awake during a long run: every `main.py` command, the hedging bank generator and the surrogate's ablations | [B-032](../.claude/BUGS.md#b-032-overnight-ablation-run-suspended-by-modern-standby) |
 
 ## pricing/european/
 

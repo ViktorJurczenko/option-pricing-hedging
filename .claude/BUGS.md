@@ -1584,7 +1584,7 @@ Status: fixed · Found: 2026-10-28 · Files: `tests/integration/test_cli_smoke.p
 
 ### B-032 Overnight ablation run suspended by Modern Standby
 
-Status: fixed · Found: 2026-10-28 · Files: `optionpricing/ml/experiments/run_ablations.py`
+Status: fixed · Found: 2026-10-28 · Files: `optionpricing/core/keep_awake.py`, `optionpricing/ml/experiments/run_ablations.py`, `main.py`, `optionpricing/ml/hedging/generate_hedge_dataset.py`
 
 **Symptom:** the first overnight `python -m experiments.run_ablations`
 (started 01:49) had no finished run by 10:57: the 4 running trainings
@@ -1606,6 +1606,12 @@ ES_DISPLAY_REQUIRED)` for the whole run and releases it after, also on
 an error or Ctrl-C. The display stays on (dim it): on Modern Standby
 there is no reliable way to keep a program running with the screen
 off. Pinned by the `keep_awake` tests in `tests/unit/test_run_ablations.py`.
+
+**Later (2026-11-17):** `keep_awake` moved to `optionpricing/core/keep_awake.py`,
+with its tests in `tests/unit/test_keep_awake.py`. It now also holds every
+`main.py` command and the hedging bank generator's labelling, so an overnight
+Deep Hedging run is covered too (`tests/unit/test_main.py`,
+`tests/unit/test_generate_hedge_dataset.py`).
 
 <a id="b-029"></a>
 
