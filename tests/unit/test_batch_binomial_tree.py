@@ -155,7 +155,7 @@ def test_deep_in_the_money_put_is_exercised_immediately():
 def test_greeks_stay_within_put_bounds_over_the_domain(method):
     # Before the exercise-today rule, "bbsr" at 400 steps gave delta -1.0102
     # at (m=0.8, T=5, r=0.08, sigma=0.2) and gamma -0.189 at (m=0.449, T=1,
-    # r=0.08, sigma=0.6), both exercised today (BUGS.md).
+    # r=0.08, sigma=0.6), both exercised today (.claude/BUGS.md, B-018).
     res = price_put_batch(*DOMAIN_GRID, nb_steps=400, method=method)
     assert np.all((res.delta >= -1) & (res.delta <= 0))
     assert np.all(res.gamma >= 0)
@@ -165,7 +165,7 @@ def test_greeks_stay_within_put_bounds_over_the_domain(method):
 def test_put_exercised_today_gets_exact_price_and_greeks(nb_steps):
     # m = 0.8 is just inside the exercise region: the gamma stencil's upper
     # node reached the continuation region and gave gamma 0.69 at 1000 steps
-    # (true 0), and delta -1.0102 at 400 (BUGS.md).
+    # (true 0), and delta -1.0102 at 400 (.claude/BUGS.md, B-018).
     res = price_put_batch(0.8, 5.0, 0.08, 0.2, nb_steps=nb_steps)
     assert res.price == 1 - 0.8 and res.delta == -1.0 and res.gamma == 0.0
     assert res.exercised

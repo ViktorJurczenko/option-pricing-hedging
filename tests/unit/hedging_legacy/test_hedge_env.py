@@ -359,7 +359,7 @@ def test_rollout_pnl_equals_summed_terminal_step_rewards(option_type, tc, fixed_
 
 @pytest.mark.parametrize("option_type,reward_mode", [("call", "terminal"), ("put", "accounting")])
 def test_rollout_pnl_equals_summed_step_rewards_with_paths_exercised_at_step0(option_type, reward_mode):
-    # Regression (BUGS.md, "HedgingEnv mishandles options exercised at row 0"):
+    # Regression (.claude/BUGS.md, B-011):
     # rollout_pnl used to return 0 for these paths and step() used to take a
     # hedging step. The ITM strike makes the payoff real (5 / K).
     got, expected, lsm = _rollout_pnl_and_summed_step_rewards(option_type, 0.002, 0.3, reward_mode, step0_paths=(0, 5))
@@ -447,8 +447,7 @@ def test_payoff_put_scalar_and_array():
     np.testing.assert_allclose(env._payoff(np.array([75.0, 100.0, 125.0])), [25.0, 0.0, 0.0])
 
 
-# --- options exercised at row 0 (BUGS.md, "HedgingEnv mishandles options
-# exercised at row 0") ---------------------------------------------------------
+# --- options exercised at row 0 (.claude/BUGS.md, B-011) ----------------------
 
 
 def step0_put_lsm():

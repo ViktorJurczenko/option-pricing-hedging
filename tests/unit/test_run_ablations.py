@@ -160,7 +160,7 @@ def test_summary_leaves_tolerances_a_run_was_not_scored_at_empty():
 
 
 def test_collect_results_reads_every_finished_run_of_every_variant(tmp_path):
-    # Regression: a rerun with --variants shape_0.1 rewrote summary.md with that one row (BUGS.md, B-035)
+    # Regression: a rerun with --variants shape_0.1 rewrote summary.md with that one row (.claude/BUGS.md, B-035)
     for variant, seeds in (("baseline", (42, 43)), ("softplus_output", (42,)), ("lambda_delta_0.3_softplus", (44,))):
         for seed in seeds:
             _finish(ra.run_dir(tmp_path, variant, seed), ra.run_config(variant, seed))
@@ -192,7 +192,7 @@ def _recorded_states(monkeypatch, platform):
 
 
 def test_keep_awake_holds_the_system_and_display_on_windows_then_releases(monkeypatch):
-    # Regression: on a Modern Standby PC the screen turning off suspended an overnight run (BUGS.md)
+    # Regression: on a Modern Standby PC the screen turning off suspended an overnight run (.claude/BUGS.md, B-032)
     calls = _recorded_states(monkeypatch, "win32")
     with ra.keep_awake():
         assert calls == [ra.ES_CONTINUOUS | ra.ES_SYSTEM_REQUIRED | ra.ES_DISPLAY_REQUIRED]

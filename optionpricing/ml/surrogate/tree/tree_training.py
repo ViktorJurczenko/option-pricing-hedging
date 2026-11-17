@@ -31,7 +31,7 @@ EVAL_CHUNK = 8192
 # within this fraction of the way from lr_min to lr, i.e. in the last ~20%
 # of the cosine, whatever `epochs` is. At a higher rate the validation loss
 # jitters from epoch to epoch, and a fixed patience cut 400-epoch runs
-# short before their low-rate tail (BUGS.md).
+# short before their low-rate tail (.claude/BUGS.md, B-031).
 PATIENCE_LR_FRACTION = 0.1
 
 
@@ -56,8 +56,7 @@ class TrainConfig:
         those penalties); 0 disables a term. lambda_shape defaults to 0: on
         a first small run it tripled the price error, about equally in
         every region, for a small drop in violations, and made each step
-        ~3x slower than with the delta loss alone (.claude/BUGS.md, "Shape
-        penalty's convexity term ~3000x too big"), and on the full dataset
+        ~3x slower than with the delta loss alone (.claude/BUGS.md, B-028), and on the full dataset
         (weight 0.1, 3 seeds) it was worse on price everywhere at ~2.6x the
         training time (docs/results/surrogate-training.md, "Seeded
         ablations"). The defaults are the configuration those ablations
@@ -303,7 +302,7 @@ def shape_violations(model: MLP, stats: FeatureStats, points: ShapePoints, creat
     matter: with m dV/dm and m^2 d2V/dm2 alone (only "price units"), the
     convexity term is ~price / w^2, and with w down to 0.007 in the domain
     its square outweighed the labeled loss by ~3000x (54.8 vs 0.017),
-    which is what made the penalty hurt (BUGS.md).
+    which is what made the penalty hurt (.claude/BUGS.md, B-028).
 
     The full price, not the premium: the premium alone may fall with T,
     and the European put does (deep in the money, r > 0), while an American
@@ -366,8 +365,7 @@ def initial_model(config: TrainConfig, premium: torch.Tensor) -> MLP:
     term of the loss (MSE / variance) is ~1. PyTorch's default bias (~0)
     predicts softplus(0) = ln 2 = 0.69 per unit of strike against a mean of
     ~0.012, a premium term of ~500 whose overshoot could kill the softplus
-    (.claude/BUGS.md, "Width-256 softplus surrogate stopped learning in its
-    first epoch"; docs/results/surrogate-training.md, "Output
+    (.claude/BUGS.md, B-036; docs/results/surrogate-training.md, "Output
     initialization: start at the mean premium"). The linear output already
     starts at ~1 (its constant ~0 is within half a standard deviation of
     the mean) and keeps PyTorch's default bias.

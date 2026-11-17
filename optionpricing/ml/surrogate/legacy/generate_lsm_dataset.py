@@ -84,7 +84,7 @@ def gen_data(simulation, S0, K, r, T, sigma, option_type, max_degree, reg_type) 
     Calls use the European option as a control variate, which makes the
     label the exact Black-Scholes price (an American call without dividends
     is never exercised early); plain LSM exercises calls spuriously near
-    expiry (see BUGS.md). Puts use plain LSM, which was worth more out of
+    expiry (.claude/BUGS.md, B-006). Puts use plain LSM, which was worth more out of
     sample than the control-variate rule.
     """
     is_call = option_type == "call"

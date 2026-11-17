@@ -66,7 +66,7 @@ def test_add_arguments_no_auto_alpha_flag_sets_false():
 @pytest.mark.parametrize("value", ["0", "-1", "nan"])
 def test_add_arguments_rejects_non_positive_or_non_finite_risk_lambda(value, capsys):
     # risk_lambda <= 0 would silently train a policy with no reason to hedge
-    # (see BUGS.md); the parser must reject it, naming the flag.
+    # (.claude/BUGS.md, B-005); the parser must reject it, naming the flag.
     with pytest.raises(SystemExit) as excinfo:
         _make_parser().parse_args(["--risk_lambda", value])
     assert excinfo.value.code == 2

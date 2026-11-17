@@ -117,8 +117,8 @@ the regression noise that made plain LSM exercise calls early disappears.
 `train-hedge-legacy` and `test-hedge-legacy` enable it for calls only. For puts the plain
 exercise rule was worth more out of sample, that is when the rule is fitted
 on 10,000 paths and then applied to 100,000 fresh ones (6.078 for the plain
-rule, 6.009 with the control variate, true price 6.084). Details: [`.claude/BUGS.md`, "LSM early-exercises American calls
-and mis-estimates delta"](.claude/BUGS.md#b-006).
+rule, 6.009 with the control variate, true price 6.084). Details:
+[B-006](.claude/BUGS.md#b-006-lsm-early-exercises-american-calls-and-mis-estimates-delta).
 
 ### LSM delta and gamma, accurate up to expiry
 
@@ -168,9 +168,8 @@ since 2026-09-30:
 | Exact delta | 0.015 | 0.013 |
 
 The full incident, including a regularized fix that was tried and reverted,
-is in [`.claude/BUGS.md`, "LSM delta/gamma estimates unreliable near
-maturity"](.claude/BUGS.md#b-003) and ["LSM early-exercises American calls
-and mis-estimates delta"](.claude/BUGS.md#b-006).
+is in [B-003](.claude/BUGS.md#b-003-lsm-deltagamma-estimates-unreliable-near-maturity) and
+[B-006](.claude/BUGS.md#b-006-lsm-early-exercises-american-calls-and-mis-estimates-delta).
 
 **The regression basis does not matter at degree 3.** `--reg_type laguerre`
 uses the Laguerre polynomials $`L_0, \ldots, L_d`$ of $`S/K`$, which span the same
@@ -294,8 +293,8 @@ shipped model's numbers reproduce with `test-ml --seed 43`.
   conditions at only 0.12% of the points, a reasonable rate for a fitted
   network. The exercised puts are not representative here. Their price is
   the payoff, so most conditions hold with equality, and any tiny wobble of
-  the network around them is flagged ([`.claude/BUGS.md`, "Shape-violation
-  rate inflated by exercised points"](.claude/BUGS.md#b-027)). `test-ml`
+  the network around them is flagged
+  ([B-027](.claude/BUGS.md#b-027-shape-violation-rate-inflated-by-exercised-points)). `test-ml`
   measures these rates. Training can also penalize the violations, but the
   shipped model is trained without that penalty, which made prices worse in
   the [ablations](docs/results/surrogate-training.md).

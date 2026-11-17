@@ -72,7 +72,7 @@ class LongstaffSchwartz(OptionPricing):
                 (never optimally exercised early) this eliminates the spurious
                 early exercise plain LSM makes near expiry; for a put the plain
                 rule is as good or better out of sample, so this is opt-in
-                (see BUGS.md). Also applied to calculate_option_price().
+                (.claude/BUGS.md, B-006). Also applied to calculate_option_price().
             compute_greeks: fit the per-path delta and gamma (the hedging
                 environment needs them). Turn it off when only the price is
                 wanted (dataset generation): it skips the delta regression and
@@ -180,7 +180,7 @@ class LongstaffSchwartz(OptionPricing):
           S_index: ±S_stop/S_index discounted, if the path pays off). Gamma is
           the derivative of that fit. Differentiating the continuation fit
           instead extrapolates the ITM-only polynomial to out-of-the-money
-          paths, where it gave deltas in the tens (see BUGS.md).
+          paths, where it gave deltas in the tens (.claude/BUGS.md, B-003).
 
         At step 0 every path shares S0, so both regressions are degenerate:
         lstsq returns the minimum-norm fit, whose prediction is the mean of the

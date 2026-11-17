@@ -7,7 +7,7 @@ in order, and blocks the commit (exit code 2, reasons on stderr) on failure:
 2. style: `ruff format --check .` and `ruff check .`;
 3. `pytest tests/unit`;
 4. the mutation check, when a file it depends on changed (it finds mutants
-   by exact source text, so a reformat can break it: .claude/BUGS.md B-034).
+   by exact source text, so a reformat can break it: .claude/BUGS.md, B-034).
 
 Any other Bash command passes through untouched (exit 0).
 """

@@ -42,7 +42,7 @@ class RLPolicy(nn.Module):
                 delta closed this step. Holding still is w ~ 0, reachable from
                 any strongly negative output, which the residual form can only
                 do by tracking (position - delta) exactly every step - costly
-                under trading costs (BUGS.md). residual_scale is unused. The
+                under trading costs (.claude/BUGS.md, B-010). residual_scale is unused. The
                 mean output's bias starts so that w ~ 0.9: untrained, the
                 policy is almost a delta hedge.
             "band": a learned no-trade band, action_dim must be 2. The

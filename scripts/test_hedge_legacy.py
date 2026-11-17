@@ -97,7 +97,7 @@ def run(args):
         args.max_degree,
         sigma=args.sigma,
         # European control variate only for calls: it removes plain LSM's spurious
-        # early exercise there; for puts the plain rule is as good or better (BUGS.md).
+        # early exercise there; for puts the plain rule is as good or better (.claude/BUGS.md, B-006).
         control_variate=args.option_type == "call",
     )
     lsm.predict_payoff()

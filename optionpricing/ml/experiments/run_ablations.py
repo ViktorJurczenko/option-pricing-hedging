@@ -315,7 +315,7 @@ def collect_results(out_dir) -> dict:
     {variant: [metrics of each finished run]} for every variant with a
     finished run in `out_dir`, whatever `--variants` and `--seeds` the
     current invocation asked for: a rerun of a subset rewrites summary.md
-    with every row, not only that subset's (BUGS.md, B-035). It does not
+    with every row, not only that subset's (.claude/BUGS.md, B-035). It does not
     compare settings: a run made with others (a smoke run's `--epochs`)
     left in `out_dir` is summarized with the rest, so give those their
     own `--out_dir`.
@@ -361,7 +361,7 @@ def keep_awake():
     after (also on an error or Ctrl-C). On a Modern Standby PC (S0 low
     power idle) turning the screen off is standby, which "sleep: never"
     does not prevent: a first overnight run got ~30 min of compute in 9 h
-    (BUGS.md). So the display is held on too: dim it rather than turn it
+    (.claude/BUGS.md, B-032). So the display is held on too: dim it rather than turn it
     off. Does nothing on other systems.
     """
     if sys.platform != "win32":

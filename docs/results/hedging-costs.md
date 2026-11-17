@@ -2,7 +2,7 @@
 
 Where daily delta hedging overtrades, and what a no-trade band buys.
 
-**Status.** Measured 2026-10-01, **not re-verified** since. Every number here is distorted by the legacy environment's two accounting bugs, a hedge that earns one step late and a P&L without a cash account (`.claude/BUGS.md`, B-037 and B-038). The hedging rebuild will re-measure them (`.claude/PLAN.md`, "Hedging rebuild").
+**Status.** Measured 2026-10-01, **not re-verified** since. Every number here is distorted by the legacy environment's two accounting bugs, a hedge that earns one step late and a P&L without a cash account ([B-037](../../.claude/BUGS.md#b-037-hedgingenv-applies-each-hedge-one-step-late) and [B-038](../../.claude/BUGS.md#b-038-hedging-pl-has-no-cash-account-so-the-delta-baseline-hedges-the-wrong-liability)). The hedging rebuild will re-measure them (`.claude/PLAN.md`, "Hedging rebuild").
 
 ## Setup
 
@@ -43,4 +43,4 @@ Protocol: 2000 episodes with seed 999, for the call and the put. Each band cell 
 - The two accounting bugs above distort every number, until the rebuild re-measures them.
 - "Best band" is the best of the widths and targets tried, not an optimum.
 
-The RL results under costs (`gap_fraction`, `band`) are in [hedging-rl.md](hedging-rl.md), "Hedging under trading costs", and `.claude/BUGS.md`, "RL policy under trading costs keeps trading every day; a simple band beats it".
+The RL results under costs (`gap_fraction`, `band`) are in [hedging-rl.md, At a 1% proportional cost](hedging-rl.md#at-a-1-proportional-cost) and [B-010](../../.claude/BUGS.md#b-010-rl-policy-under-trading-costs-keeps-trading-every-day-a-simple-band-beats-it).

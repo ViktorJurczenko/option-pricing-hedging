@@ -51,7 +51,7 @@ Three changes took the in-the-money error from 9.5% to 0.78%. The current checkp
 
 ## Limits
 
-- **The dataset predates the horizon fix.** Its labels come from the old simulator, which priced each option one time step short of its maturity (`.claude/BUGS.md`, "Simulated horizon was one step short of the maturity"). They are biased low by up to 0.0012·K (-3.4% at the money, more in relative terms deep out of the money, shrinking with `T`). The benchmark now runs on the full horizon, so part of the current checkpoint's at- and out-of-the-money error is this label bias. The dataset was never regenerated, since the tree surrogate replaced the pipeline first (`.claude/PLAN_ARCHIVE.md`, "ML surrogate: simple basis, calls and puts, regenerated LSM dataset").
+- **The dataset predates the horizon fix.** Its labels come from the old simulator, which priced each option one time step short of its maturity ([B-007](../../.claude/BUGS.md#b-007-simulated-horizon-was-one-step-short-of-the-maturity)). They are biased low by up to 0.0012·K (-3.4% at the money, more in relative terms deep out of the money, shrinking with `T`). The benchmark now runs on the full horizon, so part of the current checkpoint's at- and out-of-the-money error is this label bias. The dataset was never regenerated, since the tree surrogate replaced the pipeline first (`.claude/PLAN_ARCHIVE.md`, "ML surrogate: simple basis, calls and puts, regenerated LSM dataset").
 - The held-out metrics are in residual units, so they don't compare with raw `price/K` numbers.
 - The benchmark is LSM, itself a Monte-Carlo estimate. The tree surrogate is scored against an independent finer tree instead.
 

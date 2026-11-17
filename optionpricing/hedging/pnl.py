@@ -11,7 +11,7 @@ where `δ_j` is the position chosen at hedge date `t_j` (it earns from `t_j` on)
 The last position earns until `τ`, so on a grid coarser than daily the last interval is cut short at `τ`.
 
 Training, evaluation and every baseline call `hedge_pnl`, so the accounting exists once. The legacy env booked
-it twice and both copies shared the bugs (BUGS, B-037 and B-038).
+it twice and both copies shared the bugs (.claude/BUGS.md, B-037 and B-038).
 
 A policy is any callable `policy(inputs, position) -> new_position`. `inputs` is the
 `(nb_scenarios, nb_features)` slice of the caller's features at the hedge date, and `position` the

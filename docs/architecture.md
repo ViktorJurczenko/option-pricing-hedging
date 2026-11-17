@@ -67,7 +67,7 @@ The Deep Hedging building blocks. Each one is a file, and training, evaluation a
 
 ## hedging/legacy/
 
-The environment of the SAC hedger. Its P&L has two known bugs (`.claude/BUGS.md`, "HedgingEnv applies each hedge one step late" and "Hedging P&L has no cash account, so the delta baseline hedges the wrong liability"), which is why the hedger is being rebuilt.
+The environment of the SAC hedger. Its P&L has two known bugs ([B-037](../.claude/BUGS.md#b-037-hedgingenv-applies-each-hedge-one-step-late) and [B-038](../.claude/BUGS.md#b-038-hedging-pl-has-no-cash-account-so-the-delta-baseline-hedges-the-wrong-liability)), which is why the hedger is being rebuilt.
 
 | File | Role | Explained in |
 |---|---|---|
@@ -144,4 +144,4 @@ Everything runs from the project root, since imports are absolute (`from optionp
 
 **The fix.** Replace the analytic part by a smooth version that matches it away from the kink (a softplus, `smooth_intrinsic_value` in [lsm_model.py](../optionpricing/ml/surrogate/legacy/lsm_model.py)). Use the same smooth version wherever the part is added back (`lsm_evaluation.py::test_option_price_lsm`), or predictions are biased. Pick the smoothing width by a seeded sweep against a fixed benchmark.
 
-**When it applies again.** Before subtracting an analytic function from a target, check whether it has a kink the real target doesn't. The incident is `.claude/BUGS.md`, "ML surrogate pricer's target had a self-inflicted kink at ATM". The tree surrogate avoids the issue by predicting the early-exercise premium, American minus European, which has no kink at the strike.
+**When it applies again.** Before subtracting an analytic function from a target, check whether it has a kink the real target doesn't. The incident is [B-001](../.claude/BUGS.md#b-001-ml-surrogate-pricers-target-had-a-self-inflicted-kink-at-atm). The tree surrogate avoids the issue by predicting the early-exercise premium, American minus European, which has no kink at the strike.

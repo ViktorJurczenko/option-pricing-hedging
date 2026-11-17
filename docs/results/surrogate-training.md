@@ -150,7 +150,7 @@ The error elsewhere does not fall, and the worst point, among the exercised puts
 
 ### Output initialization: start at the mean premium
 
-**The problem.** At width 256, every seed's softplus output stopped learning in its first epoch (`.claude/BUGS.md`, "Width-256 softplus surrogate stopped learning in its first epoch"). The cause is where the network starts. Before training, its output weights are small, so it predicts nearly one constant `c` for every input. For a constant, the premium term of the loss is
+**The problem.** At width 256, every seed's softplus output stopped learning in its first epoch ([B-036](../../.claude/BUGS.md#b-036-width-256-softplus-surrogate-stopped-learning-in-its-first-epoch)). The cause is where the network starts. Before training, its output weights are small, so it predicts nearly one constant `c` for every input. For a constant, the premium term of the loss is
 
 ```
 premium term = 1 + (c − ȳ)² / var(y)

@@ -22,12 +22,12 @@ Entry format:
 ## Surrogate ablations and final model (2026-10-22 -> 2026-11-10, done)
 - Rebuilt the MLP surrogate on a binomial-tree teacher (BBSR, 1000 steps) with z-sampled Sobol data (2^19 rows), an early-exercise-premium target, a SiLU MLP with delta in the loss, `PutSurrogate`'s routing and payoff floor, and `test-ml`'s evaluation against an independent 4000-step tree; a learning curve set 400 epochs.
 - Seeded ablations (`run_ablations`): delta weight, output, activation, L-BFGS, shape penalty (3 seeds), their combination, the dataset (`T` range, exercised rows) and width 256 (5 seeds).
-- The softplus output's bias term now starts at the mean premium, after width 256 froze in its first epoch on every seed (BUGS, "Width-256 softplus surrogate stopped learning in its first epoch").
+- The softplus output's bias term now starts at the mean premium, after width 256 froze in its first epoch on every seed ([B-036](BUGS.md#b-036-width-256-softplus-surrogate-stopped-learning-in-its-first-epoch)).
 - Chosen: `lambda_delta` 0.3, softplus output, width 128, every exercised row, `T` from 1 week to 5 years; made `TrainConfig`'s default, with the ablations' base pinned in `ABLATION_BASE` so stored runs stay valid.
 - Not retrained: the shipped `artifacts/checkpoints/put_surrogate.pth` is seed 43 of the width-128 runs of `artifacts/runs/ablations_b036/` (the median seed on implied-vol error); `test-ml --seed 43` reproduces its report except for the timing.
 
 **Outcome:** on 2342 grid puts against BBSR-4000, $0.00045 ± 0.00004 mean error and 0.44 ± 0.04 bp of implied vol over 5 seeds (shipped: $0.00042, 0.43 bp), 6-9 µs per option in batches, 360-510x faster than the teacher.
-**Links:** commits `fcc60f1`..`aeee6d5`, `645ed22`..this one; BUGS "Width-256 softplus surrogate stopped learning in its first epoch"; `docs/results/surrogate-training.md`; README "MLP surrogate".
+**Links:** commits `fcc60f1`..`aeee6d5`, `645ed22`..this one; [B-036](BUGS.md#b-036-width-256-softplus-surrogate-stopped-learning-in-its-first-epoch); `docs/results/surrogate-training.md`; README "MLP surrogate".
 
 ## README reorganization (2026-11-05 -> 2026-11-05, done)
 - README rewritten as an overview of the work done, for an academic, resume-facing audience: pitch, Highlights, Methods and references (8 papers), Project status, How it was built, Further reading.
@@ -37,7 +37,7 @@ Entry format:
 - Every numeric comparison labelled on both sides; the `price` table rerun, the rest marked with its date or "not re-verified".
 
 **Outcome:** README 685 -> ~400 lines, all relative links resolve; review-agent approved.
-**Links:** README, `docs/results/`; BUGS B-003, B-006, B-007, B-010.
+**Links:** README, `docs/results/`; [B-003](BUGS.md#b-003-lsm-deltagamma-estimates-unreliable-near-maturity), [B-006](BUGS.md#b-006-lsm-early-exercises-american-calls-and-mis-estimates-delta), [B-007](BUGS.md#b-007-simulated-horizon-was-one-step-short-of-the-maturity), [B-010](BUGS.md#b-010-rl-policy-under-trading-costs-keeps-trading-every-day-a-simple-band-beats-it).
 
 ## Project reorganisation (2026-10-28 -> 2026-10-29, done)
 - CLAUDE.md cut from 207 lines to a short agent guide; its module detail moved verbatim to `docs/architecture.md`, then rewritten for the new layout.
@@ -47,7 +47,7 @@ Entry format:
 - ruff configured and run once over the repo; hooks in `.claude/settings.json`: ruff + matching unit test after edits, a commit gate (message format, ruff, unit suite, mutation check when its inputs change), the roadmap at session start, a living-docs reminder at stop.
 
 **Outcome:** 771 tests (674 unit + 97 integration) pass after the move and the formatting, as before; 14/14 mutants killed; each phase approved by review-agent. Moving `course/` into `notes/` was left to the user (it was the session's working directory).
-**Links:** `9a218a1`, `5b7b041`, `3b004a8`, `e5a190a`, `30c8442`, `5a353d9`, `611da60`, `865933c`, plus the hooks commit; BUGS B-033, B-034.
+**Links:** `9a218a1`, `5b7b041`, `3b004a8`, `e5a190a`, `30c8442`, `5a353d9`, `611da60`, `865933c`, plus the hooks commit; [B-033](BUGS.md#b-033-smoke-tests-looked-for-checkpoints-outside-artifacts-after-the-package-move), [B-034](BUGS.md#b-034-formatting-the-code-broke-two-mutants-source-patterns).
 
 ## Rewrite REMINDER.md into up-to-date chapters (2026-10-28, done)
 - REMINDER.md (gitignored notes) had grown as a log: commit-dated headers, "as built (step N)" sections, a duplicated summary, stale statements and no foundations.
@@ -76,7 +76,7 @@ Entry format:
 - Seeded the parameter draw and each sample's paths (`--seed`); finished chunks are saved and skipped on a re-run (`--chunk_size`). Later shared with the tree generator through `ML/surrogate/chunks.py`.
 
 **Outcome:** an interrupted run resumes, losing at most one chunk.
-**Links:** `29e3602`; BUGS "Dataset generation loses all work when interrupted".
+**Links:** `29e3602`; [B-017](BUGS.md#b-017-dataset-generation-loses-all-work-when-interrupted).
 
 ## Modularize the test helpers (2026-10-02, done)
 - Pulled duplicated helpers into shared modules: a fake LSM factory, a state builder, CLI args built from the real parsers, one subprocess helper (`tests/helpers.py`; no `conftest.py`, as no fixture is shared).
@@ -90,7 +90,7 @@ Entry format:
 - Fixed `HedgingEnv` for options exercised at row 0, tested the SAC update math, tightened weak tests, added missing coverage, removed duplicates.
 
 **Outcome:** a stricter suite; the bugs it surfaced are in BUGS.md.
-**Links:** `04aa20f`, `91691cb`, `cc607e9`, `d53ee9b`, `1be10fd`, `d90b14e`; BUGS "HedgingEnv mishandles options exercised at row 0", "LongstaffSchwartz.calculate_option_price returns 0 before predict_payoff", "r2_fn returns nan/-inf for constant targets".
+**Links:** `04aa20f`, `91691cb`, `cc607e9`, `d53ee9b`, `1be10fd`, `d90b14e`; [B-011](BUGS.md#b-011-hedgingenv-mishandles-options-exercised-at-row-0), [B-015](BUGS.md#b-015-longstaffschwartzcalculate_option_price-returns-0-before-predict_payoff), [B-014](BUGS.md#b-014-r2_fn-returns-nan-inf-for-constant-targets).
 
 ## ML surrogate: simple basis, calls and puts, regenerated LSM dataset (2026-10-02 -> 2026-10-20, superseded)
 - Switched the LSM surrogate's labels to the simple basis, added `is_call` as a 5th input (one net for calls and puts, calls labelled with the control-variate LSM), mixed call/put generation, per-type `test-ml` errors, and stored the LSM settings in the dataset.
@@ -110,7 +110,7 @@ Entry format:
 - Added `--action_mode band`: a 2-D action giving a state-dependent band half-width and a rebalancing target, so an exact hold covers a whole region of states and `delta_band` is a constant action. Vector actions in `train()` and `ReplayBuffer`.
 
 **Outcome:** matches or beats the best fixed band at 1% and at 1% + $0.05 fixed.
-**Links:** `59d2a5e`, `36dff7b`, `be73d51`; BUGS "RL policy under trading costs keeps trading every day; a simple band beats it".
+**Links:** `59d2a5e`, `36dff7b`, `be73d51`; [B-010](BUGS.md#b-010-rl-policy-under-trading-costs-keeps-trading-every-day-a-simple-band-beats-it).
 
 ## Hedge under trading costs (2026-10-01, done)
 - Exposed `--prop_tc`, added the `delta_band` baseline (`--band`, `--band_target {delta,edge}`) and measured it over a cost grid (`docs/results/hedging-costs.md`).
@@ -126,7 +126,7 @@ Entry format:
 - Found and fixed "CVaR" being the VaR in `evaluate()`.
 
 **Outcome:** puts beat the LSM delta hedge by 20-25% in P&L std, calls match it (APPROVE, 293/293 passing).
-**Links:** `064822b`, `6351d86`; BUGS "RL hedging policy trails the LSM delta hedge", '"95% CVaR" in hedging evaluation is actually the 95% VaR'.
+**Links:** `064822b`, `6351d86`; [B-008](BUGS.md#b-008-rl-hedging-policy-trails-the-lsm-delta-hedge), [B-009](BUGS.md#b-009-95-cvar-in-hedging-evaluation-is-actually-the-95-var).
 
 ## Residual-on-delta hedging policy (2026-09-30, done)
 - The plain RL policy tracked exact delta (corr 0.92-0.96) but sat 0.07-0.10 away from it, with ~2x the LSM delta hedge's P&L std.
@@ -140,7 +140,7 @@ Entry format:
 - Pathwise-delta regression for the Greeks (bins/ridge dropped), a European control variate in the continuation regression (calls only), the 364-day horizon fixed, reference-based tests; hedging policies retrained.
 
 **Outcome:** LSM delta now matches the exact delta (APPROVE on each step, 196/196 passing).
-**Links:** `4b04c0a`, `5b00207`, `f263fb5`, `0a9709f`, `c003285`; BUGS "LSM early-exercises American calls and mis-estimates delta", "Simulated horizon was one step short of the maturity".
+**Links:** `4b04c0a`, `5b00207`, `f263fb5`, `0a9709f`, `c003285`; [B-006](BUGS.md#b-006-lsm-early-exercises-american-calls-and-mis-estimates-delta), [B-007](BUGS.md#b-007-simulated-horizon-was-one-step-short-of-the-maturity).
 
 ## Fix the hedging objective so SAC has a reason to hedge (2026-09-29, done)
 - Earlier SAC tuning (alpha, lr, 10x training, a cleaner delta feature) all plateaued on `no_hedge`: under the risk-neutral drift every hedge has ~the same expected P&L, the per-step `risk_lambda` penalty pushed toward not hedging, `gamma = 0.99` discounted the terminal payoff to ~2.6%, and the entropy term drowned the per-step signal.
@@ -148,4 +148,4 @@ Entry format:
 - The follow-ups (LSM fix, residual policy, validation checkpointing) are their own entries above; Deep Hedging is in the backlog.
 
 **Outcome:** beats the LSM delta hedge on 4 seeds out of sample, calls and puts (APPROVE, 152/152 passing).
-**Links:** `3b26361`, `7b7cab4`, `040af43`, `9ebd989`, `437e6bd`, `df92cb5`, `1991ac7`; BUGS "RL hedging objective gives no incentive to hedge".
+**Links:** `3b26361`, `7b7cab4`, `040af43`, `9ebd989`, `437e6bd`, `df92cb5`, `1991ac7`; [B-005](BUGS.md#b-005-rl-hedging-objective-gives-no-incentive-to-hedge).

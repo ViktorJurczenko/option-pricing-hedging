@@ -2,7 +2,7 @@
 
 The SAC hedging agent against the analytic baselines, with the reasons behind its action modes and its checkpointing. The README keeps a summary.
 
-**Status.** Measured 2026-09-30 to 2026-10-01 (commits `c4c34a6`..`be73d51`), **not re-verified** since. Two accounting bugs in the environment distort these numbers. Each hedge earns one step late (`.claude/BUGS.md`, "HedgingEnv applies each hedge one step late"), and the P&L has no cash account ("Hedging P&L has no cash account, so the delta baseline hedges the wrong liability"). Most of RL's edge over delta on puts is likely the carry the second bug creates. The hedger is being rebuilt (`.claude/PLAN.md`, "Hedging rebuild"), and these results will be replaced.
+**Status.** Measured 2026-09-30 to 2026-10-01 (commits `c4c34a6`..`be73d51`), **not re-verified** since. Two accounting bugs in the environment distort these numbers. Each hedge earns one step late ([B-037](../../.claude/BUGS.md#b-037-hedgingenv-applies-each-hedge-one-step-late)), and the P&L has no cash account ([B-038](../../.claude/BUGS.md#b-038-hedging-pl-has-no-cash-account-so-the-delta-baseline-hedges-the-wrong-liability)). Most of RL's edge over delta on puts is likely the carry the second bug creates. The hedger is being rebuilt (`.claude/PLAN.md`, "Hedging rebuild"), and these results will be replaced.
 
 ## Setup
 
@@ -80,11 +80,11 @@ Protocol: 95% CVaR ×K, 2,000 test episodes, 4 training seeds of 1,000 episodes.
 
 **Two design choices got it there.**
 - **Residual action.** The policy learns a correction to the LSM delta rather than the whole hedge ratio, so an untrained policy starts at the delta hedge.
-- **Validation checkpointing.** The checkpoint is the policy with the lowest P&L std on 1,000 held-out paths, with the untrained policy as a candidate. Selecting on the recent training reward mostly measured which paths were drawn. It left the policies behind delta (call std 0.017-0.026, put 0.013-0.020), and a plain non-residual policy did worse still (call 0.029-0.036). Full numbers are in `.claude/BUGS.md`, "RL hedging policy trails the LSM delta hedge".
+- **Validation checkpointing.** The checkpoint is the policy with the lowest P&L std on 1,000 held-out paths, with the untrained policy as a candidate. Selecting on the recent training reward mostly measured which paths were drawn. It left the policies behind delta (call std 0.017-0.026, put 0.013-0.020), and a plain non-residual policy did worse still (call 0.029-0.036). Full numbers are in [B-008](../../.claude/BUGS.md#b-008-rl-hedging-policy-trails-the-lsm-delta-hedge).
 
 **Under costs, the band is the bar, not daily delta.** With larger costs, rebalancing to delta every day spends most of the P&L on small trades. RL beats daily delta, and the gap-fraction action helps most, since holding still is easy to represent there. With the residual action, holding means tracking a moving target exactly, and every miss is a paid trade.
 
-**The action's form was the limit, not the objective.** With the gap-fraction action, RL still trails the hand-tuned band by 0.006-0.009, even with 3,000 training episodes. It learned to close part of the gap every day, a smoothed delta hedge, rather than the band's "sit still, then act", and trades about twice as much. Giving the policy the band's form closes that gap with the same SAC objective. So the per-step mean-variance reward, judged on terminal CVaR, was not what held it back (`.claude/BUGS.md`, "RL policy under trading costs keeps trading every day").
+**The action's form was the limit, not the objective.** With the gap-fraction action, RL still trails the hand-tuned band by 0.006-0.009, even with 3,000 training episodes. It learned to close part of the gap every day, a smoothed delta hedge, rather than the band's "sit still, then act", and trades about twice as much. Giving the policy the band's form closes that gap with the same SAC objective. So the per-step mean-variance reward, judged on terminal CVaR, was not what held it back ([B-010](../../.claude/BUGS.md#b-010-rl-policy-under-trading-costs-keeps-trading-every-day-a-simple-band-beats-it)).
 
 **The learned band matches or beats the best fixed band in every cell.** It matches it for calls at 1% and beats it elsewhere, by up to 0.014 (puts with a fixed cost), on every seed, without any band width or target to tune. A constant action is the fixed band, so RL starts from the baseline's form and can learn a band that varies with time to expiry, moneyness and gamma.
 

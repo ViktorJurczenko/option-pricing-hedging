@@ -86,7 +86,7 @@ def test_a_rerun_skips_finished_runs_and_other_settings_are_refused(ablation):
     assert "0 runs to do, 2 already done" in again.stdout
     assert (out / "baseline" / "seed_1" / "metrics.json").stat().st_mtime_ns == before
 
-    # Regression: a rerun of a subset rewrote summary.md with only that subset's rows (BUGS.md, B-035)
+    # Regression: a rerun of a subset rewrote summary.md with only that subset's rows (.claude/BUGS.md, B-035)
     i = args.index("--variants")
     subset = run_python(*args[: i + 1], "baseline", *args[i + 3 :], timeout=TIMEOUT)
     assert subset.returncode == 0, subset.stderr

@@ -67,7 +67,7 @@ def test_non_positive_sigma_raises(sigma):
         LongstaffSchwartz(np.ones((2, 2)), sigma=sigma)
 
 
-# --- Delta/gamma via pathwise-delta regression (BUGS.md: differentiating the
+# --- Delta/gamma via pathwise-delta regression (.claude/BUGS.md, B-003: differentiating the
 # ITM-only continuation fit extrapolated to OTM paths, giving deltas in the tens) ---
 
 SIGMA, R, K, T = 0.2, 0.05, 100.0, 1.0
@@ -168,7 +168,7 @@ def test_sigma_none_still_gives_finite_deltas_and_same_price():
 
 def test_sigma_feature_improves_call_delta_near_expiry():
     # Without the BS feature a cubic cannot follow delta's steepening near
-    # expiry (BUGS.md); the feature must therefore reduce the error there.
+    # expiry (.claude/BUGS.md, B-006); the feature must therefore reduce the error there.
     t = N_STEPS - 3
     errs = []
     for sigma in (SIGMA, None):
@@ -187,7 +187,7 @@ def test_price_matches_known_value_independent_of_delta_change():
     assert lsm.calculate_option_price() == pytest.approx(ref, abs=0.5)
 
 
-# --- European control variate (BUGS.md: plain LSM spuriously early-exercises
+# --- European control variate (.claude/BUGS.md, B-006: plain LSM spuriously early-exercises
 # an American call near expiry because regression noise exceeds the tiny gap
 # between continuation and intrinsic value) ---
 

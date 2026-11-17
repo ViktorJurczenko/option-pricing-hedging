@@ -188,7 +188,7 @@ def test_shape_violations_are_the_relu_of_the_full_price_derivatives(data):
     d_T = (price(T=p["T"] + h) - price(T=p["T"] - h)) / (2 * h)
     d_s = (price(sigma=p["sigma"] + h) - price(sigma=p["sigma"] - h)) / (2 * h)
     # the m terms are scaled by w = sigma sqrt(T): price changes over a one-sigma move (an unscaled
-    # convexity term outweighed the labeled loss ~3000x, BUGS.md "Shape penalty's convexity term ...")
+    # convexity term outweighed the labeled loss ~3000x, .claude/BUGS.md, B-028)
     w = p["sigma"] * np.sqrt(p["T"])
     expected = np.maximum(
         np.stack([w * p["m"] * d_m, -((w * p["m"]) ** 2) * d_mm, -p["T"] * d_T, -p["sigma"] * d_s], 1), 0
@@ -337,7 +337,7 @@ def test_early_stopping_ends_a_run_that_stops_improving(tree_file):
 
 def test_early_stopping_does_not_count_epochs_while_the_rate_is_high(tree_file):
     # Regression: a fixed patience cut 400-epoch runs short while the cosine was still high and the
-    # validation loss jittered (BUGS.md). Here no epoch after the first improves (lr ~0), yet the
+    # validation loss jittered (.claude/BUGS.md, B-031). Here no epoch after the first improves (lr ~0), yet the
     # run must go on until the first epoch at or below the patience rate, then stop (patience 1).
     config = TrainConfig(**{**TINY, "epochs": 50, "lr": 1e-30, "lr_min": 0.0, "patience": 1})
     res = train_surrogate(tree_file, config)

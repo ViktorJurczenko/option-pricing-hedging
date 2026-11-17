@@ -13,8 +13,7 @@ How good a trained PutSurrogate is, as `test-ml` reports it.
 - No-arbitrage violation rates on the w-scaled measure training penalizes
   with (training.scaled_violations), continuation and exercised rows apart:
   around the exercised rows' true zeros any wobble counts, which swamped
-  the rate when they were mixed in (.claude/BUGS.md, "Shape-violation rate
-  inflated by exercised points").
+  the rate when they were mixed in (.claude/BUGS.md, B-027).
 - How often the payoff floor fires, the theta check (the net's -dV/dT
   against the Black-Scholes PDE from its own price, delta and gamma; 0 on
   exercised rows), the routing outside the domain, and the time per price.
