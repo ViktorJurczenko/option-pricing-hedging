@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | CLI |
+| [Hedging rebuild](#hedging-rebuild) | active | Experiments |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -58,8 +58,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] Policy and training loop
 - [x] Evaluation
 - [x] First evaluation run
-- [ ] CLI
-  `train-hedge` and `test-hedge` rebuilt on the new stack.
+- [x] CLI
 - [ ] Experiments
   Each against the right baseline, over 4 seeds:
   - costs (0.1%, 1%, 1% + fixed fee) against delta and the best band, with a few values of `κ` for the fixed fee;

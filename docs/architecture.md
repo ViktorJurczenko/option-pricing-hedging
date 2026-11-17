@@ -115,13 +115,17 @@ Everything runs from the project root, since imports are absolute (`from optionp
 | `python main.py price` | [price.py](../scripts/price.py) | compares the pricers on one option |
 | `python main.py train-ml` | [train_ml.py](../scripts/train_ml.py) | trains the put surrogate, one flag per `TrainConfig` field |
 | `python main.py test-ml` | [test_ml.py](../scripts/test_ml.py) | evaluates it on the test split and on a grid against a reference tree |
+| `python main.py train-hedge` | [train_hedge.py](../scripts/train_hedge.py) | trains the Deep Hedging band network, one flag per `HedgeTrainConfig` field |
+| `python main.py test-hedge` | [test_hedge.py](../scripts/test_hedge.py) | scores the network and the baselines on a test bank, with the bands tuned on a validation bank |
 | `python main.py train-hedge-legacy` | [train_hedge_legacy.py](../scripts/train_hedge_legacy.py) | trains the SAC hedger |
 | `python main.py test-hedge-legacy` | [test_hedge_legacy.py](../scripts/test_hedge_legacy.py) | evaluates the SAC hedger or a baseline |
 | `python -m optionpricing.ml.surrogate.tree.generate_tree_dataset` | | writes `artifacts/data/tree_put_dataset.npz` |
 | `python -m optionpricing.ml.hedging.generate_hedge_dataset` | | writes `artifacts/data/hedge_<split>.npz`, ~5 min on 6 cores at defaults |
 | `python -m optionpricing.ml.surrogate.legacy.generate_lsm_dataset` | | writes the legacy surrogate's dataset |
 
-`--split_ratio` and `--seed` must match between `train-ml` and `test-ml`. The cost flags and the Longstaff-Schwartz settings must match between `train-hedge-legacy` and `test-hedge-legacy` for a fair comparison. The generators resume after an interruption, and refuse to resume with other settings.
+[hedge_flags.py](../scripts/hedge_flags.py) holds the flags `train-hedge` and `test-hedge` share, one per field of `HedgeSettings` and `RiskMeasure`.
+
+`--split_ratio` and `--seed` must match between `train-ml` and `test-ml`. `test-hedge` reads the cost and risk flags from the network's checkpoint unless they are given, so by default it tests at the training settings. The cost flags and the Longstaff-Schwartz settings must match between `train-hedge-legacy` and `test-hedge-legacy` for a fair comparison. The generators resume after an interruption, and refuse to resume with other settings.
 
 ## Tests
 

@@ -1,11 +1,13 @@
 import argparse
 
-from scripts import price, test_hedge_legacy, test_ml, train_hedge_legacy, train_ml
+from scripts import price, test_hedge, test_hedge_legacy, test_ml, train_hedge, train_hedge_legacy, train_ml
 
 COMMANDS = {
     "price": price,
     "train-ml": train_ml,
     "test-ml": test_ml,
+    "train-hedge": train_hedge,
+    "test-hedge": test_hedge,
     "train-hedge-legacy": train_hedge_legacy,
     "test-hedge-legacy": test_hedge_legacy,
 }
@@ -19,6 +21,8 @@ def build_parser() -> argparse.ArgumentParser:
         "price": "Compare option pricing models (Black-Scholes, Monte-Carlo, Binomial tree, Longstaff-Schwartz).",
         "train-ml": "Train the MLP surrogate pricer for American options.",
         "test-ml": "Evaluate the MLP put surrogate against an independent binomial tree.",
+        "train-hedge": "Train the Deep Hedging band network on a bank of hedging scenarios.",
+        "test-hedge": "Score the Deep Hedging network and its baselines on a test bank.",
         "train-hedge-legacy": "Train the legacy SAC hedging policy (LSM exercise and deltas).",
         "test-hedge-legacy": "Evaluate the legacy SAC hedging policy or its baselines.",
     }

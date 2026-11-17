@@ -304,3 +304,42 @@ def test_train_ml_then_test_ml_scores_the_surrogate_it_trained(tmp_path):
     )
     assert test.returncode == 0, test.stderr
     assert "=== Test split" in test.stdout and "=== Grid" in test.stdout
+
+
+def test_train_hedge_then_test_hedge_scores_the_network_it_trained(tmp_path):
+    from tests.helpers import write_hedge_bank, write_put_surrogate
+
+    surrogate = write_put_surrogate(tmp_path / "surrogate.pth")
+    banks = {split: str(write_hedge_bank(tmp_path, surrogate, "--split", split)) for split in ("train", "val", "test")}
+    ckpt = str(tmp_path / "net.pth")
+    # a tiny net for two epochs on 8-scenario banks: this checks the wiring between the two commands, not the hedging
+    train = run_cli(
+        "train-hedge", "--train_path", banks["train"], "--valid_path", banks["val"], "--checkpoint_path", ckpt,
+        "--depth", "1", "--width", "8", "--epochs", "2", "--batch_size", "4", "--proportional", "0.01",
+    )  # fmt: skip
+    assert train.returncode == 0, train.stderr
+    assert "Best epoch" in train.stdout and f"Model was saved as : {ckpt}" in train.stdout
+
+    test = run_cli(
+        "test-hedge", "--test_path", banks["test"], "--valid_path", banks["val"], "--checkpoint_path", ckpt,
+        "--band_widths", "0", "0.1", "--risk_aversions", "1", "--batch_size", "4",
+    )  # fmt: skip
+    assert test.returncode == 0, test.stderr
+    # the test inherits the training cost, and every hedger has a row with a finite CVaR
+    assert "cost 1.00%" in test.stdout
+    rows = {line.split(" | ")[0][2:]: line.split(" | ") for line in test.stdout.splitlines() if line.startswith("| ")}
+    assert set(rows) >= {"no hedge", "delta", "band", "whalley-wilmott", "network"}
+    assert all(np.isfinite(float(rows[name][4])) for name in ("delta", "network"))
+
+
+def test_test_hedge_with_a_missing_checkpoint_fails_naming_the_flag(tmp_path):
+    from tests.helpers import write_hedge_bank, write_put_surrogate
+
+    surrogate = write_put_surrogate(tmp_path / "surrogate.pth")
+    banks = {split: str(write_hedge_bank(tmp_path, surrogate, "--split", split)) for split in ("val", "test")}
+    result = run_cli(
+        "test-hedge", "--test_path", banks["test"], "--valid_path", banks["val"],
+        "--checkpoint_path", str(tmp_path / "_none.pth"),
+    )  # fmt: skip
+    assert result.returncode != 0
+    assert "FileNotFoundError" in result.stderr and "--checkpoint_path" in result.stderr

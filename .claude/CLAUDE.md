@@ -12,7 +12,8 @@ A from-scratch option pricing and hedging research project in Python/PyTorch (Py
 Everything runs through `python main.py <command>` from the project root. Each command's flags and logic live in `scripts/<name>.py`, and `--help` lists the flags.
 - `price`: compare pricers.
 - `train-ml` / `test-ml`: train and evaluate the put surrogate. Its dataset comes from `python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`.
-- `train-hedge-legacy` / `test-hedge-legacy`: train and evaluate the legacy SAC hedging policy. The plain names are reserved for the Deep Hedging commands.
+- `train-hedge` / `test-hedge`: train the Deep Hedging band network and score it with the baselines. Its banks come from `python -m optionpricing.ml.hedging.generate_hedge_dataset --split {train,val,test}`.
+- `train-hedge-legacy` / `test-hedge-legacy`: train and evaluate the legacy SAC hedging policy.
 
 Layout: the library is the `optionpricing/` package (`core/`, `pricing/european/`, `pricing/american/`, `hedging/`, `ml/surrogate/`, `ml/hedging/`, `ml/experiments/`; the SAC stack is in `hedging/legacy/` and `ml/hedging/legacy/`; `pip install -e .` makes it importable from anywhere). `scripts/` holds the CLI commands, `tests/` the suite, `docs/` the architecture map and results. Generated outputs (datasets, checkpoints, logs, runs) go to `artifacts/`, personal notes are in `notes/`; both are gitignored.
 
