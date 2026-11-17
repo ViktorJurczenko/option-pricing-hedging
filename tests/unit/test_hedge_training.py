@@ -69,7 +69,7 @@ def test_epoch_zero_scores_the_untrained_network_and_the_best_epoch_is_returned(
 
 def test_training_lowers_the_objective_at_a_cost(banks):
     # At 1% cost, the untrained band trades back to delta every day. Widening it saves costs, so the training
-    # loss falls; at lr 1e-2 the band opens within a few steps (docs/results/hedging-training.md).
+    # loss falls; at lr 1e-2 the band opens within a few steps (docs/results/hedging-results.md, "Training checks").
     result = train(banks, epochs=10)
     losses = [h["train_loss"] for h in result.history[1:]]
     assert losses[-1] < losses[0]

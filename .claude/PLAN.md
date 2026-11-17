@@ -30,7 +30,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The dataset stores only what does not depend on training choices: paths, contracts, premiums, surrogate delta and gamma, the boundary and `τ`, and the metadata that produced them. Rebalancing frequency, costs (with `κ`), settlement, risk measure and network settings are chosen at train or test time. So one dataset serves many experiments, and a policy can be tested at other costs than it was trained on.
 
-**Layout.** The non-ML parts go in `optionpricing/hedging/` (`risk.py`, `costs.py`, `settlement.py`, `pnl.py`, `baselines.py`, `simulator.py`, `exercise.py`). The network pipeline goes in `optionpricing/ml/hedging/` (`generate_hedge_dataset.py`, `hedge_dataset.py`, `hedge_model.py`, `hedge_training.py`, `hedge_evaluation.py`). SAC and `HedgingEnv` live in `optionpricing/hedging/legacy/` and `optionpricing/ml/hedging/legacy/`, as the LSM-trained surrogate did, and run as `train-hedge-legacy` and `test-hedge-legacy`. `train-hedge` and `test-hedge` will be the Deep Hedging commands. The choices and their reasons are recorded in `docs/results/hedging-training.md`.
+**Layout.** The non-ML parts go in `optionpricing/hedging/` (`risk.py`, `costs.py`, `settlement.py`, `pnl.py`, `baselines.py`, `simulator.py`, `exercise.py`). The network pipeline goes in `optionpricing/ml/hedging/` (`generate_hedge_dataset.py`, `hedge_dataset.py`, `hedge_model.py`, `hedge_training.py`, `hedge_evaluation.py`). SAC and `HedgingEnv` live in `optionpricing/hedging/legacy/` and `optionpricing/ml/hedging/legacy/`, as the LSM-trained surrogate did, and run as `train-hedge-legacy` and `test-hedge-legacy`. `train-hedge` and `test-hedge` are the Deep Hedging commands. The choices and their reasons are recorded in `docs/results/hedging-training.md`.
 
 **Decided defaults.**
 - **Contracts.** `T` from 3 months to 1 year, `σ` from 15% to 30%, `r` from 2% to 6%, `S_0/K` from 0.9 to 1.1. A narrow family first, widened once training works. The ranges are dataset parameters, so widening means generating a new dataset.
@@ -68,7 +68,7 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
   - volatility misspecification (realized σ ≠ the hedger's σ) and stochastic volatility, where delta is no longer optimal; Explain this one first
   - if time allows, SAC retrained once on the new P&L, for one comparison.
 - [ ] Per-bucket evaluation (optional)
-  Group the test paths by maturity, volatility and moneyness (e.g. 3 × 3 × 2 buckets) and score each bucket, so a family score cannot hide a weak region. Tune the bands per bucket on the validation bank, as a baseline that knows the region ([`docs/results/hedging-training.md`, Limits and open questions](../docs/results/hedging-training.md#limits-and-open-questions)).
+  Group the test paths by maturity, volatility and moneyness (e.g. 3 × 3 × 2 buckets) and score each bucket, so a family score cannot hide a weak region. Tune the bands per bucket on the validation bank, as a baseline that knows the region ([`docs/results/hedging-results.md`, Limits and open questions](../docs/results/hedging-results.md#limits-and-open-questions)).
 
 
 ## Backlog

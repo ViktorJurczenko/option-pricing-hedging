@@ -62,7 +62,7 @@ def standard_error(pnl: torch.Tensor) -> float:
 def test_mean_pnl_is_zero_at_zero_cost(hedge_args, policy):
     # The premium is the expected discounted payoff only up to the tree's error and to the holder checking daily
     # rather than continuously, both small next to the daily delta hedge's standard error (0.009 on these paths
-    # (`docs/results/hedging-training.md`, "Baseline checks")). 4 SE is a failure for a real bias.
+    # (`docs/results/hedging-results.md`, "Baseline checks")). 4 SE is a failure for a real bias.
     pnl = hedge_pnl(policy, **hedge_args).pnl
     assert abs(pnl.mean().item()) < 4 * standard_error(pnl)
 
@@ -71,7 +71,7 @@ def test_delta_hedge_removes_most_of_the_risk_and_its_error_grows_like_sqrt_dt(h
     unhedged = hedge_pnl(b.no_hedge, **hedge_args).pnl
     daily = hedge_pnl(b.delta_hedge, **hedge_args).pnl
     every4 = hedge_pnl(b.delta_hedge, **hedge_args, rebalance_every=4).pnl
-    # Measured ratio 0.081 (`docs/results/hedging-training.md`, "Baseline checks"). 0.15 leaves room. A sign error
+    # Measured ratio 0.081 (`docs/results/hedging-results.md`, "Baseline checks"). 0.15 leaves room. A sign error
     # in delta would hold -delta, which adds the option's moves instead of cancelling them, so it would roughly
     # double the error of not hedging.
     assert daily.std() < 0.15 * unhedged.std()
@@ -88,7 +88,7 @@ def test_delta_hedge_removes_most_of_the_risk_and_its_error_grows_like_sqrt_dt(h
     ids=["whalley_wilmott", "fixed_band"],
 )
 def test_bands_beat_the_delta_hedge_under_proportional_costs(hedge_args, band):
-    # Measured (`docs/results/hedging-training.md`, "Baseline checks"): the bands' CVaR 95% is ~2.0 above the
+    # Measured (`docs/results/hedging-results.md`, "Baseline checks"): the bands' CVaR 95% is ~2.0 above the
     # delta hedge's, with a paired bootstrap standard error of 0.09-0.11, so a margin of 1.0 is ~9
     # standard errors below the measured gap. They win by trading less: their costs are 0.49 and 0.54 of the
     # delta hedge's, against the bound of 0.75.

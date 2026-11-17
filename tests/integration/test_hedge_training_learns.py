@@ -53,7 +53,7 @@ def test_the_band_network_beats_the_delta_hedge_at_a_one_percent_cost(banks):
     result = train_hedging_model(*banks, config)
     delta, trained = result.history[0], result.history[result.best_epoch]
     # Measured on these banks: costs 1.94 -> 1.22 dollars and CVaR loss 4.20 -> 3.04 dollars, best at epoch 13
-    # (docs/results/hedging-training.md, "Training checks"). The thresholds keep most of that gain as margin, so
+    # (docs/results/hedging-results.md, "Training checks"). The thresholds keep most of that gain as margin, so
     # they test that the band learned, not the exact numbers.
     assert trained["valid_mean_costs"] < 0.8 * delta["valid_mean_costs"]
     assert trained["valid_score"] < delta["valid_score"] - 0.25

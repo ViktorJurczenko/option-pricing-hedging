@@ -45,7 +45,7 @@ from optionpricing.ml.hedging.hedge_training import BATCH_SIZE, HedgeTrainConfig
 NO_HEDGE, DELTA, BAND, WHALLEY_WILMOTT, NETWORK = "no hedge", "delta", "band", "whalley-wilmott", "network"
 # Half-widths tried for `band`, in shares. 0 is the delta hedge. The grid is fine (0.0125 apart) from 0.05 to 0.125,
 # around the 0.075 that scored best at 1% cost in the first evaluation, where a grid doubling at each step had
-# stepped over it, and coarse out to 0.4 (docs/results/hedging-training.md, "First evaluation").
+# stepped over it, and coarse out to 0.4 (docs/results/hedging-results.md, "First evaluation").
 BAND_WIDTHS = (0.0, 0.025, 0.05, 0.0625, 0.075, 0.0875, 0.1, 0.1125, 0.125, 0.15, 0.175, 0.2, 0.4)
 # Risk aversions tried for `whalley-wilmott`, in 1/dollars, from 0.1 to 10, around the 1.4 that scored best at 1% cost
 # in the first evaluation, and finer between 0.3 and 3, where the score is nearly flat (same section).

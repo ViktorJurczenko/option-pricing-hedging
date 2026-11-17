@@ -57,7 +57,7 @@ Protocol: one contract per path (`T` 3 months to 1 year, `σ` 15-30%, `r` 2-6%, 
 
 Daily delta hedging spends 83% of the median premium on costs. The no-trade bands more than halve its tail loss, and Whalley-Wilmott leads the fixed band by $0.12 ± 0.03 of CVaR. At zero cost the delta hedge leaves 5.6% of the unhedged standard deviation.
 
-Full analysis: [hedging-training.md, First evaluation](results/hedging-training.md#first-evaluation), which also holds the design of the hedger.
+Full analysis: [hedging-results.md, First evaluation](results/hedging-results.md#first-evaluation). The design of the hedger is in [hedging-training.md](results/hedging-training.md).
 
 ## Legacy hedging model (SAC)
 

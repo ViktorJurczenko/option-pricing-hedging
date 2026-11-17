@@ -414,8 +414,9 @@ Run on 2026-11-17.
 Soft Actor-Critic agent. It is kept in the `legacy/` subpackages, and its
 results are in [`docs/results/hedging-rl.md`](docs/results/hedging-rl.md).
 
-Full analysis and design: [`docs/results/hedging-training.md`, First
-evaluation](docs/results/hedging-training.md#first-evaluation).
+Full analysis: [`docs/results/hedging-results.md`, First
+evaluation](docs/results/hedging-results.md#first-evaluation). The design of
+the hedger is in [`docs/results/hedging-training.md`](docs/results/hedging-training.md).
 
 ## Setup
 
@@ -526,7 +527,8 @@ result is.
   command's flags, the test layout and design notes.
 - [`docs/results/`](docs/results/): measured results in full, on
   [surrogate training and ablations](docs/results/surrogate-training.md),
-  [the Deep Hedging design](docs/results/hedging-training.md),
+  [the Deep Hedging design](docs/results/hedging-training.md) and
+  [its results](docs/results/hedging-results.md),
   [the legacy SAC hedger](docs/results/hedging-rl.md),
   [hedging baselines under costs](docs/results/hedging-costs.md) and
   [the legacy LSM-trained surrogate](docs/results/legacy-surrogate.md).
