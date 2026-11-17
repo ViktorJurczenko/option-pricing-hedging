@@ -29,13 +29,14 @@ below gives the command, or the function call, that produces it.
   at the LSM delta as good as hedging at the exact delta.
 - **No-trade bands more than halve delta hedging's tail loss.** On 20,000
   American puts at a 1% trading cost, a tuned Whalley-Wilmott band raises
-  the 95% CVaR of the hedger's P&L from -$10.42 for daily delta hedging to
-  -$4.61. These are the baselines the Deep Hedging network must beat. The
-  network is not trained on the full banks yet.
+  the 95% conditional value at risk (CVaR) of the hedger's P&L from
+  -$10.42 for daily delta hedging to -$4.61. These are the baselines the
+  Deep Hedging network must beat. The network is not trained on the full
+  banks yet.
 - **A neural pricer for American puts.** An MLP trained on binomial-tree
   prices gives price, delta and gamma in 6-9 µs per option in batches,
   360-510× faster than the tree it learned from. Its mean error is $0.0004
-  at K = 100 (0.43 bp of implied volatility) against an independent, finer
+  at $`K`$ = 100 (0.43 bp of implied volatility) against an independent, finer
   tree. Every design choice was picked by seeded ablations.
 - **Tested.** 883 tests (unit, integration, CLI smoke tests), plus a
   mutation check on the surrogate's evaluation code.
@@ -62,7 +63,7 @@ below gives the command, or the function call, that produces it.
 | LSM Greeks and exercise rule | Done |
 | MLP surrogate for American puts | Done |
 | RL hedging (SAC) | Legacy: the first hedger, kept for one later comparison with Deep Hedging |
-| Deep Hedging | In progress: the pipeline is built and the baselines are measured. The network is not trained on the full banks yet. The CLI and the training runs come next |
+| Deep Hedging | In progress: the pipeline is built and the baselines are measured. The network is not trained on the full banks yet. The training runs come next |
 | Dividend-paying stocks, fast American-put benchmarks | Planned |
 
 The detailed plan is in the [roadmap](.claude/PLAN.md) and the finished
@@ -83,7 +84,7 @@ found along the way, with its root cause and fix, is in the
 ## Results
 
 Unless stated otherwise, numbers come from the commands shown with their
-default parameters (`S0 = K = 100`, `r = 5%`, `T = 1 year`, `σ = 20%`).
+default parameters ($`S_0`$ = $`K`$ = 100, $`r`$ = 5%, $`T`$ = 1 year, $`\sigma`$ = 20%).
 Every result is also indexed on one page in [`docs/RESULTS.md`](docs/RESULTS.md),
 with links to the full analysis of each topic.
 
@@ -172,7 +173,7 @@ maturity"](.claude/BUGS.md#b-003) and ["LSM early-exercises American calls
 and mis-estimates delta"](.claude/BUGS.md#b-006).
 
 **The regression basis does not matter at degree 3.** `--reg_type laguerre`
-uses the Laguerre polynomials `L_0..L_d` of `S/K`, which span the same
+uses the Laguerre polynomials $`L_0, \ldots, L_d`$ of $`S/K`$, which span the same
 functions as `1, x, ..., x^d`, so an unregularized least-squares fit gives
 the same values in either basis. On 10,000 paths and 2 seeds:
 
@@ -186,7 +187,7 @@ At higher degrees they differ only through floating-point conditioning, and
 higher degrees are worse for both. Every LSM consumer defaults to `simple`.
 
 The Laguerre basis is there because Longstaff and Schwartz use it in their
-original paper (2001). Their version weights each polynomial by `e^{-x/2}`,
+original paper (2001). Their version weights each polynomial by $`e^{-x/2}`$,
 which changes the functions it spans, so this implementation may be a
 misreading of the paper. This is being looked into, see the
 [roadmap](.claude/PLAN.md#longstaff-schwartz).
@@ -229,14 +230,14 @@ tree price at K = 100:      [11.4928  6.0904  2.9865] delta: [-0.6833 -0.4111 -0
 ```
 
 **What it learns.** Per unit of strike, an American put's price depends on
-the moneyness `m = S/K`, the maturity `T`, the rate `r` and the volatility
-`σ`. The network learns only the early-exercise premium, the American price
-minus the European one. It draws its data from 2^19 puts priced by a 1000-step BBSR binomial
+the moneyness $`m = S/K`$, the maturity $`T`$, the rate $`r`$ and the volatility
+$`\sigma`$. The network learns only the early-exercise premium, the American price
+minus the European one. It draws its data from $`2^{19}`$ puts priced by a 1000-step BBSR binomial
 tree. The price is Black-Scholes plus that premium, and delta and gamma come
 from automatic differentiation through the same sum. The training domain is
-`T` from 1 week to 5 years, `σ` 5-60% and `r` 0-8%. Moneyness is sampled
-through `z = ln(m)/(σ√T)`, the distance to the strike in standard deviations,
-in [-3.5, 3] (and `m` in [0.4, 2.5]). Queries outside the domain are not
+$`T`$ from 1 week to 5 years, $`\sigma`$ 5-60% and $`r`$ 0-8%. Moneyness is sampled
+through $`z = \ln(m) / (\sigma \sqrt{T})`$, the distance to the strike in standard deviations,
+in [-3.5, 3] (and $`m`$ in [0.4, 2.5]). Queries outside the domain are not
 extrapolated: they go to Black-Scholes far out of the money, to the payoff
 deep in it, or to the tree. A payoff floor keeps every price at or above
 `max(1 - m, 0)`.
@@ -256,26 +257,26 @@ a difference counts only if it exceeds about 2 seed standard deviations.
 | No shape penalty, no L-BFGS finish | penalty weight 0.1, 200 L-BFGS steps | worse or within noise, and slower |
 | 400 epochs | 200, 800 | 800 lowers the delta error but raises the price error |
 | BBSR teacher, 1000 steps | CRR and BBS, 500 and 2000 steps | lowest mean price error, and 2000 steps halve the worst error at 3.5× the cost |
-| One model from 1 week to 5 years | `T` from 3 months only | simpler to ship, at 1.3-2.7× the error beyond 3 months (measured before the output-initialization fix) |
+| One model from 1 week to 5 years | $`T`$ from 3 months only | simpler to ship, at 1.3-2.7× the error beyond 3 months (measured before the output-initialization fix) |
 
 **Results.** Each model is scored against an independent 4000-step BBSR
 tree. It has 4× the teacher's steps, so it is not the labels the network
-learned. This "scoring" grid has 2342 puts: 27 values of `z` × 6 of `σ` × 8 maturities
-from 1 week to 5 years × `r` in {2%, 6%}. Price errors are in **10⁻⁴ $ at
-K = 100**, a hundredth of a cent, so 7.9 means $0.00079. "5 seeds" is the
+learned. This "scoring" grid has 2342 puts: 27 values of $`z`$ × 6 of $`\sigma`$ × 8 maturities
+from 1 week to 5 years × $`r`$ in {2%, 6%}. Price errors are in **10⁻⁴ $ at
+$`K`$ = 100**, a hundredth of a cent, so 7.9 means $0.00079. "5 seeds" is the
 configuration's mean ± standard deviation over seeds 42-46. "Shipped" is the
 checkpoint, seed 43, the median seed on implied-vol error.
 
-The implied-vol error is how far `σ` would have to move for the true price
-to equal the surrogate's, in basis points (1 bp = 0.0001 in `σ`). It enables me to put
+The implied-vol error is how far $`\sigma`$ would have to move for the true price
+to equal the surrogate's, in basis points (1 bp = 0.0001 in $`\sigma`$). It enables me to put
 errors on options of very different prices on one scale to better compare them.
 
 | Puts | Points | Mean error, 5 seeds | Mean error, shipped | Worst error, 5 seeds | Worst error, shipped | IV error (bp), 5 seeds | IV error (bp), shipped |
 |---|---|---|---|---|---|---|---|
 | near the money (`\|z\|` < 1) | 646 | 7.9 ± 0.3 | 7.9 | 166 ± 34 | 126 | 0.33 ± 0.01 | 0.35 |
-| `T` < 1 month | 494 | 0.8 ± 0.2 | 0.9 | 12 ± 2 | 11 | 0.28 ± 0.06 | 0.29 |
-| `T` 1-3 months | 455 | 1.5 ± 0.1 | 1.7 | 14 ± 4 | 14 | 0.31 ± 0.06 | 0.31 |
-| `T` ≥ 3 months | 690 | 9.0 ± 0.7 | 8.7 | 166 ± 34 | 126 | 0.61 ± 0.05 | 0.59 |
+| $`T`$ < 1 month | 494 | 0.8 ± 0.2 | 0.9 | 12 ± 2 | 11 | 0.28 ± 0.06 | 0.29 |
+| $`T`$ 1-3 months | 455 | 1.5 ± 0.1 | 1.7 | 14 ± 4 | 14 | 0.31 ± 0.06 | 0.31 |
+| $`T`$ ≥ 3 months | 690 | 9.0 ± 0.7 | 8.7 | 166 ± 34 | 126 | 0.61 ± 0.05 | 0.59 |
 | exercised today | 703 | 4.5 ± 0.7 | 3.8 | 114 ± 32 | 69 | - | - |
 | all | 2342 | 4.5 ± 0.4 | 4.2 | 166 ± 34 | 126 | 0.44 ± 0.04 | 0.43 |
 
@@ -288,7 +289,7 @@ shipped model's numbers reproduce with `test-ml --seed 43`.
 - **Delta** is within 9.0e-5 of the reference tree's on average, and within
   1.4e-4 near the money (shipped model).
 - **The price surface has the right shape.** An American put's price
-  falls and is convex in moneyness, and it rises with `T` and with `σ`. On
+  falls and is convex in moneyness, and it rises with $`T`$ and with $`\sigma`$. On
   the grid puts not exercised today, the shipped model breaks one of these
   conditions at only 0.12% of the points, a reasonable rate for a fitted
   network. The exercised puts are not representative here. Their price is
@@ -309,7 +310,7 @@ shipped model's numbers reproduce with `test-ml --seed 43`.
   shows.
 - **Rates near zero are its weakest region**, below the grid's rates. On the
   test split, the largest errors (up to about $0.10) were long-dated, deep
-  in-the-money puts at `r` below 0.2%. This was measured on earlier
+  in-the-money puts at $`r`$ below 0.2%. This was measured on earlier
   checkpoints of the same configuration, not on the shipped one.
 - **One option at a time is no faster than the tree** (2.1-2.3 ms), because
   the autograd passes for delta and gamma dominate. The speed-up needs
@@ -339,7 +340,7 @@ shaping, so the training objective is the metric the hedge is judged on.
 | P&L | One differentiable function books every hedge: the premium received at the sale, a cash account at the risk-free rate, the gains of the shares held, the cost of every trade and the payoff at exercise. Training, testing and every baseline go through it. |
 | Exercise | The holder exercises on the first day the stock is at or below the early-exercise boundary of a binomial tree. |
 | Pricing model | The MLP surrogate above gives the premium, delta and gamma of a different contract on every path, in microseconds. |
-| Policy | A no-transaction band network (Imaki et al. 2021). From the log-moneyness, the time left, `σ`, `r`, the surrogate's delta and gamma, and the position it holds, it outputs a band around that delta. The position is held while it stays inside the band and moved to the band's edge when it leaves. The untrained network starts as the delta hedge. |
+| Policy | A no-transaction band network (Imaki et al. 2021). From the log-moneyness, the time left, $`\sigma`$, $`r`$, the surrogate's delta and gamma, and the position it holds, it outputs a band around that delta. The position is held while it stays inside the band and moved to the band's edge when it leaves. The untrained network starts as the delta hedge. |
 | Objective | The 95% CVaR of the final P&L, the entropic risk or the variance. |
 
 **Status.** The pipeline is built: the bank of simulated paths, the
@@ -355,7 +356,7 @@ stock daily until the holder exercises or the put expires. The holder
 exercises on the first day the stock is at or below the early-exercise
 boundary of a binomial tree. The P&L books the premium, a cash account at
 the risk-free rate, the cost of every trade and the payoff. It is
-discounted to the sale date, in dollars at K = 100. The 95% CVaR is the
+discounted to the sale date, in dollars at $`K`$ = 100. The 95% CVaR is the
 mean P&L of the worst 5% of paths, so higher is better.
 
 ```
@@ -363,20 +364,11 @@ python -m optionpricing.ml.hedging.generate_hedge_dataset --split val --n_contra
 python -m optionpricing.ml.hedging.generate_hedge_dataset --split test --n_contracts 20000 --output_dir artifacts/data/eval1   # ~3 min
 ```
 
-The scores come from `evaluate_hedgers`, at each cost, on these two banks.
-The `test-hedge` command that will wrap it is the next step of the roadmap.
+The scores come from `test-hedge`, at each cost, on these two banks.
 
-```python
-from optionpricing.hedging.pnl import HedgeSettings
-from optionpricing.ml.hedging.hedge_evaluation import EvalConfig, evaluate_hedgers
-
-for cost in (0.0, 0.01):  # about 15 s each
-    report = evaluate_hedgers(
-        "artifacts/data/eval1/hedge_test.npz",
-        "artifacts/data/eval1/hedge_val.npz",
-        config=EvalConfig(hedging=HedgeSettings(proportional=cost)),
-    )
-    print(report.metrics, report.tuned)
+```
+python main.py test-hedge --baselines_only --test_path artifacts/data/eval1/hedge_test.npz --valid_path artifacts/data/eval1/hedge_val.npz                      # zero cost, ~15 s
+python main.py test-hedge --baselines_only --test_path artifacts/data/eval1/hedge_test.npz --valid_path artifacts/data/eval1/hedge_val.npz --proportional 0.01  # 1% cost
 ```
 
 **At zero cost, the daily delta hedge leaves 5.6% of the unhedged standard deviation.**
@@ -395,8 +387,8 @@ for cost in (0.0, 0.01):  # about 15 s each
 | Fixed band | half-width 0.075 shares | 1.83 | 52 | **1.28** | -4.73 |
 | **Whalley-Wilmott band** | risk aversion 1.4 per $ | **1.61** | **46** | 1.31 | **-4.61** |
 
-Protocol: one contract per path, drawn uniformly over `T` from 3 months to
-1 year, `σ` 15-30%, `r` 2-6% and `S_0/K` 0.9-1.1. The test bank has 20,000
+Protocol: one contract per path, drawn uniformly over $`T`$ from 3 months to
+1 year, $`\sigma`$ 15-30%, $`r`$ 2-6% and $`S_0/K`$ 0.9-1.1. The test bank has 20,000
 paths (seed 3). Each band's parameter was tuned on CVaR on a separate
 validation bank of 10,000 paths (seed 2), over the default grids of
 `hedge_evaluation.py`: 13 half-widths from 0 to 0.4 shares and 9 risk
@@ -452,8 +444,10 @@ python main.py <command> --help        # list a command's flags
 | `price` | Compare pricing models (`--option_class {EU,US,both}`, `--option_type {call,put}`, plus strike, volatility, rate, maturity and sampling flags). |
 | `train-ml` | Train the put surrogate (`PutSurrogate`) on `artifacts/data/tree_put_dataset.npz`, saved to `artifacts/checkpoints/put_surrogate.pth`. |
 | `test-ml` | Evaluate the put surrogate: test-split errors, and a factorial grid against an independent finer binomial tree (price, implied-vol, delta and gamma errors, no-arbitrage violations, timing). |
+| `train-hedge` | Train the Deep Hedging band network on `artifacts/data/hedge_train.npz`, keeping the best epoch on `artifacts/data/hedge_val.npz`, saved to `artifacts/checkpoints/hedge_network.pth`. One flag per training setting: network, costs (`--proportional`, `--fixed`, `--kappa`), settlement, risk measure (`--risk {cvar,entropic,variance}`, `--alpha`) and optimizer. |
+| `test-hedge` | Score the network and the baselines (no hedge, delta, a fixed band, Whalley-Wilmott) on `artifacts/data/hedge_test.npz`, with the bands tuned on the validation bank. The costs and the risk measure default to the network's training ones. `--baselines_only` skips the network. |
 | `train-hedge-legacy` | Train the legacy SAC hedging policy (`--action_mode {residual,gap_fraction,band}`, `--prop_tc`, `--fixed_tc`, validation checkpointing via `--val_paths`/`--val_metric`). |
-| `test-hedge-legacy` | Evaluate the legacy SAC policy or a baseline (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% VaR and 95% CVaR over simulated episodes. |
+| `test-hedge-legacy` | Evaluate the legacy SAC policy or a baseline (`--policy {rl,delta,delta_band,no_hedge}`): mean P&L, std P&L, 95% value at risk (VaR) and 95% CVaR over simulated episodes. |
 
 The surrogate's dataset and the Deep Hedging bank of scenarios have their own
 entry points, run as modules. Both are seeded and resumable after an
