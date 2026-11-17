@@ -4,15 +4,16 @@ This project aims at pricing and hedging American options. It is built
 from first principles in Python and PyTorch. The project goes from
 closed-form Black-Scholes to binomial trees and Longstaff-Schwartz
 Monte-Carlo, then to a neural network that prices American puts in
-microseconds, and a reinforcement-learning agent that learns to hedge an
-American option under trading costs.
+microseconds, and a Deep Hedging network that will learn to hedge an
+American put under trading costs. The hedging pipeline and its baselines
+are built and measured. The network is not trained yet.
 
 It is a personal research project, and my first in quantitative finance.
 
 Everything is implemented from scratch on top of NumPy/SciPy and PyTorch:
-GBM path simulation, the pricers, the MLP surrogate, the hedging environment
-and the Soft Actor-Critic agent. No quant or RL library is used. Each result
-below is produced by a command in this repository.
+GBM path simulation, the pricers, the MLP surrogate, the hedging P&L, its
+baselines and the hedging network. No quant or RL library is used. Each result
+below gives the command, or the function call, that produces it.
 
 ## Highlights
 
@@ -26,13 +27,11 @@ below is produced by a command in this repository.
   before maturity. A separate regression of pathwise deltas cut the
   out-of-the-money delta error from 0.2-0.9 to under 0.02, and made hedging
   at the LSM delta as good as hedging at the exact delta.
-- **An RL hedger that beats delta hedging on the American put**
-  (snapshot, 2026-10, distorted by two env bugs, see the hedging results).
-  The SAC agent's hedging error is 19-25% below daily delta hedging on the
-  put, and on par with it on the call. Under trading
-  costs, a learned no-trade band matches the best hand-tuned band within
-  seed noise or beats it, without any tuning. RL hedging is still in
-  development.
+- **No-trade bands more than halve delta hedging's tail loss.** On 20,000
+  American puts at a 1% trading cost, a tuned Whalley-Wilmott band raises
+  the 95% CVaR of the hedger's P&L from -$10.42 for daily delta hedging to
+  -$4.61. These are the baselines the Deep Hedging network must beat. The
+  network is not trained yet.
 - **A neural pricer for American puts.** An MLP trained on binomial-tree
   prices gives price, delta and gamma in 6-9 µs per option in batches,
   360-510× faster than the tree it learned from. Its mean error is $0.0004
@@ -50,9 +49,9 @@ below is produced by a command in this repository.
 | Binomial Black-Scholes with Richardson extrapolation (BBSR) | The surrogate's training labels | Broadie & Detemple (1996), *Review of Financial Studies* |
 | Least-squares Monte-Carlo (LSM) | American exercise decisions and Greeks along simulated paths | Longstaff & Schwartz (2001), *Review of Financial Studies* |
 | Pathwise derivative estimates | The LSM delta regression | Broadie & Glasserman (1996), *Management Science* |
-| Soft Actor-Critic (SAC) | The RL hedging agent | Haarnoja et al. (2018), *ICML* |
-| No-trade band hedging (after Whalley & Wilmott; band widths tuned empirically) | The hedging baseline under costs | Whalley & Wilmott (1997), *Mathematical Finance* |
-| Deep Hedging | Planned (see Project status) | Buehler et al. (2019), *Quantitative Finance* |
+| Soft Actor-Critic (SAC) | The legacy RL hedging agent | Haarnoja et al. (2018), *ICML* |
+| No-trade band hedging (Whalley-Wilmott, and a fixed band) | The hedging baselines under costs, tuned on validation paths | Whalley & Wilmott (1997), *Mathematical Finance* |
+| Deep Hedging | The hedger being built, a network trained through the P&L (not trained yet) | Buehler et al. (2019), *Quantitative Finance* |
 
 ## Project status
 
@@ -61,8 +60,8 @@ below is produced by a command in this repository.
 | European and American pricers | Done |
 | LSM Greeks and exercise rule | Done |
 | MLP surrogate for American puts | Done |
-| RL hedging (SAC) | Working, under active development: the results below are a snapshot |
-| Deep Hedging | In progress: the P&L, its building blocks, the baselines, the dataset, the band network, its training loop and its evaluation are built. The CLI and the first measured results come next |
+| RL hedging (SAC) | Legacy: the first hedger, kept for one later comparison with Deep Hedging |
+| Deep Hedging | In progress: the pipeline is built and the baselines are measured. The network is not trained yet. The CLI and the training runs come next |
 | Dividend-paying stocks, fast American-put benchmarks | Planned |
 
 The detailed plan is in the [roadmap](.claude/PLAN.md) and the finished
@@ -76,8 +75,9 @@ found along the way, with its root cause and fix, is in the
 |---|---|
 | **European pricing** | Closed-form Black-Scholes and Monte-Carlo simulation, cross-checked against each other. |
 | **American pricing** | A Cox-Ross-Rubinstein binomial tree, a vectorized batch tree (CRR, BBS, BBSR), and Longstaff-Schwartz least-squares Monte-Carlo with simple or Laguerre polynomial bases, an optional European control variate, and delta/gamma from a regression of pathwise deltas. |
-| **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. Standalone: the hedging environment prices with `LongstaffSchwartz` for the moment. |
-| **RL hedging** | A Soft Actor-Critic agent trained in a custom Gym-style environment to hedge an American option until its exercise date, under proportional and fixed trading costs, compared against delta-hedge, no-trade-band and no-hedge baselines. Under active development. |
+| **ML surrogate pricer** | A smooth MLP trained on binomial-tree prices of American puts, giving price, delta and gamma in microseconds per option in batches. The Deep Hedging pipeline reads its premiums, deltas and gammas. |
+| **Deep Hedging** | One differentiable P&L for the short American put (cash account, proportional and fixed costs, exercise at the tree's boundary), the baselines (no hedge, delta, a fixed band, Whalley-Wilmott) and a no-transaction band network trained on a risk measure of that P&L. The network is not trained yet. |
+| **Legacy RL hedging** | The earlier Soft Actor-Critic agent and its Gym-style environment, kept in `legacy/` subpackages. |
 
 ## Results
 
@@ -322,102 +322,85 @@ This surrogate replaced a first version trained on Longstaff-Schwartz
 prices, whose write-up is in
 [`docs/results/legacy-surrogate.md`](docs/results/legacy-surrogate.md).
 
-### RL hedging
+### Under 1% costs, no-trade bands cut delta hedging's tail loss by more than half
 
-This part is still under active development. The design and the numbers
-below are a snapshot and will most likely change.
+The hedger sells an American put at the surrogate's price and trades the
+stock daily until the holder exercises or the put expires. The holder
+exercises on the first day the stock is at or below the early-exercise
+boundary of a binomial tree. The P&L books the premium, a cash account at
+the risk-free rate, the cost of every trade and the payoff. It is
+discounted to the sale date, in dollars at K = 100. The 95% CVaR is the
+mean P&L of the worst 5% of paths, so higher is better.
 
-The hedger is short an American option and trades the stock to offset it.
-`HedgingEnv` simulates GBM paths and wraps a fitted `LongstaffSchwartz`
-model. The state is spot/strike, time, the LSM delta and gamma, and the
-current position, and each episode runs until the path's LSM exercise date.
-Trades pay a proportional cost (`--prop_tc`, a fraction of the traded
-value) and optionally a fixed cost per trade (`--fixed_tc`). A Soft
-Actor-Critic agent chooses the hedge in one of three action modes
-(`--action_mode`):
-- `residual` (default): a bounded correction to the LSM delta,
-  `clip(delta + 0.1·tanh(u))`, so an untrained policy starts at delta hedging.
-- `gap_fraction`: the fraction of the gap to delta closed each day.
-- `band`: a no-trade band whose half-width and rebalancing target the
-  policy chooses at every step.
-
-It is measured against analytic baselines (`--policy`): `delta` (rebalance
-to the LSM delta daily), `delta_band` (a fixed no-trade band, rebalancing
-to delta or to the band's edge) and `no_hedge`.
-
-**Protocol.** Each policy is evaluated on the same 2,000 simulated episodes
-(`--seed 999 --n_episodes 2000`). `test-hedge-legacy` reseeds before evaluating, so
-every policy sees identical paths. P&L is the hedge's cash flow minus the
-option payoff, ×K. It excludes the option premium, so its mean is not a
-measure of hedge quality. Std P&L is the hedging error, and 95% CVaR, the
-mean of the worst 5% of episodes, is the tail risk (higher is better). RL
-rows give the range over 4 training seeds.
-
-> **Results snapshot, known to be distorted.** Measured 2026-09-30 to
-> 2026-10-01. The environment applies each hedge one step late and books no
-> cash account ([B-037](.claude/BUGS.md#b-037) and
-> [B-038](.claude/BUGS.md#b-038) in `.claude/BUGS.md`).
-> Both inflate the delta hedge's error. Most of RL's edge on puts is likely
-> the carry the second creates: in an external measurement, the untrained
-> Black-Scholes delta at r = 0 matched it. The hedger is being rebuilt, and
-> these numbers will be replaced. The full analysis is in
-> [`docs/results/hedging-rl.md`](docs/results/hedging-rl.md).
-
-**At a 0.1% proportional cost** (`train-hedge-legacy` defaults, 1,000 episodes per
-training run):
+**The Deep Hedging network is not trained yet.** These tables measure the
+baselines it will be compared with, and its results will be added here.
 
 ```
-python main.py test-hedge-legacy --policy rl
-python main.py test-hedge-legacy --policy delta
-python main.py test-hedge-legacy --policy no_hedge
+python -m optionpricing.ml.hedging.generate_hedge_dataset --split val --n_contracts 10000 --output_dir artifacts/data/eval1    # ~2 min on 6 cores
+python -m optionpricing.ml.hedging.generate_hedge_dataset --split test --n_contracts 20000 --output_dir artifacts/data/eval1   # ~3 min
 ```
 
-| Policy | Put: Std P&L | Put: 95% CVaR | Call: Std P&L | Call: 95% CVaR |
-|---|---|---|---|---|
-| **RL (residual)** | **0.0089-0.0096** | **-0.100 to -0.103** | 0.0142-0.0149 | -0.112 to -0.113 |
-| Delta hedge (LSM delta) | 0.0119 | -0.110 | **0.0142** | **-0.112** |
-| No hedge | 0.0725 | -0.186 | 0.154 | -0.571 |
+The scores come from `evaluate_hedgers`, at each cost, on these two banks.
+The `test-hedge` command that will wrap it is the next step of the roadmap.
 
-- **On the American put, RL beats delta hedging** on every seed: 19-25%
-  lower hedging error and a better tail (see the caveat above). It even
-  beats hedging at the exact tree delta (std 0.012-0.013). A hypothesis, not verified: episodes end at
-  LSM's slightly suboptimal exercise date, which a learned hedge can adapt
-  to and a model delta cannot.
-- **On the call, RL matches delta hedging**: training never improved on the
-  untrained policy, which already hedges at delta.
+```python
+from optionpricing.hedging.pnl import HedgeSettings
+from optionpricing.ml.hedging.hedge_evaluation import EvalConfig, evaluate_hedgers
 
-**Under higher trading costs**, daily delta hedging overtrades. The
-classical answer is a no-trade band, so the fixed band, not daily delta, is
-the bar for RL. Policies are compared on CVaR, because std ignores what a
-policy spends on trading:
-
-```
-python main.py train-hedge-legacy --prop_tc 0.01 --fixed_tc 0.05 --action_mode band --val_metric cvar
-python main.py test-hedge-legacy  --prop_tc 0.01 --fixed_tc 0.05 --policy rl
-python main.py test-hedge-legacy  --prop_tc 0.01 --fixed_tc 0.05 --policy delta_band --band 0.175 --band_target delta
+for cost in (0.0, 0.01):  # about 15 s each
+    report = evaluate_hedgers(
+        "artifacts/data/eval1/hedge_test.npz",
+        "artifacts/data/eval1/hedge_val.npz",
+        config=EvalConfig(hedging=HedgeSettings(proportional=cost)),
+    )
+    print(report.metrics, report.tuned)
 ```
 
-| 95% CVaR (×K) | 1%: Call | 1%: Put | 1% + $0.05: Call | 1% + $0.05: Put |
-|---|---|---|---|---|
-| Daily delta | -0.198 | -0.208 | -0.380 | -0.390 |
-| RL, gap-fraction action | -0.143 to -0.147 | -0.135 to -0.144 | -0.324 to -0.329 | -0.325 to -0.332 |
-| Best fixed band (width, target) | -0.136 (0.1, edge) | -0.130 (0.1, edge) | -0.148 (0.175, delta) | -0.146 (0.175, delta) |
-| **RL, learned band** | **-0.136 to -0.137** | **-0.123 to -0.128** | **-0.145 to -0.147** | **-0.132 to -0.138** |
+**At zero cost, the daily delta hedge leaves 5.6% of the unhedged standard deviation.**
 
-- **The learned band matches the best hand-tuned band within seed noise,
-  or beats it.** For calls at 1% it is level (-0.136 to -0.137 for the
-  learned band, -0.136 for the fixed band). In the other three cells it is
-  better on every seed, by up to 0.014 (puts with a fixed cost). No band
-  width or target was tuned by hand.
-- **The action parametrization was the limit, not the objective.** With the
-  gap-fraction action, the agent learned a smoothed delta hedge that trades
-  every day. Under a fixed cost each of those small trades pays the full
-  fee, which leaves it barely better than daily delta. Giving the policy the
-  band's form, with the same SAC objective, closed the gap. Details:
-  [`.claude/BUGS.md`, "RL policy under trading costs keeps trading every
-  day; a simple band beats it"](.claude/BUGS.md#b-010). The fixed-band
-  baselines over a grid of costs are in
-  [`docs/results/hedging-costs.md`](docs/results/hedging-costs.md).
+| Hedger | Mean P&L (¢) | Std P&L ($) | 95% CVaR ($) |
+|---|---|---|---|
+| No hedge | -3.3 ± 5.2 | 7.29 | -15.26 |
+| **Delta, daily** | +0.7 ± 0.3 | **0.40** | **-0.93** |
+
+**At a 1% proportional cost, the no-trade bands more than halve the tail loss.**
+
+| Hedger | Tuned parameter | Mean costs ($) | Trades per path | Std P&L ($) | 95% CVaR ($) |
+|---|---|---|---|---|---|
+| No hedge | | 0 | 0 | 7.29 | -15.26 |
+| Delta, daily | | 5.14 | 191 | 2.32 | -10.42 |
+| Fixed band | half-width 0.075 shares | 1.83 | 52 | **1.28** | -4.73 |
+| **Whalley-Wilmott band** | risk aversion 1.4 per $ | **1.61** | **46** | 1.31 | **-4.61** |
+
+Protocol: one contract per path, drawn uniformly over `T` from 3 months to
+1 year, `σ` 15-30%, `r` 2-6% and `S_0/K` 0.9-1.1. The test bank has 20,000
+paths (seed 3). Each band's parameter was tuned on CVaR on a separate
+validation bank of 10,000 paths (seed 2), over the default grids of
+`hedge_evaluation.py`: 13 half-widths from 0 to 0.4 shares and 9 risk
+aversions from 0.1 to 10 per $. Deltas come from the
+surrogate, settlement is in cash. Mean P&L is given ± one standard error.
+Run on 2026-11-17.
+
+- **The P&L shows no visible bias.** A hedger who sells at a fair premium
+  makes 0 on average. The no-hedge mean is within one standard error of 0.
+  The delta hedge's mean is 2.4 standard errors above 0, but it is under a
+  cent, small next to its $0.40 standard deviation. Its source is still
+  being checked.
+- **Daily delta hedging spends most of the premium on costs.** It pays
+  $5.14 per path on average, 83% of the median premium of $6.16. The two
+  bands trade about 4 times less and cut the costs by about two thirds.
+- **Whalley-Wilmott is the best baseline.** Its CVaR is $0.12 above the
+  fixed band's, with a paired bootstrap standard error of $0.03. Its width
+  follows the put's gamma and the share price, so one tuned parameter fits
+  every contract of the family. A fixed width does not follow gamma, so it
+  fits the family less well.
+
+**The legacy hedger.** Before Deep Hedging, the project hedged with a
+Soft Actor-Critic agent. It is kept in the `legacy/` subpackages, and its
+results are in [`docs/results/hedging-rl.md`](docs/results/hedging-rl.md).
+
+Full analysis and design: [`docs/results/hedging-training.md`, First
+evaluation](docs/results/hedging-training.md#first-evaluation).
 
 ## Setup
 
@@ -504,7 +487,7 @@ artifacts/              generated datasets, checkpoints, logs, runs (gitignored,
 Pricers are grouped by option class, everything learned lives in
 `optionpricing/ml/`, and the hedging problem the learners train in lives in
 `optionpricing/hedging/`. The SAC agent and its environment are in `legacy/`
-subpackages, while the hedger is rebuilt as Deep Hedging. Dependencies point one way: `core` <- `pricing` <-
+subpackages, next to the Deep Hedging stack. Dependencies point one way: `core` <- `pricing` <-
 `hedging` <- `ml`. [`docs/architecture.md`](docs/architecture.md) gives
 each file's role, and each module's docstrings give its API.
 
@@ -526,7 +509,8 @@ result is.
   command's flags, the test layout and design notes.
 - [`docs/results/`](docs/results/): measured results in full, on
   [surrogate training and ablations](docs/results/surrogate-training.md),
-  [RL hedging](docs/results/hedging-rl.md),
+  [the Deep Hedging design](docs/results/hedging-training.md),
+  [the legacy SAC hedger](docs/results/hedging-rl.md),
   [hedging baselines under costs](docs/results/hedging-costs.md) and
   [the legacy LSM-trained surrogate](docs/results/legacy-surrogate.md).
 - [Design decisions and bug log](.claude/BUGS.md): every problem found, with

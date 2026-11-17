@@ -43,9 +43,25 @@ Continuous moneyness sampling, a smooth target and more paths per label took the
 
 Full analysis: [legacy-surrogate.md](results/legacy-surrogate.md).
 
-## RL hedging (legacy SAC)
+## Deep Hedging baselines
 
-The SAC agent against delta hedging and no-trade bands. These numbers are distorted by two accounting bugs in the legacy environment, and the hedging rebuild will replace them.
+What the baselines achieve on the American put before any learning, on 20,000 test paths across the contract family. They are what the Deep Hedging network will be scored against. The network is not trained yet.
+
+| Hedger, 1% proportional cost | Tuned value | Mean costs ($) | Std P&L ($) | 95% CVaR ($) |
+|---|---|---|---|---|
+| Delta, daily | | 5.14 | 2.32 | -10.42 |
+| Fixed band | half-width 0.075 shares | 1.83 | **1.28** | -4.73 |
+| **Whalley-Wilmott band** | `γ` = 1.4 per $ | **1.61** | 1.31 | **-4.61** |
+
+Protocol: one contract per path (`T` 3 months to 1 year, `σ` 15-30%, `r` 2-6%, `S_0/K` 0.9-1.1), test bank seed 3, bands tuned on CVaR on a validation bank of 10,000 paths (seed 2). P&L in dollars at K = 100.
+
+Daily delta hedging spends 83% of the median premium on costs. The no-trade bands more than halve its tail loss, and Whalley-Wilmott leads the fixed band by $0.12 ± 0.03 of CVaR. At zero cost the delta hedge leaves 5.6% of the unhedged standard deviation.
+
+Full analysis: [hedging-training.md, First evaluation](results/hedging-training.md#first-evaluation), which also holds the design of the hedger.
+
+## Legacy hedging model (SAC)
+
+The project's first hedger, a Soft Actor-Critic agent, against delta hedging and no-trade bands. It is kept for one later comparison with Deep Hedging. These numbers are distorted by two accounting bugs in its environment, so they are not comparable with the Deep Hedging baselines above.
 
 | Policy, 1% cost + $0.05 per trade | Call: 95% CVaR, ×K | Put: 95% CVaR, ×K |
 |---|---|---|
@@ -55,12 +71,6 @@ The SAC agent against delta hedging and no-trade bands. These numbers are distor
 
 Protocol: 2,000 test episodes, RL ranges over 4 training seeds.
 
-A learned no-trade band matches or beats the best hand-tuned band in both cost regimes tested, without any tuning. At a low cost, RL has a 19-25% lower hedging error than delta hedging on the put.
+In that environment, a learned no-trade band matched or beat the best hand-tuned band in both cost regimes tested, without any tuning.
 
 Full analysis: [hedging-rl.md](results/hedging-rl.md), and the baselines alone over a grid of costs in [hedging-costs.md](results/hedging-costs.md).
-
-## Deep Hedging rebuild (in progress)
-
-The design of the new hedger: one differentiable P&L, a no-transaction band network around the surrogate delta, and exercise dates from the tree's boundary. Its checks so far cover the dataset, the baselines and the training loop. Results against the baselines come with the evaluation step.
-
-Full design: [hedging-training.md](results/hedging-training.md).

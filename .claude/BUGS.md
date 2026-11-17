@@ -31,6 +31,7 @@ Open and deferred issues first, then newest first.
 
 | ID | Title | Area | Status | Found |
 |---|---|---|---|---|
+| [B-042](#b-042) | generate_hedge_dataset crashed at start with WinError 1450 | Hedging and RL | deferred | 2026-11-17 |
 | [B-041](#b-041) | train-hedge-legacy passed the path count as the value function's step count | Hedging and RL | fixed | 2026-11-15 |
 | [B-040](#b-040) | GBM drops a step when maturity * sampling is just below a whole number | Pricing | fixed | 2026-11-15 |
 | [B-039](#b-039) | train-hedge-legacy runs differ on the same --seed | Hedging and RL | deferred | 2026-11-13 |
@@ -930,6 +931,18 @@ generalizes to is documented in `docs/architecture.md`, "Softplus
 reparameterization".
 
 ## Hedging and RL
+
+<a id="b-042"></a>
+
+### B-042 generate_hedge_dataset crashed at start with WinError 1450
+
+Status: deferred · Found: 2026-11-17 · Files: `optionpricing/ml/hedging/generate_hedge_dataset.py`
+
+**Symptom:** for the first evaluation run, `python -m optionpricing.ml.hedging.generate_hedge_dataset --split val --n_contracts 10000 --output_dir artifacts/data/eval1` stopped before any block was saved, with `OSError: [WinError 1450] Insufficient system resources exist to complete the requested service` raised from a `time.sleep(0.01)` in the joblib call. The 20,000-contract test bank, generated right after with the same flags, finished in 167 s. Rerunning the validation command finished in 99 s.
+
+**Root cause:** not found. WinError 1450 is Windows running out of a kernel resource (such as its memory pool or handles), not an error of the generator's code. The crash did not repeat, so it is most likely a transient state of the machine.
+
+**Status:** deferred. A crash costs only the rerun, since the generator resumes from its saved blocks (none were lost here). If it repeats, the next thing to try is fewer jobs (`--nb_jobs`) and a look at the handle count while the joblib workers start.
 
 <a id="b-041"></a>
 

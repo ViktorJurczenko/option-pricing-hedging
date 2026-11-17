@@ -43,12 +43,13 @@ from optionpricing.ml.hedging.hedge_training import BATCH_SIZE, HedgeTrainConfig
 
 # The names of the hedgers in an `EvalReport`, in the order they are reported.
 NO_HEDGE, DELTA, BAND, WHALLEY_WILMOTT, NETWORK = "no hedge", "delta", "band", "whalley-wilmott", "network"
-# Half-widths tried for `band`, in shares. 0 is the delta hedge; the grid goes up to 0.4 shares, past the 0.1 that
-# beat delta at 1% cost in the baseline checks (docs/results/hedging-training.md, "Baseline checks").
-BAND_WIDTHS = (0.0, 0.025, 0.05, 0.1, 0.2, 0.4)
-# Risk aversions tried for `whalley-wilmott`, in 1/dollars: a decade on each side of the gamma = 1 of the baseline
-# checks, in half-decade steps.
-RISK_AVERSIONS = (0.1, 0.3, 1.0, 3.0, 10.0)
+# Half-widths tried for `band`, in shares. 0 is the delta hedge. The grid is fine (0.0125 apart) from 0.05 to 0.125,
+# around the 0.075 that scored best at 1% cost in the first evaluation, where a grid doubling at each step had
+# stepped over it, and coarse out to 0.4 (docs/results/hedging-training.md, "First evaluation").
+BAND_WIDTHS = (0.0, 0.025, 0.05, 0.0625, 0.075, 0.0875, 0.1, 0.1125, 0.125, 0.15, 0.175, 0.2, 0.4)
+# Risk aversions tried for `whalley-wilmott`, in 1/dollars, from 0.1 to 10, around the 1.4 that scored best at 1% cost
+# in the first evaluation, and finer between 0.3 and 3, where the score is nearly flat (same section).
+RISK_AVERSIONS = (0.1, 0.3, 0.5, 0.7, 1.0, 1.4, 2.0, 3.0, 10.0)
 
 
 @dataclass(frozen=True)
