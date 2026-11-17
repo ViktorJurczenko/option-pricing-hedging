@@ -340,7 +340,7 @@ shaping, so the training objective is the metric the hedge is judged on.
 | Exercise | The holder exercises on the first day the stock is at or below the early-exercise boundary of a binomial tree. |
 | Pricing model | The MLP surrogate above gives the premium, delta and gamma of a different contract on every path, in microseconds. |
 | Policy | A no-transaction band network (Imaki et al. 2021). From the log-moneyness, the time left, `σ`, `r`, the surrogate's delta and gamma, and the position it holds, it outputs a band around that delta. The position is held while it stays inside the band and moved to the band's edge when it leaves. The untrained network starts as the delta hedge. |
-| Objective | The 95% CVaR of the final P&L, the entropic risk or the variance. |
+| Objective | The 95% CVaR of the final P&L, or the entropic risk or the variance. |
 
 **Status.** The pipeline is built: the bank of simulated paths, the
 network, its training loop and the evaluation. **The network is not
