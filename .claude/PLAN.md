@@ -15,6 +15,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
+| [Stochastic volatility](#stochastic-volatility) | backlog | Explain the theory to the user |
 
 ## Active
 
@@ -65,7 +66,6 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
   - one policy over the contract family against the bands tuned on the whole family;
   - the boundary input on and off, with optimal and late holders;
   - CVaR training with `w` on its own learning rate and on the network's, to check that `w` needs its own;
-  - volatility misspecification (realized σ ≠ the hedger's σ) and stochastic volatility, where delta is no longer optimal; Explain this one first
   - if time allows, SAC retrained once on the new P&L, for one comparison.
 - [ ] Per-bucket evaluation (optional)
   Group the test paths by maturity, volatility and moneyness (e.g. 3 × 3 × 2 buckets) and score each bucket, so a family score cannot hide a weak region. Tune the bands per bucket on the validation bank, as a baseline that knows the region ([`docs/results/hedging-results.md`, Limits and open questions](../docs/results/hedging-results.md#limits-and-open-questions)).
@@ -113,3 +113,46 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
   A call query becomes a put at `1 / m` (`z -> -z`) with `r` and `q` swapped, so the domain needs identical `r` and `q` ranges and a symmetric `z` range (widen [-3.5, 3] to [-3.5, 3.5]; the `m` cap (0.4, 2.5) already is). Premium target on Black-Scholes-Merton.
 - [ ] Price helper and evaluation for calls
   Map a call to the symmetric put and back (delta and gamma through the chain rule); `test-ml` scores calls against a call tree with `q`, per `|z|` bucket, plus `q = 0`, where the call must stay Black-Scholes.
+
+### Stochastic volatility
+
+**Goal:** move the project from constant volatility to the Heston model, where the variance `v_t` is its own random process, correlated with the stock. Under constant volatility the market is complete. The stock alone replicates the put, so at zero cost the delta hedge is optimal, and Deep Hedging can only win on costs and discrete trading. Under Heston a second Brownian motion drives the variance, and the stock cannot hedge it. The market is incomplete, the risk-minimizing hedge is no longer the delta, and the band network has something to learn even at zero cost (Buehler et al. 2019 make this point on Heston). Constant volatility stays as the special case `ξ = 0`, `v_0 = θ`, which must reproduce the current results. This workstream has three layers, and each is validated before the next one is built on it. They are reference pricers (European by Fourier inversion, American on a 2D finite-difference grid), a Heston put surrogate trained on that grid, and the Deep Hedging stack on Heston paths. The mean-reversion speed is written `κ_v`, because `κ` is already the fixed fee's smoothing width.
+
+**Done so far:** nothing. The constant-volatility Hedging rebuild finishes first, and its experiments leave stochastic volatility out.
+
+**Next:**
+- [ ] Explain the theory to the user before writing any code
+  A full explanation with every derivation, in this order:
+  - why constant σ fails: the implied-volatility smile, volatility clustering and the leverage effect;
+  - the Heston SDEs, correlated Brownian motions, and the CIR variance with its mean reversion, positivity and Feller condition `2 κ_v θ ≥ ξ²`;
+  - the pricing PDE, derived by hedging with the stock and a second option, the market price of volatility risk, and why the risk-neutral measure is no longer unique;
+  - the characteristic function, from the affine ansatz and its Riccati ODEs, with the branch-cut fix of Albrecher et al. (2007), and the Fourier inversion that turns it into a price;
+  - how `ρ` and `ξ` shape the smile;
+  - the American put as a free boundary in `(S, v)`, and how a 2D grid solves it;
+  - simulation schemes: full-truncation Euler and Andersen's QE (2008);
+  - hedging in an incomplete market: the minimum-variance delta `∂V/∂S + (ρ ξ / S) ∂V/∂v`, and hedging volatility with a second instrument.
+- [ ] Decide the design with the user
+  The ranges of `κ_v`, `θ`, `ξ`, `ρ` and `v_0`, and whether the Feller condition is enforced. Whether the constant-volatility stack stays beside the Heston one or is replaced by it. The hedging instruments: the stock alone, or the stock plus a variance swap or a European put. What the hedger observes (`v_t`, or only prices). The market price of volatility risk (0, or a parameter).
+- [ ] Heston path simulator
+  A Heston class beside `GBM` in `optionpricing/core/`, with the QE scheme and full-truncation Euler as a check. Tests: the mean and variance of `v_T` against the CIR closed forms, Monte-Carlo European prices against the Fourier price, and `ξ = 0` matching `GBM`.
+- [ ] European Heston pricer
+  The semi-closed form by Fourier inversion of the characteristic function. It is the analytic part the surrogate's target subtracts, as Black-Scholes is now. Tests: Monte-Carlo prices, put-call parity, Black-Scholes as `ξ → 0`, and published reference values.
+- [ ] American Heston reference pricer
+  A 2D finite-difference solver in `(S, v)`, with an ADI scheme (Craig-Sneyd or Hundsdorfer-Verwer) and the early-exercise constraint by operator splitting (Ikonen-Toivanen). It plays the tree's role. One solve gives the price, delta, vega and exercise surface at every `(S, v, t)` for one `(T, r, κ_v, θ, ξ, ρ)`. Tests: its European version against the Fourier price, `ξ → 0` against the CRR tree, the benchmark of Clarke and Parrott (1999), and LSM with `v` as a second regressor.
+- [ ] Heston surrogate dataset
+  Inputs `(m, T, r, v, κ_v, θ, ξ, ρ)`, eight instead of four. The target is the early-exercise premium over the European Heston price, as for `PutSurrogate`, because it has no kink at the strike. Each grid solve gives many rows, as each tree does now. Sampling, sizes and grid resolution are set by checks, as in `generate_tree_dataset`.
+- [ ] Heston surrogate training and evaluation
+  The `tree_model.py` network with the new inputs, scored by `test-ml` against the grid per bucket. The hedger uses the vega as much as the delta, so both gradients are scored, not only the price.
+- [ ] Exercise surface
+  The holder exercises the first time `S_t ≤ S*(t, v_t)`, read from the grid. The boundary is now a surface, so the lookup interpolates in `v` as well as in time.
+- [ ] Hedging dataset on Heston paths
+  It also stores the variance paths, the Heston parameters of each contract and the surrogate vega.
+- [ ] Policy and baselines
+  The policy gains `√v_t`, the vega and the Heston parameters as inputs. Baselines: the Black-Scholes delta at `σ = √v_t` (a constant-volatility trader), the Heston delta `∂V/∂S` and the minimum-variance delta. With a second instrument, the policy outputs two positions and the P&L books both.
+- [ ] Experiments
+  Against the minimum-variance delta, over 4 seeds:
+  - zero cost, where the network can beat the delta hedge without costs for the first time;
+  - sweeps of `ρ` and `ξ`, to see the gain grow with the volatility risk;
+  - `ξ = 0`, which must match the constant-volatility results;
+  - costs, as in the Hedging rebuild;
+  - model risk: a policy trained on Heston paths and tested on GBM paths, and the reverse.
