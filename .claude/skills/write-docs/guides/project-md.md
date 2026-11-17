@@ -102,7 +102,9 @@ Each topic file reads like a short paper on one question:
 | Limits | what the results do not show, open questions, known costs |
 
 - **Keep the decisions, not every run.** An ablation earns a table when it supports a decision. Per-run logs stay in git history and in `artifacts/runs/`. A sentence like "width 256 did not beat 128 on 3 seeds (table)" is enough for a rejected variant.
-- **"The decisions at a glance" table** at the top (decision, chosen value, evidence) suits a topic with several decisions.
+- **An introduction in prose opens the page.** A few paragraphs on the problem, the approach and what the page holds, so a reader knows why it exists before the first table. Earlier work that the topic replaces gets a sentence or two of context, and the page stands on its own rather than as a diff against it.
+- **A contents table follows it**, one row per section: a link to the section and a one-line summary of what it decides or finds. A topic with several decisions puts its decision in the summary, so the table still works as "the decisions at a glance".
+- **Reasons read as prose.** A bold lead-in marks a reason a skimming reader looks for (`**Why not LSM.**`). A section that repeats the same three labels (Choice, Why, What it implies) reads like a form, so let the text flow and keep a label only where it helps.
 - **A "Reproducing the runs" section** at the end lists the commands with their cost.
 
 ## docs/architecture.md: the map
@@ -133,3 +135,21 @@ Each topic file reads like a short paper on one question:
 - Fenced block, run from the project root, an end-of-line `#` comment for what it produces or costs: `# artifacts/data/tree_put_dataset.npz, ~40 min`.
 - Modules run as modules: `python -m optionpricing.ml.surrogate.tree.generate_tree_dataset`, never a script path.
 - Flags and defaults come from `--help` at write time. Say whose default it is (function or CLI) when they differ.
+
+## Math in project docs
+
+Formulas and symbols are LaTeX, in GitHub's code-span forms:
+
+````markdown
+The proportional cost is $`\varepsilon \lvert x \rvert S`$, at $`\varepsilon`$ = 1%.
+
+```math
+\large \mathrm{PL} = p_0 + \sum_k \delta_k \big(\tilde S_{k+1} - \tilde S_k\big) - \sum_k \tilde c_k - \tilde Z
+```
+````
+
+- **Why code spans.** GitHub applies Markdown's backslash escapes inside plain `$...$` and `$$...$$` before rendering, so `\{`, `\,`, `\;` and `\%` lose their backslash, and `S^*` can open an italic. Inside $`...`$ and a ```` ```math ```` block the LaTeX reaches the renderer untouched. Checked with GitHub's markdown API.
+- **`\large` in display blocks.** GitHub renders display math at text size, small for a formula with sums and fractions. `\large` makes the main formulas read at a glance. Inline math stays at text size, so a sentence keeps its line height.
+- **Values stay outside the math:** $`\sigma`$ = 20%, $`T`$ = 1 year. Units and percentages are text, and the formula holds only symbols.
+- **Dollar amounts stay plain** ($0.21). A `$` followed by a digit does not open math on GitHub, so it can sit next to math in the same sentence.
+- **Code is not math.** A name from the code stays in plain backticks (`init_logit`), so the reader can search for it.

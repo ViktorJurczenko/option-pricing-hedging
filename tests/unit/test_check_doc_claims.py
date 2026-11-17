@@ -94,3 +94,29 @@ def test_main_skips_links_in_fenced_blocks_and_fails_on_a_broken_one(checker, tr
     doc.write_text("See [mod.py](../pkg/mod.py#L7).\n", encoding="utf-8")
     assert checker.main([str(doc)]) == 1
     assert "broken link: ../pkg/mod.py#L7" in capsys.readouterr().out
+
+
+def test_main_skips_template_placeholders_but_not_missing_paths(checker, tree, monkeypatch, capsys):
+    # a guide names a pattern like docs/results/<topic>.md, which no file matches by design
+    monkeypatch.chdir(tree)
+    monkeypatch.setattr(checker, "ROOT", tree)
+    doc = tree / "notes" / "doc.md"
+    doc.write_text("One file per topic, `pkg/<topic>.py`, next to `pkg/mod.py`.\n", encoding="utf-8")
+    assert checker.main([str(doc)]) == 0
+    doc.write_text("See `pkg/topic.py`.\n", encoding="utf-8")
+    assert checker.main([str(doc)]) == 1
+    assert "missing path: pkg/topic.py" in capsys.readouterr().out
+
+
+def test_main_skips_latex_in_inline_and_display_math(checker, tree, monkeypatch, capsys):
+    # GitHub's code-span math holds LaTeX, which would otherwise be read as code names missing from the source
+    monkeypatch.chdir(tree)
+    monkeypatch.setattr(checker, "ROOT", tree)
+    doc = tree / "notes" / "doc.md"
+    # `alpha` alone would be read as a code name, and the fake source defines only a to e
+    math = "At level $`alpha`$ the fee is $`f \\mathbb{1}[x \\neq 0]`$.\n\n```math\n\\large alpha\n```\n"
+    doc.write_text(math, encoding="utf-8")
+    assert checker.main([str(doc)]) == 0
+    doc.write_text("The fee `nowhere_defined_name` is paid.\n", encoding="utf-8")
+    assert checker.main([str(doc)]) == 1
+    assert "not in the source: nowhere_defined_name" in capsys.readouterr().out

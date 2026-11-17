@@ -14,12 +14,16 @@ Usage, from the project root:
 - Math is skipped: the Symbol column of references/notation.md,
   subscripted symbols (S_t, V_0, t_ex), and formula-like tokens (spaces,
   "=", "^", "·", "−", "..", or a "/" without a file extension).
+- Template placeholders such as docs/results/<topic>.md are skipped:
+  they name a pattern, not a file.
 - Relative Markdown links, such as [gbm.py](../optionpricing/core/gbm.py#L10-L20),
   must point to an existing file, resolved from the doc's own folder. A
   #Lx or #Lx-Ly anchor must be a line range inside that file. URLs and
   in-page anchors (#section) are not checked.
 - Fenced code blocks (``` or ~~~) are skipped: examples are checked by
-  running them.
+  running them. So are ```math display blocks.
+- Inline math in GitHub's code-span form, $`...`$, is skipped: its
+  backticks hold LaTeX, not code names.
 
 Exits with 1 if any path, name or link is missing.
 """
@@ -40,6 +44,8 @@ SUBSCRIPTED_SYMBOL = re.compile(r"[A-Za-z]{1,6}_(t|t\+1|ex|\d+|[ij]|\{[^}]*\})")
 # A Markdown link or image, [label](target): the target is group 1
 LINK = re.compile(r"\[[^\]\n]*\]\(([^)\s]+)\)")
 FENCED_BLOCK = re.compile(r"^(```|~~~).*?^\1", flags=re.S | re.M)
+# GitHub's inline math with code-span delimiters, $`\sigma`$
+INLINE_MATH = re.compile(r"\$`[^`\n]*`\$")
 
 
 def notation_symbols() -> set[str]:
@@ -116,7 +122,7 @@ def check(doc: Path, symbols: set[str], files: list[Path], source: str, strict: 
     def generated(path: str) -> bool:
         return Path(path).parts[0] not in tracked_tops or is_ignored(path)
 
-    text = FENCED_BLOCK.sub("", doc.read_text(encoding="utf-8"))
+    text = INLINE_MATH.sub("", FENCED_BLOCK.sub("", doc.read_text(encoding="utf-8")))
     found = {
         "missing path": [],
         "not in the source": [],
@@ -131,6 +137,8 @@ def check(doc: Path, symbols: set[str], files: list[Path], source: str, strict: 
             continue
         base = token.split("::")[0].split("#")[0]
         if base.startswith((".", "[")):  # an extension (".npz"), a dotfile, quoted link syntax
+            continue
+        if re.search(r"<[^<>]+>", base):  # a template placeholder, docs/results/<topic>.md
             continue
         if base.endswith(FILE_EXTS) or base.endswith("/"):
             stripped = base.rstrip("/")

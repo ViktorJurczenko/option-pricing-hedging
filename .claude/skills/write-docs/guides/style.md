@@ -74,7 +74,8 @@ From the author's rules (`notes/course/CRITIQUE.md` §2):
 - A result's heading states the finding: "Pricing models agree with each other", rather than "Pricing results".
 - Code names in backticks: `` `price_put_batch` ``, `` `PutSurrogate` ``.
 - CLI commands are kebab-case (`train-ml`), flags snake_case (`--option_type`).
-- Cross-doc references name the target and section: `.claude/BUGS.md`, "LSM early-exercises American calls".
+- Cross-doc references are links to the section, not quoted titles: [`.claude/BUGS.md`, B-037](../../../../.claude/BUGS.md#b-037-hedgingenv-applies-each-hedge-one-step-late). A BUGS.md entry is linked at its heading, so the reader jumps to the story.
+- A link's path is relative to the citing file, so from `docs/results/` it starts with `../../.claude/`. GitHub's anchor is the heading in lowercase, with spaces turned into hyphens and other punctuation dropped, so P&L becomes pl.
 
 ## Style checklist
 
