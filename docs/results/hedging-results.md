@@ -1,6 +1,6 @@
 # Deep Hedging results
 
-This page records the measured results of the Deep Hedging model described in [hedging-training.md](hedging-training.md). It starts with the checks that pin each built part: the bank of scenarios, the baselines and the training loop. It then gives the evaluations of the hedgers on held-out paths. The network is not trained on the full banks yet, so the first evaluation measures the baselines it will be scored against. Experiments will add their results here as they are run.
+This page records the measured results of the Deep Hedging model described in [hedging-training.md](hedging-training.md). It starts with the checks that pin each built part: the bank of scenarios, the baselines and the training loop. It then gives the evaluations of the hedgers on held-out paths. The first evaluation measures the baselines alone. The experiments after it train the network on full banks, and their results are added here once they are conclusive.
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at $`K`$ = 100, in dollars. The 95% conditional value at risk (CVaR) is the mean P&L of the worst 5% of paths, so higher is better.
 
@@ -12,6 +12,7 @@ This page records the measured results of the Deep Hedging model described in [h
 | [Baseline checks](#baseline-checks) | On a small bank with tree deltas, every hedge averages about 0 at zero cost, and the bands beat delta at a 1% cost. |
 | [Training checks](#training-checks) | The training loop learns under costs. At the default learning rate the band opens slowly. |
 | [First evaluation](#first-evaluation) | At a 1% cost the tuned bands more than halve the delta hedge's tail loss. Whalley-Wilmott is the best baseline. |
+| [The boundary input adds at most a cent, and a late holder changes little](#the-boundary-input-adds-at-most-a-cent-and-a-late-holder-changes-little) | The distance to the exercise boundary moves the network's CVaR by half a cent, so it stays off. With a late holder the network keeps its lead of about $0.96 over the best baseline. |
 | [Limits and open questions](#limits-and-open-questions) | The learning rate, scores per region of the family, a small positive mean, and SAC on the new P&L. |
 
 ## Dataset checks
@@ -139,9 +140,56 @@ Both optima are inside their grids. On the validation bank the fixed band's neig
 
 The grids were refined after a first pass. The first grids doubled the half-width at each step (0.05, 0.1, 0.2) and spaced $`\gamma`$ by half-decades (0.3, 1, 3). The fixed band then picked 0.1, which scores $0.19 below 0.075 on the test bank. The finer grids are now the defaults, `BAND_WIDTHS` and `RISK_AVERSIONS`.
 
+## The boundary input adds at most a cent, and a late holder changes little
+
+The holder exercises the first time the spot falls to the boundary $`S^*`$, so the put changes regime on that line. The network can read an optional extra input, the distance to the boundary $`\ln\big(S_k / S^*(T - t_k)\big)`$ (`--boundary_input`). Two questions follow. Does the network hedge better when it sees that distance? And does the answer change for a holder who does not follow the boundary?
+
+**Setting.** Two sets of banks from the default contract family, one per holder. The `tree` holder exercises at $`S^*`$. The `late` holder exercises at $`0.95\,S^*`$ (`--exercise late --shift 0.05`), so it waits until the spot is 5% below the boundary. Each set has a train bank of 50,000 contracts (seed 1), a validation bank of 10,000 (seed 2) and a test bank of 20,000 (seed 3), with one path per contract. The two holders share their contracts and paths, and only their exercise days differ. The tree holder exercises 46% of the test paths early, and the late holder 35%. Every network is the default 4 × 32 band network. It is trained for 50 epochs at a 1% proportional cost on CVaR at 95%, with batches of 4,096, `lr` = 1e-2 and the CVaR threshold's `w_lr` = 1e-2, on seeds 1 to 4. The epoch with the best validation score is kept. `test-hedge` then tunes the bands on the validation bank and scores every hedger on the test bank.
+
+```
+D=artifacts/runs/exp_overnight
+python -m optionpricing.ml.hedging.generate_hedge_dataset --split train --n_contracts 50000 --output_dir $D/data/tree                          # ~5.5 min, 6 cores
+python -m optionpricing.ml.hedging.generate_hedge_dataset --split train --n_contracts 50000 --exercise late --shift 0.05 --output_dir $D/data/late
+#   the same for --split val --n_contracts 10000 (~1.5 min) and --split test --n_contracts 20000 (~2.5 min)
+python main.py train-hedge --train_path $D/data/tree/hedge_train.npz --valid_path $D/data/tree/hedge_val.npz --checkpoint_path $D/ckpt/bnd_tree_s1.pth --epochs 50 --proportional 0.01 --lr 1e-2 --seed 1 --boundary_input   # ~11 min
+python main.py test-hedge --test_path $D/data/tree/hedge_test.npz --valid_path $D/data/tree/hedge_val.npz --checkpoint_path $D/ckpt/bnd_tree_s1.pth   # ~15 s
+```
+
+**The boundary input changes the CVaR by half a cent.** Network CVaR 95% on the test bank, in dollars, higher is better:
+
+| Holder | Input off | Input on | On minus off |
+|---|---|---|---|
+| Tree | −3.668 ± 0.005 | −3.663 ± 0.006 | +0.005 ± 0.006 |
+| Late | −3.845 ± 0.009 | −3.849 ± 0.013 | −0.004 ± 0.010 |
+
+Mean ± standard deviation over the 4 training seeds, all scored on the same test bank. "On minus off" pairs the two runs of each seed.
+
+The difference is half a cent on a tail loss of $3.7, and the spread between seeds is as large. A paired bootstrap of seed 1's test paths gives the same picture, +0.009 (standard error 0.003) for the tree holder and +0.005 (standard error 0.005) for the late one. So the input is worth at most a cent, about 0.2% of the tail loss. It stays off by default.
+
+**Why it adds so little.** Per unit of strike, the boundary depends only on the time left, $`r`$ and $`\sigma`$, and the network reads all three. It also reads $`\ln(S_k/K)`$. The distance $`\ln(S_k/S^*) = \ln(S_k/K) - \ln(S^*/K)`$ is therefore a function of inputs it already has. The extra input can only spare the network from learning that function, and 50,000 paths are enough for it to learn it anyway. For the late holder, the distance that matters is to $`0.95\,S^*`$. That distance differs from the input by the constant $`\ln 0.95`$, so the input is just as informative there.
+
+**A late holder costs the unhedged writer $2.25 and every hedger $0.08-0.24, and the network keeps its lead.** CVaR 95% on the test bank, in dollars, for the same paths under each holder. The networks are the four seeds without the boundary input, each trained on its own holder's bank.
+
+| Hedger | Tree holder | Late holder | Late minus tree |
+|---|---|---|---|
+| No hedge | −15.26 | −17.51 | −2.25 |
+| Delta, daily | −10.42 | −10.58 | −0.16 |
+| Fixed band | −4.73 (half-width 0.075) | −4.81 (half-width 0.075) | −0.08 |
+| Whalley-Wilmott | −4.61 ($`\gamma`$ = 1.4) | −4.86 ($`\gamma`$ = 2.0) | −0.24 |
+| **Network** | **−3.67** | **−3.85** | −0.18 |
+
+- **The late holder keeps the put alive longer.** Below the boundary the optimal holder would already have taken $`K - S`$, but the late holder lets the put run on. That widens the unhedged spread from $7.29 to $8.00. It gives the writer no measurable gain on average, since the no-hedge mean P&L is +0.03 ¢ with a standard error of 5.7 ¢.
+- **The deltas are slightly wrong for this holder.** The surrogate prices the put for an optimal holder, so between $`0.95\,S^*`$ and $`S^*`$ its delta is that of an exercised put, −1. The late holder's put still has time value there, so its true delta is above −1. The delta hedge also trades on more days, 204 per path for the late holder against 191 for the tree holder.
+- **The network's lead over the best baseline holds.** It is $0.96 for the late holder, over the fixed band, and $0.95 for the tree holder, over Whalley-Wilmott. The paired bootstrap standard errors on seed 1 are $0.03 for both. The network is not told that the holder is late. It only sees the late bank's P&L in training. Its CVaR drops by $0.18, between the fixed band's $0.08 and Whalley-Wilmott's $0.24, so there is no sign that it learned the late rule itself.
+
+Both questions are settled. The boundary input stays an option, off by default. The late holder stays a test scenario, and the network's lead holds when the holder misses the boundary by 5%.
+
+**Known limit.** These networks trained for 50 epochs. In most runs the best epoch is among the last five, and the CVaR threshold $`w`$ was still settling until about epoch 40 ([Limits and open questions](#limits-and-open-questions)). The on/off and tree/late comparisons share that setting, so they hold. The absolute CVaR of the network will move when the cost runs are redone with longer training.
+
 ## Limits and open questions
 
 - **Learning rate and start of the band.** At `lr` = 1e-3 the band opens too slowly, and at 1e-2 the validation loss jitters after a few epochs ([Training checks](#training-checks)). Whether a higher rate with a decay, or a wider `init_logit`, becomes the default is set by a check on the full banks.
+- **The CVaR threshold moves slowly.** `w` starts at the 95% quantile of the untrained network's loss, close to the delta hedge's, and Adam moves it by about `w_lr` per step. A 50,000-path bank in batches of 4,096 gives 13 steps per epoch, so at `w_lr` = 1e-2 the threshold falls by about 0.13 per epoch. At a 1% cost it settles only around epoch 40 ([The boundary input adds at most a cent, and a late holder changes little](#the-boundary-input-adds-at-most-a-cent-and-a-late-holder-changes-little)). A comparison of `w_lr` values sets its rate.
 - **Scores per region of the family.** A family score can hide a region where a hedger is weak, so an optional last step scores the test paths per bucket of maturity, volatility and moneyness, with bands tuned per bucket. At 3 × 3 × 2 = 18 buckets, a 10,000-contract validation bank leaves about 28 tail paths per bucket at 95%, so that step needs fewer buckets or a larger validation bank. Buckets replace separate per-contract banks. Those would need the same contracts with fresh paths for validation, but the generator draws contracts and paths from one seed. A bank of 200 contracts × 1,000 paths would also take about 3 GB of RAM with the current evaluation (an estimate from the array sizes).
 - **The delta hedge's small positive mean.** At zero cost it is +0.68 ¢ ± 0.29 ¢ on the test bank, and the daily-exercise gap and the premium gap explain about +0.08 ¢ of it ([First evaluation](#first-evaluation)). A bank of 50,000 paths, or a control variate on the mean, would tell chance from a bias.
 - **SAC on the new P&L.** Whether SAC is retrained once for one comparison. Decided at the end, once Deep Hedging has results.

@@ -11,7 +11,7 @@ What is being worked on and what comes next. Finished workstreams move to `.clau
 
 | Workstream | Status | Next step |
 |---|---|---|
-| [Hedging rebuild](#hedging-rebuild) | active | Experiments |
+| [Hedging rebuild](#hedging-rebuild) | active | Experiments: CVaR threshold learning rate |
 | [Dividend-paying stocks](#dividend-paying-stocks) | backlog | Explain the theory to the user |
 | [Benchmark against fast American-put methods](#benchmark-against-fast-american-put-methods) | backlog | Explain the theory to the user |
 | [Longstaff-Schwartz](#longstaff-schwartz) | backlog | Check the Laguerre basis against the paper |
@@ -61,13 +61,15 @@ The pipeline mirrors the tree surrogate's: generate a dataset, train, test. The 
 - [x] First evaluation run
 - [x] CLI
 - [x] Keep the PC awake during long runs
-- [ ] Experiments
-  Each against the right baseline, over 4 seeds:
-  - costs (0.1%, 1%, 1% + fixed fee) against delta and the best band, with a few values of `κ` for the fixed fee;
-  - one policy over the contract family against the bands tuned on the whole family;
-  - the boundary input on and off, with optimal and late holders;
-  - CVaR training with `w` on its own learning rate and on the network's, to check that `w` needs its own;
-  - if time allows, SAC retrained once on the new P&L, for one comparison.
+- [x] Experiments: boundary input and late holder
+- [ ] Experiments: CVaR threshold learning rate
+  At a 1% cost, `lr` = 1e-2, 100 epochs, 4 seeds: `w_lr` at 1e-2, 1e-1 and 3e-1. In the first runs `w_lr` equalled `lr`, so the two arms were the same run. `w` also fell only 0.11-0.13 per epoch, so it lagged the network ([Limits](../docs/results/hedging-results.md#limits-and-open-questions)). The winner sets `w_lr` for the two steps below. About 4.5 h.
+- [ ] Experiments: proportional costs at 100 epochs
+  0.1% and 1%, 4 seeds, with the winning `w_lr`, against delta and the bands tuned on the whole family, which is also the family experiment. Most 50-epoch runs were still improving. At 0.1% the tuned Whalley-Wilmott `γ` was 10, the top of its grid, so the grid goes higher for that cost. The 1% runs are the winning arm of the step above, so only 0.1% is new, about 1.5 h.
+- [ ] Experiments: fixed fee over κ
+  A $0.05 fee on top of 1%, 100 epochs, 4 seeds, with the winning `w_lr`, at `κ` = 0.001, 0.003, 0.01, 0.03 and 0.1. In the first runs 5 of 12 networks sat at a plateau near the no-hedge score for 37 epochs or more, and 3 never left it, while `w` was still far above the tail. The step checks whether a faster `w` removes that, and which `κ` trains best on the validation bank. About 7.5 h.
+- [ ] Experiments: SAC on the new P&L (optional)
+  SAC retrained once on the new P&L, for one comparison, if time allows.
 - [ ] Per-bucket evaluation (optional)
   Group the test paths by maturity, volatility and moneyness (e.g. 3 × 3 × 2 buckets) and score each bucket, so a family score cannot hide a weak region. Tune the bands per bucket on the validation bank, as a baseline that knows the region ([`docs/results/hedging-results.md`, Limits and open questions](../docs/results/hedging-results.md#limits-and-open-questions)).
 
