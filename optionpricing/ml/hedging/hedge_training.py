@@ -38,8 +38,10 @@ ACTIVATION = "silu"  # any key of ACTIVATIONS trains the band
 EPOCHS = 50
 # ~200 paths in a 95% tail (docs/results/hedging-training.md, "Deep Hedging instead of SAC")
 BATCH_SIZE = 4096
-LR = 1e-3  # Adam's standard start
-# 10x the network's: w lives in dollars and must track the batch's VaR as the policy changes
+# the best of 1e-3, 3e-3 and 1e-2 on the full banks (docs/results/hedging-results.md, "Learning rates")
+LR = 1e-2
+# w lives in dollars and must track the batch's VaR as the policy changes. Rates up to 30x faster scored the same
+# at a 1% cost (docs/results/hedging-results.md, "Learning rates").
 W_LR = 1e-2
 SEED = 42  # the repo's usual seed
 

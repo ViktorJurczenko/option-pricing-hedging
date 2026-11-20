@@ -57,7 +57,7 @@ NON_DEFAULT_FLAGS = {
     "activation": "tanh",
     "epochs": "3",
     "batch_size": "64",
-    "lr": "0.01",
+    "lr": "0.003",
     "w_lr": "0.1",
     "seed": "7",
 }
@@ -71,7 +71,7 @@ NON_DEFAULT_CONFIG = HedgeTrainConfig(
     risk=RiskMeasure("entropic", alpha=0.9, lam=2.0),
     epochs=3,
     batch_size=64,
-    lr=0.01,
+    lr=0.003,
     w_lr=0.1,
     seed=7,
 )

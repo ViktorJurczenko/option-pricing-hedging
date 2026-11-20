@@ -10,7 +10,7 @@ This page explains the Deep Hedging model built in this project: what it does, h
 
 **Where it comes from.** The project's first hedger was a reinforcement-learning agent, Soft Actor-Critic (SAC). Its environment booked each hedge one day late ([B-037](../../.claude/BUGS.md#b-037-hedgingenv-applies-each-hedge-one-step-late)) and had no cash account ([B-038](../../.claude/BUGS.md#b-038-hedging-pl-has-no-cash-account-so-the-delta-baseline-hedges-the-wrong-liability)). Its exercise dates came from a rule fitted on the same paths it was tested on. Rather than patch it, I rebuilt the hedger on a correct P&L. SAC is kept as `train-hedge-legacy` and `test-hedge-legacy` for one later comparison.
 
-**Status.** Everything on this page is built and runs through the commands above. The network is not trained on the full banks yet, so [hedging-results.md](hedging-results.md) holds checks and baselines so far. The work is planned in [`.claude/PLAN.md`, Hedging rebuild](../../.claude/PLAN.md#hedging-rebuild).
+**Status.** Everything on this page is built and runs through the commands above. The network is trained and scored on the full banks, and [hedging-results.md](hedging-results.md) holds the results. The fixed-fee experiments stopped partway through and are yet to finish. The work is planned in [`.claude/PLAN.md`, Hedging rebuild](../../.claude/PLAN.md#hedging-rebuild).
 
 **Units.** Positions are in shares per option. Prices and P&L are per option at $`K`$ = 100, in dollars. Costs use a proportional rate $`\varepsilon`$ (1% means 1 cent per dollar traded) and a fixed fee $`f`$ per trade.
 
@@ -282,7 +282,7 @@ A hedging strategy gives one P&L per path, so it is judged by a summary of their
 \large \mathrm{CVaR}_\alpha(L) = \min_w \left\{ w + \frac{\mathbb{E}\big[(L - w)^+\big]}{1 - \alpha} \right\}
 ```
 
-and that the minimizing $`w`$ is the VaR. So training lowers this expression over the network and $`w`$ together, with no sort. $`w`$ is one extra trainable number with its own, larger learning rate. In earlier experiments outside this repository (not re-run here), $`w`$ on the network's learning rate lagged far behind the true VaR, and the network did no better than delta. The training loop takes the two learning rates separately, so an experiment can check this. $`w`$ starts at the VaR of the untrained network's loss on the first training batch, so it begins near its optimum.
+and that the minimizing $`w`$ is the VaR. So training lowers this expression over the network and $`w`$ together, with no sort. $`w`$ is one extra trainable number with its own learning rate. In earlier experiments outside this repository (not re-run here), $`w`$ on the network's learning rate lagged far behind the true VaR, and the network did no better than delta. The training loop takes the two learning rates separately, so an experiment can check this. $`w`$ starts at the VaR of the untrained network's loss on the first training batch, so it begins near its optimum.
 
 **A fractional tail counts the edge path for its share.** With $`n`$ paths the tail holds $`(1 - \alpha) n`$ of them, which is often not a whole number. Rounding up to a whole number of paths, as the legacy metric did, makes the reported CVaR differ from the minimum of the training form by up to one path's share. Counting the edge path for the fraction inside the tail makes the two equal at every batch size. When the tail is a whole number of paths, as with 2,000 paths at 95%, both definitions give the plain average of the worst ones.
 
